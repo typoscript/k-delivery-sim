@@ -6,6 +6,7 @@ import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import { OnFootInput, PlayerController } from './player/PlayerController';
 import { PlayerMesh } from './player/PlayerMesh';
+import { HandheldPhone3D } from './player/HandheldPhone3D';
 import { CameraController } from './camera/CameraController';
 import { GameAudio } from './audio/GameAudio';
 import { DeliveryManager } from './delivery/DeliveryManager';
@@ -23,16 +24,16 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 app.appendChild(renderer.domElement);
 
-// Scene & Always 1st-Person Camera
+// Scene & Always 1st-Person Camera (added to scene so camera-attached 3D hand renders!)
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.12, 650);
+const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.08, 650);
+scene.add(camera);
 
 // Core modules
 const world = new CityWorld(scene);
 const traffic = new TrafficSystem(scene);
 const delivery = new DeliveryManager(world.locations);
 const scooterPhysics = new ScooterPhysics();
-const scooterMesh = new ScooterMesh(scene);
 const playerCtrl = new PlayerController();
 const playerMesh = new PlayerMesh(scene);
 const camController = new CameraController(renderer.domElement);
@@ -54,7 +55,13 @@ const handleTogglePhone = () => {
   if (playerCtrl.state.mode === 'knockdown') return;
   const res = hud.togglePhonePlacement(playerCtrl.state.mode === 'riding');
   scooterMesh.setPhoneMounted(res.placement === 'mounted');
-  hud.showToast(res.message, 2200);
+  hud.showToast(res.message, 2400);
+};
+
+const handleTogglePhoneZoom = () => {
+  if (playerCtrl.state.mode === 'knockdown') return;
+  const res = hud.togglePhoneZoom();
+  hud.showToast(res.message, 2000);
 };
 
 const hud = new Hud({
@@ -64,7 +71,7 @@ const hud = new Hud({
     if (order) {
       audio.playChime('accept');
       hud.showToast(
-        `${order.shop.emoji} ${order.shop.name} 콜 수락! 픽업지로 이동하세요`,
+        `${order.shop.emoji} ${order.shop.name} 콜 수락! [V]로 축소 후 출발하세요`,
         3000
       );
     }
@@ -79,6 +86,40 @@ const hud = new Hud({
   },
   onInteractMission: handleDeliveryInteract,
   onTogglePhone: handleTogglePhone,
+  onToggleZoom: handleTogglePhoneZoom,
+});
+
+// 3D Scooter & 1st-Person 3D Gloved Hand sharing the live PhoneMap CanvasTexture!
+const scooterMesh = new ScooterMesh(scene, hud.phoneMap.screenTexture);
+const handheldPhone3D = new HandheldPhone3D(camera, hud.phoneMap.screenTexture);
+
+// Click-to-zoom raycast on the 3D phone (in hand or on scooter mount)
+const raycaster = new THREE.Raycaster();
+const clickNdc = new THREE.Vector2();
+let downX = 0;
+let downY = 0;
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  downX = e.clientX;
+  downY = e.clientY;
+});
+
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (e.button !== 0 || hud.phoneMap.placement === 'pocket' || hud.phoneMap.isZoomed) return;
+  // Ignore drag-to-look gestures
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+
+  clickNdc.x = (e.clientX / window.innerWidth) * 2 - 1;
+  clickNdc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(clickNdc, camera);
+
+  const targets: THREE.Object3D[] = [];
+  if (hud.phoneMap.placement === 'in_hand') targets.push(handheldPhone3D.hitMesh);
+  if (hud.phoneMap.placement === 'mounted') targets.push(scooterMesh.mountedPhoneHitMesh);
+
+  if (targets.length > 0 && raycaster.intersectObjects(targets, false).length > 0) {
+    handleTogglePhoneZoom();
+  }
 });
 
 // Wire lowside cornering crash -> rider ejection + crash sound + food damage!
@@ -203,6 +244,16 @@ window.addEventListener('keydown', (e) => {
       handleTogglePhone();
       break;
     }
+    case 'KeyV': {
+      handleTogglePhoneZoom();
+      break;
+    }
+    case 'Escape': {
+      if (hud.phoneMap.isZoomed) {
+        handleTogglePhoneZoom();
+      }
+      break;
+    }
     case 'F1': {
       hud.toggleHelp();
       break;
@@ -317,7 +368,18 @@ function animate(now: number): void {
   world.updateBeacon(activeTarget, isPickup, elapsed);
 
   scooterMesh.sync(scooterPhysics.state, elapsed);
-  // Always 1st-person: hide player's own mesh so helmet/body never clips camera
+  // Hide 3D mounted phone while zoomed in so only the focused phone appears
+  scooterMesh.setPhoneMounted(
+    hud.phoneMap.placement === 'mounted' && !hud.phoneMap.isZoomed
+  );
+  // Show 3D gloved hand holding the phone when in_hand and not zoomed in
+  handheldPhone3D.update(
+    hud.phoneMap.placement === 'in_hand' && !hud.phoneMap.isZoomed,
+    playerCtrl.state,
+    dt,
+    elapsed
+  );
+  // Always 1st-person: hide player's own body mesh so helmet/body never clips camera
   playerMesh.sync(
     playerCtrl.state,
     scooterMesh.riderMountPoint,

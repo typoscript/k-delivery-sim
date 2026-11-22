@@ -41,6 +41,10 @@ export class Hud {
     return this.phoneMap.toggleWithTab(isRiding);
   }
 
+  public togglePhoneZoom(): { zoomed: boolean; message: string } {
+    return this.phoneMap.toggleZoom();
+  }
+
   public stowPhoneToPocket(): void {
     this.phoneMap.setPlacement('pocket');
   }

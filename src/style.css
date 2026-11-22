@@ -164,55 +164,55 @@ kbd {
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.28);
 }
 
-.phone-device {
-  position: absolute;
-  right: 22px;
-  bottom: 18px;
-  width: 274px;
-  height: min(550px, calc(100vh - 54px));
-  padding: 9px;
-  border-radius: 38px;
-  background: linear-gradient(145deg, #333b48 0%, #151921 48%, #252c37 100%);
-  border: 1.5px solid rgba(255, 255, 255, 0.22);
-  box-shadow:
-    0 22px 48px rgba(0, 0, 0, 0.55),
-    0 4px 14px rgba(0, 0, 0, 0.4),
-    inset 0 0 0 2px rgba(0, 0, 0, 0.72);
+/* Centered Focus Backdrop for Zoomed-In Smartphone View ([V] or Click 3D Phone) */
+.phone-zoom-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 13, 22, 0.42);
+  backdrop-filter: blur(3px);
   pointer-events: auto;
-  transition:
-    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.22s ease,
-    width 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    height 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    right 0.24s ease,
-    bottom 0.24s ease;
 }
 
-/* Stowed in pocket: completely off-screen & non-interactive */
-.phone-device.mode-pocket {
-  transform: translateY(120%) scale(0.9);
-  opacity: 0;
-  pointer-events: none;
+.phone-device.zoomed-center {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 356px;
+  height: min(670px, calc(100vh - 68px));
+  padding: 10px;
+  border-radius: 40px;
+  background: linear-gradient(145deg, #333b48 0%, #151921 48%, #252c37 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 28px 64px rgba(0, 0, 0, 0.65),
+    0 6px 18px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 2px rgba(0, 0, 0, 0.72);
+  animation: phoneZoomIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Condition 1: Held in hand while on foot (slightly bigger, natural handheld look) */
-.phone-device.mode-hand {
-  right: 36px;
-  bottom: 22px;
-  width: 318px;
-  height: min(610px, calc(100vh - 58px));
-  transform: translateY(0) rotate(-1.6deg);
-  opacity: 1;
+@keyframes phoneZoomIn {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-/* Condition 2: Clamped onto scooter handlebar mount while riding */
-.phone-device.mode-mounted {
-  right: 20px;
-  bottom: 24px;
-  width: 268px;
-  height: min(525px, calc(100vh - 64px));
-  transform: translateY(0) rotate(0deg);
-  opacity: 1;
+.phone-mini-btn.accent {
+  background: rgba(13, 148, 136, 0.16);
+  color: #0f766e;
+}
+
+.phone-device.night .phone-mini-btn.accent {
+  background: rgba(45, 212, 191, 0.22);
+  color: #5eead4;
 }
 
 .phone-placement-tag {

@@ -9,6 +9,7 @@ export class ScooterMesh {
   private readonly rearWheel: THREE.Object3D;
   private readonly kickstandGroup = new THREE.Group();
   private readonly mountedPhone3D = new THREE.Group();
+  public readonly mountedPhoneHitMesh: THREE.Mesh;
   public readonly riderMountPoint = new THREE.Group();
 
   // Live Rear-View Side Mirror Render Targets & Cameras
@@ -32,7 +33,7 @@ export class ScooterMesh {
   private readonly leftBlinkerGlow: THREE.PointLight;
   private readonly rightBlinkerGlow: THREE.PointLight;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, phoneScreenTexture: THREE.CanvasTexture) {
     this.headlightMat = new THREE.MeshStandardMaterial({
       color: 0xe2e8f0,
       emissive: 0xfffbeb,
@@ -326,38 +327,37 @@ export class ScooterMesh {
 
     // Handlebar Smartphone Mount Cradle
     const mountClampMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7 });
-    const cradleStem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.08, 6), mountClampMat);
-    cradleStem.position.set(0, 1.18, -0.19);
-    const cradleBack = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.018), mountClampMat);
-    cradleBack.position.set(0, 1.24, -0.17);
-    cradleBack.rotation.x = -0.42;
+    const cradleStem = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.1, 6), mountClampMat);
+    cradleStem.position.set(0, 1.2, -0.19);
+    const cradleBack = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.25, 0.02), mountClampMat);
+    cradleBack.position.set(0, 1.3, -0.175);
+    cradleBack.rotation.x = -0.34;
     for (const side of [-1, 1]) {
-      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.05, 0.032), mountClampMat);
-      claw.position.set(side * 0.06, 1.24, -0.175);
-      claw.rotation.x = -0.42;
+      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.065, 0.036), mountClampMat);
+      claw.position.set(side * 0.088, 1.3, -0.182);
+      claw.rotation.x = -0.34;
       this.handlebarGroup.add(claw);
     }
     this.handlebarGroup.add(cradleStem, cradleBack);
 
-    // 3D Smartphone placed inside handlebar cradle
-    this.mountedPhone3D.position.set(0, 1.245, -0.182);
-    this.mountedPhone3D.rotation.x = -0.42;
+    // 3D Smartphone placed inside handlebar cradle with LIVE GPS map texture!
+    this.mountedPhone3D.position.set(0, 1.305, -0.192);
+    this.mountedPhone3D.rotation.x = -0.34;
     const phoneBody = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.18, 0.014),
-      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.5 })
+      new THREE.BoxGeometry(0.156, 0.272, 0.015),
+      new THREE.MeshStandardMaterial({ color: 0x1e2530, roughness: 0.3, metalness: 0.55 })
     );
-    const phoneGlow = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.088, 0.165),
-      new THREE.MeshStandardMaterial({
-        color: 0xe0f2fe,
-        emissive: 0x38bdf8,
-        emissiveIntensity: 0.75,
-        roughness: 0.2,
+    const phoneScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.144, 0.258),
+      new THREE.MeshBasicMaterial({
+        map: phoneScreenTexture,
+        toneMapped: false,
       })
     );
-    phoneGlow.position.z = -0.008;
-    phoneGlow.rotation.y = Math.PI;
-    this.mountedPhone3D.add(phoneBody, phoneGlow);
+    phoneScreen.position.z = -0.0085;
+    phoneScreen.rotation.y = Math.PI;
+    this.mountedPhoneHitMesh = phoneScreen;
+    this.mountedPhone3D.add(phoneBody, phoneScreen);
     this.mountedPhone3D.visible = false;
     this.handlebarGroup.add(this.mountedPhone3D);
 

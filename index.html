@@ -20,6 +20,7 @@
           <div><kbd>F</kbd> <strong>오토바이 탑승 / 하차</strong></div>
           <div><kbd>E</kbd> <strong>픽업 / 배달 완료</strong> (도보)</div>
           <div><kbd>Tab</kbd> <strong>휴대폰 꺼내기 / 거치대 장착</strong></div>
+          <div><kbd>V</kbd> / <kbd>폰 클릭</kbd> <strong>휴대폰 확대해서 보기</strong></div>
           <div><kbd>W A S D</kbd> 이동 / 오토바이 주행</div>
           <div><kbd>마우스 드래그</kbd> / <kbd>←→</kbd> 시선 회전</div>
           <div><kbd>Shift</kbd> 달리기 · <kbd>Space</kbd> 점프/브레이크</div>
@@ -30,73 +31,69 @@
         </div>
       </div>
 
-      <!-- Pocket Hint Chip (shown when phone is stowed in pocket) -->
+      <!-- Bottom-Right Minimal Hint Chip (Tab to take out / V to zoom in) -->
       <button id="phone-pocket-pill" class="pocket-pill">
         <span class="pocket-icon">📱</span>
-        <kbd>Tab</kbd>
+        <kbd id="pocket-pill-key">Tab</kbd>
         <span id="pocket-pill-text">주머니에서 휴대폰 꺼내기</span>
         <span id="pocket-mission-dot" class="pocket-mission-dot hidden" title="진행 중인 배달 있음"></span>
       </button>
 
-      <!-- Smartphone Device (Hidden in pocket by default; Handheld on foot / Handlebar-mounted when riding) -->
-      <div id="rider-phone" class="phone-device mode-pocket">
-        <!-- Placement caption badge above phone -->
-        <div id="phone-placement-tag" class="phone-placement-tag">✋ 손에 들고 보는 중</div>
+      <!-- Centered Zoomed-In Interactive Smartphone Modal (shown ONLY when player presses [V] or clicks the 3D phone!) -->
+      <div id="phone-zoom-backdrop" class="phone-zoom-backdrop hidden">
+        <div id="rider-phone" class="phone-device zoomed-center">
+          <div id="phone-placement-tag" class="phone-placement-tag">✋ 손에 든 휴대폰 (확대 보기)</div>
 
-        <!-- Scooter handlebar mount clamps (only visible in mode-mounted) -->
-        <div class="mount-clamp mount-clamp-left"></div>
-        <div class="mount-clamp mount-clamp-right"></div>
-        <div class="mount-clamp-base"></div>
+          <div class="mount-clamp mount-clamp-left"></div>
+          <div class="mount-clamp mount-clamp-right"></div>
+          <div class="mount-clamp-base"></div>
 
-        <div class="phone-btn-vol-up"></div>
-        <div class="phone-btn-vol-down"></div>
-        <div class="phone-btn-power"></div>
+          <div class="phone-btn-vol-up"></div>
+          <div class="phone-btn-vol-down"></div>
+          <div class="phone-btn-power"></div>
 
-        <div class="phone-screen">
-          <!-- Full-bleed live GPS map background -->
-          <canvas id="phone-map-canvas"></canvas>
+          <div class="phone-screen">
+            <canvas id="phone-map-canvas"></canvas>
 
-          <!-- Smartphone top status bar + Dynamic Island -->
-          <div class="phone-statusbar">
-            <span id="phone-clock" class="sb-time">16:30</span>
-            <div class="phone-island">
-              <span class="island-cam"></span>
-            </div>
-            <div class="sb-right">
-              <span class="sb-5g">5G</span>
-              <span class="sb-battery"><i></i></span>
-            </div>
-          </div>
-
-          <!-- Delivery App Floating Top Bar -->
-          <div class="app-topbar">
-            <div class="app-loc-card">
-              <div class="app-loc-row">
-                <span class="loc-dot"></span>
-                <span id="phone-area-name" class="loc-name">상가 거리</span>
-                <button id="phone-stow-btn" class="phone-mini-btn" title="주머니에 넣기 (Tab)">주머니로</button>
+            <div class="phone-statusbar">
+              <span id="phone-clock" class="sb-time">16:30</span>
+              <div class="phone-island">
+                <span class="island-cam"></span>
               </div>
-              <div class="app-sub-row">
-                <span id="phone-status-pill" class="app-status-pill foot">🚶 도보 이동</span>
-                <span id="phone-earnings" class="earnings-tag">₩0 (0건)</span>
+              <div class="sb-right">
+                <span class="sb-5g">5G</span>
+                <span class="sb-battery"><i></i></span>
               </div>
             </div>
-          </div>
 
-          <!-- Floating Map Controls (Zoom & Follow GPS) -->
-          <div class="map-controls">
-            <button id="map-zoom-in" class="map-ctrl-btn" title="지도 확대">+</button>
-            <button id="map-zoom-out" class="map-ctrl-btn" title="지도 축소">−</button>
-            <button id="map-follow-btn" class="map-ctrl-btn gps-btn" title="내 위치 추적 / 전체 지도">◎</button>
-          </div>
+            <div class="app-topbar">
+              <div class="app-loc-card">
+                <div class="app-loc-row">
+                  <span class="loc-dot"></span>
+                  <span id="phone-area-name" class="loc-name">상가 거리</span>
+                  <button id="phone-unzoom-btn" class="phone-mini-btn accent" title="축소해서 손/거치대로 보기 (V)">축소</button>
+                  <button id="phone-stow-btn" class="phone-mini-btn" title="주머니에 넣기 (Tab)">주머니로</button>
+                </div>
+                <div class="app-sub-row">
+                  <span id="phone-status-pill" class="app-status-pill foot">🚶 도보 이동</span>
+                  <span id="phone-earnings" class="earnings-tag">₩0 (0건)</span>
+                </div>
+              </div>
+            </div>
 
-          <!-- Delivery App Interactive Bottom Sheet (Orders / Active Mission) -->
-          <div class="app-bottom-sheet">
-            <div class="sheet-handle"></div>
-            <div id="phone-sheet-body" class="sheet-body"></div>
-          </div>
+            <div class="map-controls">
+              <button id="map-zoom-in" class="map-ctrl-btn" title="지도 확대">+</button>
+              <button id="map-zoom-out" class="map-ctrl-btn" title="지도 축소">−</button>
+              <button id="map-follow-btn" class="map-ctrl-btn gps-btn" title="내 위치 추적 / 전체 지도">◎</button>
+            </div>
 
-          <div class="phone-home-bar"></div>
+            <div class="app-bottom-sheet">
+              <div class="sheet-handle"></div>
+              <div id="phone-sheet-body" class="sheet-body"></div>
+            </div>
+
+            <div class="phone-home-bar"></div>
+          </div>
         </div>
       </div>
 
