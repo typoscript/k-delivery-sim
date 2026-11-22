@@ -125,13 +125,51 @@ kbd {
   color: #ffffff;
 }
 
-/* ======================== Realistic Rider Smartphone ======================== */
-.phone-device {
+/* ======================== Pocket Pill & Realistic Rider Smartphone ======================== */
+.pocket-pill {
   position: absolute;
   right: 18px;
   bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: rgba(13, 20, 30, 0.84);
+  border: 1px solid rgba(45, 212, 191, 0.45);
+  color: #e2e8f0;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.pocket-pill:hover {
+  background: rgba(15, 28, 42, 0.94);
+  transform: translateY(-2px);
+}
+
+.pocket-icon {
+  font-size: 15px;
+}
+
+.pocket-mission-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.28);
+}
+
+.phone-device {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
   width: 274px;
-  height: min(550px, calc(100vh - 34px));
+  height: min(550px, calc(100vh - 54px));
   padding: 9px;
   border-radius: 38px;
   background: linear-gradient(145deg, #333b48 0%, #151921 48%, #252c37 100%);
@@ -142,13 +180,101 @@ kbd {
     inset 0 0 0 2px rgba(0, 0, 0, 0.72);
   pointer-events: auto;
   transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.22s ease,
     width 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    height 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+    height 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    right 0.24s ease,
+    bottom 0.24s ease;
 }
 
-.phone-device.expanded {
-  width: 360px;
-  height: min(680px, calc(100vh - 30px));
+/* Stowed in pocket: completely off-screen & non-interactive */
+.phone-device.mode-pocket {
+  transform: translateY(120%) scale(0.9);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Condition 1: Held in hand while on foot (slightly bigger, natural handheld look) */
+.phone-device.mode-hand {
+  right: 36px;
+  bottom: 22px;
+  width: 318px;
+  height: min(610px, calc(100vh - 58px));
+  transform: translateY(0) rotate(-1.6deg);
+  opacity: 1;
+}
+
+/* Condition 2: Clamped onto scooter handlebar mount while riding */
+.phone-device.mode-mounted {
+  right: 20px;
+  bottom: 24px;
+  width: 268px;
+  height: min(525px, calc(100vh - 64px));
+  transform: translateY(0) rotate(0deg);
+  opacity: 1;
+}
+
+.phone-placement-tag {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #e2e8f0;
+  pointer-events: none;
+}
+
+.phone-device.mode-mounted .phone-placement-tag {
+  border-color: rgba(45, 212, 191, 0.55);
+  color: #99f6e4;
+}
+
+/* Handlebar mount rubberized clamp brackets (visible only when mounted on scooter!) */
+.mount-clamp,
+.mount-clamp-base {
+  display: none;
+  position: absolute;
+  background: linear-gradient(180deg, #272d36 0%, #0f1318 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.phone-device.mode-mounted .mount-clamp,
+.phone-device.mode-mounted .mount-clamp-base {
+  display: block;
+}
+
+.mount-clamp-left {
+  left: -10px;
+  top: 46%;
+  width: 13px;
+  height: 76px;
+  border-radius: 6px 2px 2px 6px;
+}
+
+.mount-clamp-right {
+  right: -10px;
+  top: 46%;
+  width: 13px;
+  height: 76px;
+  border-radius: 2px 6px 6px 2px;
+}
+
+.mount-clamp-base {
+  left: 50%;
+  bottom: -16px;
+  transform: translateX(-50%);
+  width: 78px;
+  height: 18px;
+  border-radius: 4px 4px 10px 10px;
 }
 
 .phone-btn-vol-up,

@@ -50,6 +50,13 @@ const handleDeliveryInteract = () => {
   hud.showToast(res.message, 3200);
 };
 
+const handleTogglePhone = () => {
+  if (playerCtrl.state.mode === 'knockdown') return;
+  const res = hud.togglePhonePlacement(playerCtrl.state.mode === 'riding');
+  scooterMesh.setPhoneMounted(res.placement === 'mounted');
+  hud.showToast(res.message, 2200);
+};
+
 const hud = new Hud({
   onAcceptOrder: (orderId) => {
     audio.ensureStarted();
@@ -71,11 +78,14 @@ const hud = new Hud({
     hud.showToast('진행 중인 배달을 취소했습니다');
   },
   onInteractMission: handleDeliveryInteract,
+  onTogglePhone: handleTogglePhone,
 });
 
 // Wire lowside cornering crash -> rider ejection + crash sound + food damage!
 scooterPhysics.setOnCrash((crashSide, impactSpeed) => {
   playerCtrl.ejectFromScooter(scooterPhysics.state, crashSide, impactSpeed);
+  hud.stowPhoneToPocket();
+  scooterMesh.setPhoneMounted(false);
   audio.playCrashSound();
   const dmg = delivery.applyCrashDamage();
   if (dmg > 0) {
@@ -118,6 +128,9 @@ window.addEventListener('keydown', (e) => {
         world.obstacles
       );
       if (res.changed) {
+        // Tuck phone into pocket when getting on/off so Tab cleanly pulls it out or mounts it
+        hud.stowPhoneToPocket();
+        scooterMesh.setPhoneMounted(false);
         audio.playMountSound(playerCtrl.state.mode === 'riding');
         camController.syncYawOnModeChange(playerCtrl.state, scooterPhysics.state);
       }
@@ -184,14 +197,15 @@ window.addEventListener('keydown', (e) => {
     case 'Backspace': {
       scooterPhysics.reset();
       playerCtrl.reset();
+      hud.stowPhoneToPocket();
+      scooterMesh.setPhoneMounted(false);
       camController.onFootYaw = Math.PI - 0.65;
       camController.resetLook();
       hud.showToast('캐릭터 및 오토바이 위치 초기화');
       break;
     }
     case 'Tab': {
-      const expanded = hud.togglePhoneExpand();
-      hud.showToast(expanded ? '스마트폰 크게 보기 (Tab으로 축소)' : '스마트폰 거치대 모드');
+      handleTogglePhone();
       break;
     }
     case 'F1': {
@@ -219,7 +233,7 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-hud.showToast('스마트폰에서 배달 콜을 [수락]하고 [F]로 오토바이에 탑승해 출발하세요!', 4500);
+hud.showToast('[Tab]으로 주머니에서 휴대폰을 꺼내 배달 콜을 수락하세요!', 4500);
 
 let lastTime = performance.now();
 let elapsed = 0;
@@ -322,7 +336,6 @@ function animate(now: number): void {
     playerCtrl.state,
     scooterPhysics.state,
     delivery,
-    traffic.getCarSnapshots(),
     traffic.signalState,
     world.isNight,
     audio.muted,

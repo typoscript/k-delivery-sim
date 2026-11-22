@@ -8,6 +8,7 @@ export class ScooterMesh {
   private readonly frontWheel: THREE.Object3D;
   private readonly rearWheel: THREE.Object3D;
   private readonly kickstandGroup = new THREE.Group();
+  private readonly mountedPhone3D = new THREE.Group();
   public readonly riderMountPoint = new THREE.Group();
 
   private readonly headlightSpot: THREE.SpotLight;
@@ -233,6 +234,43 @@ export class ScooterMesh {
     windscreen.rotation.x = -0.32;
     this.handlebarGroup.add(windscreen);
 
+    // Handlebar Smartphone Mount Cradle (visible right in 1st-person view!)
+    const mountClampMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7 });
+    const cradleStem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.08, 6), mountClampMat);
+    cradleStem.position.set(0, 1.18, -0.19);
+    const cradleBack = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.018), mountClampMat);
+    cradleBack.position.set(0, 1.24, -0.17);
+    cradleBack.rotation.x = -0.42;
+    for (const side of [-1, 1]) {
+      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.05, 0.032), mountClampMat);
+      claw.position.set(side * 0.06, 1.24, -0.175);
+      claw.rotation.x = -0.42;
+      this.handlebarGroup.add(claw);
+    }
+    this.handlebarGroup.add(cradleStem, cradleBack);
+
+    // 3D Smartphone placed inside handlebar cradle (toggled via Tab while riding!)
+    this.mountedPhone3D.position.set(0, 1.245, -0.182);
+    this.mountedPhone3D.rotation.x = -0.42;
+    const phoneBody = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.18, 0.014),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.5 })
+    );
+    const phoneGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.088, 0.165),
+      new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.75,
+        roughness: 0.2,
+      })
+    );
+    phoneGlow.position.z = -0.008;
+    phoneGlow.rotation.y = Math.PI;
+    this.mountedPhone3D.add(phoneBody, phoneGlow);
+    this.mountedPhone3D.visible = false;
+    this.handlebarGroup.add(this.mountedPhone3D);
+
     // Kickstand on left side (+X)
     this.kickstandGroup.position.set(0.2, 0.28, 0.45);
     const standLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), darkMat);
@@ -277,6 +315,10 @@ export class ScooterMesh {
     g.add(spoke);
 
     return g;
+  }
+
+  public setPhoneMounted(mounted: boolean): void {
+    this.mountedPhone3D.visible = mounted;
   }
 
   public sync(state: ScooterState, elapsedTime: number): void {

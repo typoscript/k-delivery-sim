@@ -2,8 +2,8 @@ import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { CityMapInfo } from '../world/CityWorld';
 import { DeliveryManager } from '../delivery/DeliveryManager';
-import { SignalStateSnapshot, TrafficCarSnapshot } from '../world/TrafficSystem';
-import { PhoneCallbacks, PhoneMap } from './PhoneMap';
+import { SignalStateSnapshot } from '../world/TrafficSystem';
+import { PhoneCallbacks, PhoneMap, PhonePlacement } from './PhoneMap';
 
 export class Hud {
   private readonly modeBadge = document.getElementById('mode-badge')!;
@@ -37,8 +37,12 @@ export class Hud {
     this.helpPanel.classList.toggle('collapsed');
   }
 
-  public togglePhoneExpand(): boolean {
-    return this.phoneMap.toggleExpand();
+  public togglePhonePlacement(isRiding: boolean): { placement: PhonePlacement; message: string } {
+    return this.phoneMap.toggleWithTab(isRiding);
+  }
+
+  public stowPhoneToPocket(): void {
+    this.phoneMap.setPlacement('pocket');
   }
 
   public showToast(message: string, durationMs = 2600): void {
@@ -57,7 +61,6 @@ export class Hud {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
-    trafficCars: TrafficCarSnapshot[],
     signalState: SignalStateSnapshot,
     isNight: boolean,
     isMuted: boolean,
@@ -134,6 +137,6 @@ export class Hud {
       this.indAudio.textContent = isMuted ? '음소거' : '사운드';
     }
 
-    this.phoneMap.update(player, scooter, delivery, trafficCars, signalState, isNight, elapsedTime, mapInfo);
+    this.phoneMap.update(player, scooter, delivery, signalState, isNight, elapsedTime, mapInfo);
   }
 }

@@ -19,7 +19,7 @@
         <div id="help-panel" class="help-grid">
           <div><kbd>F</kbd> <strong>오토바이 탑승 / 하차</strong></div>
           <div><kbd>E</kbd> <strong>픽업 / 배달 완료</strong> (도보)</div>
-          <div><kbd>Tab</kbd> 스마트폰 확대 / 축소</div>
+          <div><kbd>Tab</kbd> <strong>휴대폰 꺼내기 / 거치대 장착</strong></div>
           <div><kbd>W A S D</kbd> 이동 / 오토바이 주행</div>
           <div><kbd>마우스 드래그</kbd> / <kbd>←→</kbd> 시선 회전</div>
           <div><kbd>Shift</kbd> 달리기 · <kbd>Space</kbd> 점프/브레이크</div>
@@ -30,8 +30,24 @@
         </div>
       </div>
 
-      <!-- Right Side: Realistic Mounted Smartphone with Full-Screen Live GPS Map & Delivery App -->
-      <div id="rider-phone" class="phone-device">
+      <!-- Pocket Hint Chip (shown when phone is stowed in pocket) -->
+      <button id="phone-pocket-pill" class="pocket-pill">
+        <span class="pocket-icon">📱</span>
+        <kbd>Tab</kbd>
+        <span id="pocket-pill-text">주머니에서 휴대폰 꺼내기</span>
+        <span id="pocket-mission-dot" class="pocket-mission-dot hidden" title="진행 중인 배달 있음"></span>
+      </button>
+
+      <!-- Smartphone Device (Hidden in pocket by default; Handheld on foot / Handlebar-mounted when riding) -->
+      <div id="rider-phone" class="phone-device mode-pocket">
+        <!-- Placement caption badge above phone -->
+        <div id="phone-placement-tag" class="phone-placement-tag">✋ 손에 들고 보는 중</div>
+
+        <!-- Scooter handlebar mount clamps (only visible in mode-mounted) -->
+        <div class="mount-clamp mount-clamp-left"></div>
+        <div class="mount-clamp mount-clamp-right"></div>
+        <div class="mount-clamp-base"></div>
+
         <div class="phone-btn-vol-up"></div>
         <div class="phone-btn-vol-down"></div>
         <div class="phone-btn-power"></div>
@@ -58,7 +74,7 @@
               <div class="app-loc-row">
                 <span class="loc-dot"></span>
                 <span id="phone-area-name" class="loc-name">상가 거리</span>
-                <button id="phone-expand-btn" class="phone-mini-btn" title="스마트폰 확대/축소 (Tab)">확대</button>
+                <button id="phone-stow-btn" class="phone-mini-btn" title="주머니에 넣기 (Tab)">주머니로</button>
               </div>
               <div class="app-sub-row">
                 <span id="phone-status-pill" class="app-status-pill foot">🚶 도보 이동</span>

@@ -2,18 +2,26 @@ import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { CityMapInfo } from '../world/CityWorld';
 import { DeliveryManager } from '../delivery/DeliveryManager';
-import { SignalStateSnapshot, TrafficCarSnapshot } from '../world/TrafficSystem';
+import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { clamp } from '../types';
+
+export type PhonePlacement = 'pocket' | 'in_hand' | 'mounted';
 
 export interface PhoneCallbacks {
   onAcceptOrder: (orderId: string) => void;
   onRefreshOrders: () => void;
   onCancelMission: () => void;
   onInteractMission: () => void;
+  onTogglePhone: () => void;
 }
 
 export class PhoneMap {
   private readonly phoneEl = document.getElementById('rider-phone')!;
+  private readonly pocketPillEl = document.getElementById('phone-pocket-pill')!;
+  private readonly pocketPillTextEl = document.getElementById('pocket-pill-text')!;
+  private readonly pocketBadgeEl = document.getElementById('pocket-mission-dot')!;
+  private readonly placementTagEl = document.getElementById('phone-placement-tag')!;
+
   private readonly canvas = document.getElementById('phone-map-canvas') as HTMLCanvasElement;
   private readonly ctx = this.canvas.getContext('2d')!;
   private readonly clockEl = document.getElementById('phone-clock')!;
@@ -25,10 +33,11 @@ export class PhoneMap {
   private readonly zoomInBtn = document.getElementById('map-zoom-in')!;
   private readonly zoomOutBtn = document.getElementById('map-zoom-out')!;
   private readonly followBtn = document.getElementById('map-follow-btn')!;
-  private readonly expandBtn = document.getElementById('phone-expand-btn')!;
+  private readonly stowBtn = document.getElementById('phone-stow-btn')!;
 
   private readonly callbacks: PhoneCallbacks;
-  public isExpanded = false;
+  public placement: PhonePlacement = 'pocket';
+
   private followPlayer = true;
   private zoomLevel = 1.5;
   private camX = -62;
@@ -55,12 +64,16 @@ export class PhoneMap {
       this.zoomLevel = this.followPlayer ? 1.5 : 0.76;
     });
 
-    this.expandBtn.addEventListener('click', (e) => {
+    this.stowBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.toggleExpand();
+      this.callbacks.onTogglePhone();
     });
 
-    // Event delegation for dynamically rendered delivery app buttons
+    this.pocketPillEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.callbacks.onTogglePhone();
+    });
+
     this.sheetBodyEl.addEventListener('click', (e) => {
       e.stopPropagation();
       const target = e.target as HTMLElement;
@@ -80,15 +93,58 @@ export class PhoneMap {
     });
 
     this.followBtn.classList.add('active');
-    this.syncCanvasSize();
+    this.setPlacement('pocket');
   }
 
-  public toggleExpand(): boolean {
-    this.isExpanded = !this.isExpanded;
-    this.phoneEl.classList.toggle('expanded', this.isExpanded);
-    this.expandBtn.textContent = this.isExpanded ? '축소' : '확대';
-    requestAnimationFrame(() => this.syncCanvasSize());
-    return this.isExpanded;
+  public setPlacement(next: PhonePlacement): void {
+    this.placement = next;
+    this.phoneEl.classList.toggle('mode-pocket', next === 'pocket');
+    this.phoneEl.classList.toggle('mode-hand', next === 'in_hand');
+    this.phoneEl.classList.toggle('mode-mounted', next === 'mounted');
+    this.pocketPillEl.classList.toggle('hidden', next !== 'pocket');
+
+    if (next === 'in_hand') {
+      this.placementTagEl.textContent = '✋ 손에 들고 보는 중';
+      this.stowBtn.textContent = '주머니로';
+    } else if (next === 'mounted') {
+      this.placementTagEl.textContent = '🛵 오토바이 거치대 장착';
+      this.stowBtn.textContent = '분리';
+    }
+
+    if (next !== 'pocket') {
+      requestAnimationFrame(() => this.syncCanvasSize());
+    }
+  }
+
+  /**
+   * Condition 1 (Not riding): Tab takes phone out of pocket into hand (or puts it back)
+   * Condition 2 (Riding): Tab places phone from pocket onto scooter mount (or puts it back)
+   */
+  public toggleWithTab(isRiding: boolean): { placement: PhonePlacement; message: string } {
+    if (this.placement !== 'pocket') {
+      const wasMounted = this.placement === 'mounted';
+      this.setPlacement('pocket');
+      return {
+        placement: 'pocket',
+        message: wasMounted
+          ? '거치대에서 휴대폰을 빼서 주머니에 넣었습니다'
+          : '휴대폰을 주머니에 넣었습니다',
+      };
+    }
+
+    if (isRiding) {
+      this.setPlacement('mounted');
+      return {
+        placement: 'mounted',
+        message: '📱 휴대폰을 오토바이 거치대에 장착했습니다',
+      };
+    }
+
+    this.setPlacement('in_hand');
+    return {
+      placement: 'in_hand',
+      message: '📱 주머니에서 휴대폰을 꺼내 손에 들었습니다',
+    };
   }
 
   private syncCanvasSize(): void {
@@ -107,12 +163,22 @@ export class PhoneMap {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
-    trafficCars: TrafficCarSnapshot[],
     signalState: SignalStateSnapshot,
     isNight: boolean,
     elapsedTime: number,
     mapInfo: CityMapInfo
   ): void {
+    const isRiding = player.mode === 'riding';
+
+    // Update minimal pocket hint chip when phone is stowed away in pocket
+    if (this.placement === 'pocket') {
+      this.pocketPillTextEl.textContent = isRiding
+        ? '오토바이 거치대에 휴대폰 놓기'
+        : '주머니에서 휴대폰 꺼내기';
+      this.pocketBadgeEl.classList.toggle('hidden', delivery.activeMission === null);
+      return;
+    }
+
     this.syncCanvasSize();
     this.phoneEl.classList.toggle('night', isNight);
 
@@ -124,7 +190,6 @@ export class PhoneMap {
     this.areaEl.textContent = this.resolveAreaName(player.x, player.z, mapInfo);
     this.earningsEl.textContent = `₩${delivery.totalEarnings.toLocaleString()} (${delivery.completedCount}건)`;
 
-    const isRiding = player.mode === 'riding';
     const kmh = Math.round(Math.abs(scooter.speed) * 3.6);
     if (player.mode === 'knockdown') {
       this.statusPillEl.textContent = '💥 넘어짐! 회복 중';
@@ -144,7 +209,7 @@ export class PhoneMap {
     this.camX += (targetX - this.camX) * 0.16;
     this.camZ += (targetZ - this.camZ) * 0.16;
 
-    this.renderMap(player, scooter, delivery, trafficCars, signalState, isNight, elapsedTime, mapInfo);
+    this.renderMap(player, scooter, delivery, signalState, isNight, elapsedTime, mapInfo);
   }
 
   private syncDeliverySheet(player: PlayerState, delivery: DeliveryManager): void {
@@ -249,7 +314,6 @@ export class PhoneMap {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
-    trafficCars: TrafficCarSnapshot[],
     signalState: SignalStateSnapshot,
     isNight: boolean,
     elapsedTime: number,
@@ -300,7 +364,7 @@ export class PhoneMap {
     const baseScale = Math.min(w, h) / 285;
     const scale = baseScale * this.zoomLevel;
     const centerX = w * 0.5;
-    const centerY = h * 0.38; // centered cleanly in visible upper map area above bottom sheet
+    const centerY = h * 0.38;
 
     const toX = (wx: number) => centerX - (wx - this.camX) * scale;
     const toY = (wz: number) => centerY - (wz - this.camZ) * scale;
@@ -376,7 +440,7 @@ export class PhoneMap {
       }
     }
 
-    // 3.5. Live Traffic Signals & AI Vehicles on GPS Map
+    // 3.5. Intersection signal status dots (other vehicles are intentionally NOT shown on phone GPS)
     const sigHex = (c: 'green' | 'yellow' | 'red') =>
       c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
 
@@ -384,35 +448,19 @@ export class PhoneMap {
       for (const iz of mapInfo.roadLines) {
         const mx = toX(ix);
         const my = toY(iz);
-        // Compact NS (vertical) & EW (horizontal) live signal dots at intersection center
         ctx.fillStyle = sigHex(signalState.ns);
         ctx.beginPath();
-        ctx.arc(mx, my - 2.6, 2.1, 0, Math.PI * 2);
+        ctx.arc(mx, my - 2.6, 2.0, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.fillStyle = sigHex(signalState.ew);
         ctx.beginPath();
-        ctx.arc(mx + 2.8, my, 2.1, 0, Math.PI * 2);
+        ctx.arc(mx + 2.6, my, 2.0, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    for (const car of trafficCars) {
-      const cx = toX(car.x);
-      const cy = toY(car.z);
-      ctx.save();
-      ctx.translate(cx, cy);
-      // Match map orientation (+Z up, +X left -> rotate by -heading)
-      ctx.rotate(-car.heading);
-      ctx.fillStyle = car.color;
-      ctx.strokeStyle = isNight ? 'rgba(0,0,0,0.65)' : 'rgba(15,23,42,0.45)';
-      ctx.lineWidth = 0.9;
-      ctx.fillRect(-2.4, -4.2, 4.8, 8.4);
-      ctx.strokeRect(-2.4, -4.2, 4.8, 8.4);
-      ctx.restore();
-    }
-
-    // 4. Active Delivery GPS Navigation Route Line + Pulsing Destination Pin!
+    // 4. Active Delivery GPS Navigation Route Line + Pulsing Destination Pin
     const target = delivery.getCurrentTarget();
     if (target && delivery.activeMission) {
       const isPickup = delivery.activeMission.phase === 'pickup';
@@ -423,7 +471,6 @@ export class PhoneMap {
         ctx.save();
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        // Glow halo
         ctx.strokeStyle = isPickup ? 'rgba(249,115,22,0.28)' : 'rgba(16,185,129,0.28)';
         ctx.lineWidth = 8;
         ctx.beginPath();
@@ -433,14 +480,12 @@ export class PhoneMap {
         }
         ctx.stroke();
 
-        // Crisp inner nav line
         ctx.strokeStyle = routeColor;
         ctx.lineWidth = 3.5;
         ctx.stroke();
         ctx.restore();
       }
 
-      // Pulsing destination pin
       const tx = toX(target.x);
       const ty = toY(target.z);
       const pulse = 9 + Math.sin(elapsedTime * 5) * 3;
@@ -458,7 +503,7 @@ export class PhoneMap {
       ctx.stroke();
     }
 
-    // 5. Scooter Pin (turns red if fallen/crashed!)
+    // 5. Own Scooter Pin (red if crashed)
     const sx = toX(scooter.x);
     const sy = toY(scooter.z);
     if (player.mode !== 'riding') {
