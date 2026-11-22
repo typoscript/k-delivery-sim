@@ -152,6 +152,12 @@ kbd {
   transform: translateY(-2px);
 }
 
+.pocket-pill.away {
+  border-color: rgba(245, 158, 11, 0.72);
+  background: rgba(69, 26, 3, 0.88);
+  color: #fde68a;
+}
+
 .pocket-icon {
   font-size: 15px;
 }

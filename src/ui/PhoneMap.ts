@@ -103,10 +103,10 @@ export class PhoneMap {
       }
     });
 
-    // Bottom hint pill: if in pocket -> Tab toggle; if holding/mounted -> V zoom!
+    // Bottom hint pill: if in pocket or left on bike -> Tab action; if holding/mounted while riding -> V zoom!
     this.pocketPillEl.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (this.placement === 'pocket') {
+      if (this.placement === 'pocket' || this.pocketPillEl.classList.contains('away')) {
         this.callbacks.onTogglePhone();
       } else {
         this.callbacks.onToggleZoom();
@@ -157,9 +157,16 @@ export class PhoneMap {
     return this.isZoomed;
   }
 
-  public toggleZoom(): { zoomed: boolean; message: string } {
+  public toggleZoom(isRiding: boolean): { zoomed: boolean; message: string } {
     if (this.placement === 'pocket') {
       return { zoomed: false, message: '먼저 [Tab]으로 휴대폰을 꺼내거나 거치대에 놓으세요' };
+    }
+    // Realistic restriction: if phone is left mounted on the scooter and player got off, cannot use phone!
+    if (this.placement === 'mounted' && !isRiding) {
+      return {
+        zoomed: false,
+        message: '🚫 휴대폰이 오토바이 거치대에 있습니다! 오토바이 근처에서 [Tab]으로 먼저 챙기세요',
+      };
     }
     const next = this.setZoomed(!this.isZoomed);
     return {
@@ -173,26 +180,63 @@ export class PhoneMap {
   }
 
   /**
-   * Condition 1 (Not riding): Tab takes phone out of pocket into 3D hand (or puts it back)
-   * Condition 2 (Riding): Tab places phone from pocket onto 3D scooter handlebar mount (or puts it back)
+   * Condition 1 (Not riding):
+   *   - If phone is left on scooter mount & far away -> BLOCKED!
+   *   - If phone is left on scooter mount & near scooter -> unmounts phone back into pocket!
+   *   - Otherwise toggles pocket <-> 3D hand!
+   * Condition 2 (Riding):
+   *   - Toggles pocket <-> 3D scooter handlebar mount (with 3D hand animation)!
    */
-  public toggleWithTab(isRiding: boolean): { placement: PhonePlacement; message: string } {
-    if (this.placement !== 'pocket') {
-      const wasMounted = this.placement === 'mounted';
-      this.setPlacement('pocket');
-      return {
-        placement: 'pocket',
-        message: wasMounted
-          ? '거치대에서 휴대폰을 빼서 주머니에 넣었습니다'
-          : '휴대폰을 주머니에 넣었습니다',
-      };
-    }
-
+  public toggleWithTab(
+    isRiding: boolean,
+    nearScooter: boolean
+  ): {
+    placement: PhonePlacement;
+    anim?: 'mount' | 'unmount';
+    blocked?: boolean;
+    message: string;
+  } {
+    // Riding: place from pocket onto mount, or pull from mount back into pocket
     if (isRiding) {
+      if (this.placement === 'mounted') {
+        this.setPlacement('pocket');
+        return {
+          placement: 'pocket',
+          anim: 'unmount',
+          message: '📱 거치대에서 휴대폰을 빼서 주머니에 넣었습니다',
+        };
+      }
       this.setPlacement('mounted');
       return {
         placement: 'mounted',
-        message: '📱 오토바이 거치대에 장착! ([V] 또는 휴대폰 클릭으로 확대)',
+        anim: 'mount',
+        message: '📱 주머니에서 휴대폰을 꺼내 오토바이 거치대에 놓았습니다',
+      };
+    }
+
+    // Not riding, but phone was left mounted on the scooter!
+    if (this.placement === 'mounted') {
+      if (!nearScooter) {
+        return {
+          placement: 'mounted',
+          blocked: true,
+          message: '🚫 휴대폰이 오토바이 거치대에 꽂혀 있습니다! 오토바이로 가서 [Tab]으로 챙기세요',
+        };
+      }
+      this.setPlacement('pocket');
+      return {
+        placement: 'pocket',
+        anim: 'unmount',
+        message: '📱 오토바이 거치대에서 휴대폰을 챙겨 주머니에 넣었습니다',
+      };
+    }
+
+    // Normal on-foot toggle: pocket <-> in_hand
+    if (this.placement === 'in_hand') {
+      this.setPlacement('pocket');
+      return {
+        placement: 'pocket',
+        message: '휴대폰을 주머니에 넣었습니다',
       };
     }
 
@@ -246,7 +290,15 @@ export class PhoneMap {
 
     // Update minimal bottom hint chip when not zoomed
     if (!this.isZoomed) {
-      if (this.placement === 'pocket') {
+      const leftOnBike = this.placement === 'mounted' && !isRiding;
+      this.pocketPillEl.classList.toggle('away', leftOnBike);
+
+      if (leftOnBike) {
+        this.pocketKeyEl.textContent = 'Tab';
+        this.pocketPillTextEl.textContent = player.canMountScooter
+          ? '오토바이 거치대에서 휴대폰 챙기기'
+          : `휴대폰이 오토바이에 있음 (${player.inCorridor ? '1층' : `${player.distanceToScooter.toFixed(0)}m`})`;
+      } else if (this.placement === 'pocket') {
         this.pocketKeyEl.textContent = 'Tab';
         this.pocketPillTextEl.textContent = isRiding
           ? '오토바이 거치대에 휴대폰 놓기'
@@ -255,8 +307,8 @@ export class PhoneMap {
         this.pocketKeyEl.textContent = 'V';
         this.pocketPillTextEl.textContent =
           this.placement === 'mounted'
-            ? '거치대 휴대폰 확대해서 보기 (Tab: 분리)'
-            : '손에 든 휴대폰 확대해서 보기 (Tab: 넣기)';
+            ? '거치대 폰 확대 (Tab: 주머니로)'
+            : '손에 든 폰 확대 (Tab: 주머니로)';
       }
       this.pocketBadgeEl.classList.toggle('hidden', delivery.activeMission === null);
     }

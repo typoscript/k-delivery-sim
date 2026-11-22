@@ -44,12 +44,15 @@ export class Hud {
     this.helpPanel.classList.toggle('collapsed');
   }
 
-  public togglePhonePlacement(isRiding: boolean): { placement: PhonePlacement; message: string } {
-    return this.phoneMap.toggleWithTab(isRiding);
+  public togglePhonePlacement(
+    isRiding: boolean,
+    nearScooter: boolean
+  ): { placement: PhonePlacement; anim?: 'mount' | 'unmount'; blocked?: boolean; message: string } {
+    return this.phoneMap.toggleWithTab(isRiding, nearScooter);
   }
 
-  public togglePhoneZoom(): { zoomed: boolean; message: string } {
-    return this.phoneMap.toggleZoom();
+  public togglePhoneZoom(isRiding: boolean): { zoomed: boolean; message: string } {
+    return this.phoneMap.toggleZoom(isRiding);
   }
 
   public stowPhoneToPocket(): void {

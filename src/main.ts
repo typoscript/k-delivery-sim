@@ -55,6 +55,14 @@ const isPlayerNearCargoBox = (): boolean => {
 const enterElevatorToCorridor = () => {
   const m = delivery.activeMission;
   if (!m) return;
+  // Require having the phone with you (not left on scooter!) to take the delivery proof photo upstairs
+  if (hud.phoneMap.placement === 'mounted') {
+    hud.showToast(
+      '🚫 휴대폰이 오토바이 거치대에 있습니다! 배달 인증 사진을 찍으려면 먼저 오토바이에서 [Tab]으로 챙겨오세요',
+      3800
+    );
+    return;
+  }
   audio.playElevatorDing();
   hud.stowPhoneToPocket();
   modalUi.playElevatorTransition(
@@ -204,7 +212,8 @@ const handleContextInteract = () => {
   if (playerCtrl.state.mode !== 'on_foot') return;
 
   if (m.phase === 'to_pickup' && delivery.isNearShopPickup(playerCtrl.state.x, playerCtrl.state.z)) {
-    hud.stowPhoneToPocket();
+    if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+    else hud.phoneMap.setZoomed(false);
     modalUi.openPosKeypad(m.order);
     return;
   }
@@ -235,7 +244,8 @@ const handleContextInteract = () => {
     m.phase === 'carrying_to_lobby' &&
     delivery.isNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z)
   ) {
-    hud.stowPhoneToPocket();
+    if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+    else hud.phoneMap.setZoomed(false);
     modalUi.openPinKeypad(m.order);
     return;
   }
@@ -251,15 +261,23 @@ const handleContextInteract = () => {
 
 const handleTogglePhone = () => {
   if (playerCtrl.state.mode === 'knockdown' || modalUi.activeModal !== 'none') return;
-  const res = hud.togglePhonePlacement(playerCtrl.state.mode === 'riding');
-  scooterMesh.setPhoneMounted(res.placement === 'mounted');
-  hud.showToast(res.message, 2400);
+  const isRiding = playerCtrl.state.mode === 'riding';
+  const nearScooter = !playerCtrl.state.inCorridor && playerCtrl.state.canMountScooter;
+  const res = hud.togglePhonePlacement(isRiding, nearScooter);
+
+  if (res.anim === 'mount') {
+    handheldPhone3D.startMountAnimation();
+  } else if (res.anim === 'unmount') {
+    scooterMesh.setPhoneMounted(false);
+    handheldPhone3D.startUnmountAnimation();
+  }
+  hud.showToast(res.message, 2600);
 };
 
 const handleTogglePhoneZoom = () => {
   if (playerCtrl.state.mode === 'knockdown' || modalUi.activeModal !== 'none') return;
-  const res = hud.togglePhoneZoom();
-  hud.showToast(res.message, 2000);
+  const res = hud.togglePhoneZoom(playerCtrl.state.mode === 'riding');
+  hud.showToast(res.message, 2400);
 };
 
 const hud = new Hud({
@@ -293,6 +311,10 @@ const scooterMesh = new ScooterMesh(scene, hud.phoneMap.screenTexture);
 const handheldPhone3D = new HandheldPhone3D(camera, hud.phoneMap.screenTexture);
 const handheldFoodBag3D = new HandheldFoodBag3D(camera);
 
+handheldPhone3D.setOnMountClick((mounting) => {
+  audio.playPhoneMountClick(mounting);
+});
+
 // Click-to-zoom raycast on the 3D phone (in hand or on scooter mount)
 const raycaster = new THREE.Raycaster();
 const clickNdc = new THREE.Vector2();
@@ -321,7 +343,9 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 
   const targets: THREE.Object3D[] = [];
   if (hud.phoneMap.placement === 'in_hand') targets.push(handheldPhone3D.hitMesh);
-  if (hud.phoneMap.placement === 'mounted') targets.push(scooterMesh.mountedPhoneHitMesh);
+  if (hud.phoneMap.placement === 'mounted' && playerCtrl.state.mode === 'riding') {
+    targets.push(scooterMesh.mountedPhoneHitMesh);
+  }
 
   if (targets.length > 0 && raycaster.intersectObjects(targets, false).length > 0) {
     handleTogglePhoneZoom();
@@ -331,8 +355,11 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 // Wire lowside / car crash -> rider ejection + crash sound + food damage!
 scooterPhysics.setOnCrash((crashSide, impactSpeed) => {
   playerCtrl.ejectFromScooter(scooterPhysics.state, crashSide, impactSpeed);
-  hud.stowPhoneToPocket();
-  scooterMesh.setPhoneMounted(false);
+  handheldPhone3D.cancelMountAnimation();
+  hud.phoneMap.setZoomed(false);
+  if (hud.phoneMap.placement === 'in_hand') {
+    hud.stowPhoneToPocket();
+  }
   audio.playCrashSound();
   const dmg = delivery.applyCrashDamage();
   if (dmg > 0) {
@@ -381,10 +408,27 @@ window.addEventListener('keydown', (e) => {
         delivery.isCarryingFood()
       );
       if (res.changed) {
-        hud.stowPhoneToPocket();
-        scooterMesh.setPhoneMounted(false);
-        audio.playMountSound(playerCtrl.state.mode === 'riding');
+        const nowRiding = playerCtrl.state.mode === 'riding';
+        if (nowRiding) {
+          // Getting ON scooter: if phone was held in hand, tuck into pocket (if already mounted on bike, keep it mounted!)
+          if (hud.phoneMap.placement === 'in_hand') {
+            hud.stowPhoneToPocket();
+          }
+          hud.phoneMap.setZoomed(false);
+        } else {
+          // Getting OFF scooter: close zoom, but if phone is MOUNTED on the scooter, it STAYS on the scooter!
+          hud.phoneMap.setZoomed(false);
+        }
+        audio.playMountSound(nowRiding);
         camController.syncYawOnModeChange(playerCtrl.state, scooterPhysics.state);
+
+        if (!nowRiding && hud.phoneMap.placement === 'mounted') {
+          hud.showToast(
+            '하차 완료 (📱 휴대폰이 오토바이 거치대에 남아있습니다 — [Tab]으로 챙기세요)',
+            3400
+          );
+          break;
+        }
       }
       hud.showToast(res.message);
       break;
@@ -604,8 +648,12 @@ function animate(now: number): void {
     world.updateBeacon(activeTarget, isPickup, elapsed);
     scooterMesh.sync(scooterPhysics.state, elapsed, dt);
     scooterMesh.setCargoLoadedVisual(delivery.isCargoLoaded());
+    // Show 3D phone clamped on scooter mount whenever mounted (even when dismounted!),
+    // except while zoomed in or before the mounting hand reaches the cradle
     scooterMesh.setPhoneMounted(
-      hud.phoneMap.placement === 'mounted' && !hud.phoneMap.isZoomed
+      hud.phoneMap.placement === 'mounted' &&
+        !hud.phoneMap.isZoomed &&
+        !handheldPhone3D.isHoldingPhoneDuringMountAnim()
     );
   }
 

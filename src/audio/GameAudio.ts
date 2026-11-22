@@ -168,6 +168,27 @@ export class GameAudio {
     noise.start(now);
   }
 
+  public playPhoneMountClick(mounting: boolean): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'triangle';
+    if (mounting) {
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(1120, now + 0.045);
+    } else {
+      osc.frequency.setValueAtTime(840, now);
+      osc.frequency.exponentialRampToValueAtTime(360, now + 0.055);
+    }
+    g.gain.setValueAtTime(0.24, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.07);
+  }
+
   public playKeypadBeep(ok: boolean): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
