@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import './style.css';
 import { CityWorld } from './world/CityWorld';
+import { TrafficSystem } from './world/TrafficSystem';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import { OnFootInput, PlayerController } from './player/PlayerController';
@@ -28,6 +29,7 @@ const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerH
 
 // Core modules
 const world = new CityWorld(scene);
+const traffic = new TrafficSystem(scene);
 const delivery = new DeliveryManager(world.locations);
 const scooterPhysics = new ScooterPhysics();
 const scooterMesh = new ScooterMesh(scene);
@@ -231,6 +233,37 @@ function animate(now: number): void {
 
   const isRiding = playerCtrl.state.mode === 'riding';
 
+  // Step AI traffic & intersection signals
+  traffic.step(
+    dt,
+    elapsed,
+    world.isNight,
+    playerCtrl.state.x,
+    playerCtrl.state.z,
+    scooterPhysics.state.speed,
+    isRiding,
+    () => {
+      const fine = delivery.applyFine(1000);
+      hud.showToast(
+        fine > 0
+          ? `🚨 신호 위반! 빨간불 교차로 통과 (-₩${fine.toLocaleString()})`
+          : '🚨 신호 위반! 교차로 빨간불에 정지하세요!',
+        3200
+      );
+    },
+    (carX, carZ) => {
+      const relX = carX - scooterPhysics.state.x;
+      const relZ = carZ - scooterPhysics.state.z;
+      const leftX = Math.cos(scooterPhysics.state.heading);
+      const leftZ = -Math.sin(scooterPhysics.state.heading);
+      const hitSide = relX * leftX + relZ * leftZ >= 0 ? 1 : -1;
+      scooterPhysics.triggerExternalCrash(hitSide);
+    }
+  );
+
+  // Combine static buildings with live AI vehicles for collision checks
+  const allObstacles = [...world.obstacles, ...traffic.getCarObstacleBoxes()];
+
   if (isRiding) {
     const scooterInput: ScooterInput = {
       throttle: pressed.has('KeyW') || pressed.has('ArrowUp'),
@@ -239,13 +272,13 @@ function animate(now: number): void {
       steerRight: pressed.has('KeyD') || pressed.has('ArrowRight'),
       handbrake: pressed.has('Space'),
     };
-    scooterPhysics.step(dt, scooterInput, world.obstacles);
+    scooterPhysics.step(dt, scooterInput, allObstacles);
     playerCtrl.step(
       dt,
       { forward: 0, strafe: 0, sprint: false, jump: false },
       camController.onFootYaw,
       scooterPhysics.state,
-      world.obstacles
+      allObstacles
     );
   } else {
     // Allow ArrowLeft/ArrowRight to turn 1st-person head smoothly while walking
@@ -257,7 +290,7 @@ function animate(now: number): void {
       }
     }
 
-    scooterPhysics.step(dt, null, world.obstacles);
+    scooterPhysics.step(dt, null, allObstacles);
     const footInput: OnFootInput = {
       forward:
         (pressed.has('KeyW') || pressed.has('ArrowUp') ? 1 : 0) -
@@ -266,7 +299,7 @@ function animate(now: number): void {
       sprint: pressed.has('ShiftLeft') || pressed.has('ShiftRight'),
       jump: pressed.has('Space'),
     };
-    playerCtrl.step(dt, footInput, camController.onFootYaw, scooterPhysics.state, world.obstacles);
+    playerCtrl.step(dt, footInput, camController.onFootYaw, scooterPhysics.state, allObstacles);
   }
 
   // Update 3D beacon for active pickup or dropoff target
@@ -289,6 +322,8 @@ function animate(now: number): void {
     playerCtrl.state,
     scooterPhysics.state,
     delivery,
+    traffic.getCarSnapshots(),
+    traffic.signalState,
     world.isNight,
     audio.muted,
     elapsed,

@@ -123,6 +123,12 @@ export class DeliveryManager {
     return loss;
   }
 
+  public applyFine(amount: number): number {
+    const deducted = Math.min(this.totalEarnings, amount);
+    this.totalEarnings -= deducted;
+    return deducted;
+  }
+
   /**
    * Attempts pickup or dropoff interaction when player is on foot at target.
    */

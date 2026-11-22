@@ -2,6 +2,7 @@ import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { CityMapInfo } from '../world/CityWorld';
 import { DeliveryManager } from '../delivery/DeliveryManager';
+import { SignalStateSnapshot, TrafficCarSnapshot } from '../world/TrafficSystem';
 import { PhoneCallbacks, PhoneMap } from './PhoneMap';
 
 export class Hud {
@@ -56,6 +57,8 @@ export class Hud {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    trafficCars: TrafficCarSnapshot[],
+    signalState: SignalStateSnapshot,
     isNight: boolean,
     isMuted: boolean,
     elapsedTime: number,
@@ -131,6 +134,6 @@ export class Hud {
       this.indAudio.textContent = isMuted ? '음소거' : '사운드';
     }
 
-    this.phoneMap.update(player, scooter, delivery, isNight, elapsedTime, mapInfo);
+    this.phoneMap.update(player, scooter, delivery, trafficCars, signalState, isNight, elapsedTime, mapInfo);
   }
 }

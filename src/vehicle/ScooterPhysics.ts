@@ -133,6 +133,11 @@ export class ScooterPhysics {
     }
   }
 
+  public triggerExternalCrash(side: number): void {
+    if (!this.state.mounted || this.state.crashed) return;
+    this.triggerLowside(side);
+  }
+
   private triggerLowside(side: number): void {
     const s = this.state;
     const impactSpeed = Math.abs(s.speed);

@@ -2,6 +2,7 @@ import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { CityMapInfo } from '../world/CityWorld';
 import { DeliveryManager } from '../delivery/DeliveryManager';
+import { SignalStateSnapshot, TrafficCarSnapshot } from '../world/TrafficSystem';
 import { clamp } from '../types';
 
 export interface PhoneCallbacks {
@@ -106,6 +107,8 @@ export class PhoneMap {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    trafficCars: TrafficCarSnapshot[],
+    signalState: SignalStateSnapshot,
     isNight: boolean,
     elapsedTime: number,
     mapInfo: CityMapInfo
@@ -141,7 +144,7 @@ export class PhoneMap {
     this.camX += (targetX - this.camX) * 0.16;
     this.camZ += (targetZ - this.camZ) * 0.16;
 
-    this.renderMap(player, scooter, delivery, isNight, elapsedTime, mapInfo);
+    this.renderMap(player, scooter, delivery, trafficCars, signalState, isNight, elapsedTime, mapInfo);
   }
 
   private syncDeliverySheet(player: PlayerState, delivery: DeliveryManager): void {
@@ -246,6 +249,8 @@ export class PhoneMap {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    trafficCars: TrafficCarSnapshot[],
+    signalState: SignalStateSnapshot,
     isNight: boolean,
     elapsedTime: number,
     mapInfo: CityMapInfo
@@ -369,6 +374,42 @@ export class PhoneMap {
         ctx.fillStyle = theme.labelText;
         ctx.fillText(b.label, toX(b.x), toY(b.z));
       }
+    }
+
+    // 3.5. Live Traffic Signals & AI Vehicles on GPS Map
+    const sigHex = (c: 'green' | 'yellow' | 'red') =>
+      c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
+
+    for (const ix of mapInfo.roadLines) {
+      for (const iz of mapInfo.roadLines) {
+        const mx = toX(ix);
+        const my = toY(iz);
+        // Compact NS (vertical) & EW (horizontal) live signal dots at intersection center
+        ctx.fillStyle = sigHex(signalState.ns);
+        ctx.beginPath();
+        ctx.arc(mx, my - 2.6, 2.1, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = sigHex(signalState.ew);
+        ctx.beginPath();
+        ctx.arc(mx + 2.8, my, 2.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    for (const car of trafficCars) {
+      const cx = toX(car.x);
+      const cy = toY(car.z);
+      ctx.save();
+      ctx.translate(cx, cy);
+      // Match map orientation (+Z up, +X left -> rotate by -heading)
+      ctx.rotate(-car.heading);
+      ctx.fillStyle = car.color;
+      ctx.strokeStyle = isNight ? 'rgba(0,0,0,0.65)' : 'rgba(15,23,42,0.45)';
+      ctx.lineWidth = 0.9;
+      ctx.fillRect(-2.4, -4.2, 4.8, 8.4);
+      ctx.strokeRect(-2.4, -4.2, 4.8, 8.4);
+      ctx.restore();
     }
 
     // 4. Active Delivery GPS Navigation Route Line + Pulsing Destination Pin!
