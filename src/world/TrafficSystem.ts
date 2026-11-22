@@ -87,7 +87,7 @@ function isAxisNS(dir: CardinalDir): boolean {
 }
 
 export class TrafficSystem {
-  private readonly scene: THREE.Scene;
+  public readonly root = new THREE.Group();
   private readonly cars: AiCar[] = [];
 
   // Shared emissive materials for all 16 intersections (zero per-frame allocations!)
@@ -106,7 +106,7 @@ export class TrafficSystem {
   private violationCooldown = 0;
 
   constructor(scene: THREE.Scene) {
-    this.scene = scene;
+    scene.add(this.root);
 
     this.nsRedMat = new THREE.MeshStandardMaterial({ color: 0x3b0a0a, emissive: 0xef4444, emissiveIntensity: 0 });
     this.nsYellowMat = new THREE.MeshStandardMaterial({ color: 0x3b2c0a, emissive: 0xfacc15, emissiveIntensity: 0 });
@@ -188,7 +188,7 @@ export class TrafficSystem {
           grnLamp.position.set(3.6, 5.05, -0.15);
 
           g.add(redLamp, yelLamp, grnLamp);
-          this.scene.add(g);
+          this.root.add(g);
         }
       }
     }
@@ -344,7 +344,7 @@ export class TrafficSystem {
 
       group.position.set(x, 0, z);
       group.rotation.y = heading;
-      this.scene.add(group);
+      this.root.add(group);
 
       this.cars.push({
         mesh: group,

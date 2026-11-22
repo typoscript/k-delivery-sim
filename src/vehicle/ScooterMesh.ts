@@ -8,6 +8,9 @@ export class ScooterMesh {
   private readonly frontWheel: THREE.Object3D;
   private readonly rearWheel: THREE.Object3D;
   private readonly kickstandGroup = new THREE.Group();
+  private readonly cargoLidPivot = new THREE.Group();
+  private readonly cargoLoadedMat: THREE.MeshStandardMaterial;
+  private cargoLidTimer = 0;
   private readonly mountedPhone3D = new THREE.Group();
   public readonly mountedPhoneHitMesh: THREE.Mesh;
   public readonly riderMountPoint = new THREE.Group();
@@ -63,6 +66,11 @@ export class ScooterMesh {
       color: 0x14532d,
       emissive: 0x22c55e,
       emissiveIntensity: 0.08,
+    });
+    this.cargoLoadedMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      emissive: 0x10b981,
+      emissiveIntensity: 0,
     });
 
     // Setup real-time side mirror render targets (horizontally flipped for true reflection!)
@@ -153,9 +161,14 @@ export class ScooterMesh {
     deliveryBox.receiveShadow = true;
     this.bodyTiltGroup.add(deliveryBox);
 
+    // Hinged top lid pivot at front edge of delivery box (z = -0.10, y = 1.38)
+    this.cargoLidPivot.position.set(0, 1.38, -0.1);
     const boxLid = new THREE.Mesh(new THREE.BoxGeometry(0.59, 0.07, 0.55), darkMat);
-    boxLid.position.set(0, 1.4, -0.36);
-    this.bodyTiltGroup.add(boxLid);
+    boxLid.position.set(0, 0.02, -0.26);
+    const cargoStatusLed = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.035, 0.03), this.cargoLoadedMat);
+    cargoStatusLed.position.set(0, 0.02, -0.54);
+    this.cargoLidPivot.add(boxLid, cargoStatusLed);
+    this.bodyTiltGroup.add(this.cargoLidPivot);
 
     const reflectMat = new THREE.MeshStandardMaterial({
       color: 0xfef08a,
@@ -410,7 +423,26 @@ export class ScooterMesh {
     this.mountedPhone3D.visible = mounted;
   }
 
-  public sync(state: ScooterState, elapsedTime: number): void {
+  public triggerCargoBoxOpen(): void {
+    this.cargoLidTimer = 1.15;
+  }
+
+  public setCargoLoadedVisual(loaded: boolean): void {
+    this.cargoLoadedMat.emissiveIntensity = loaded ? 2.4 : 0;
+  }
+
+  public getCargoBoxWorldPosition(out: THREE.Vector3): THREE.Vector3 {
+    // Trigger spot right behind the rear delivery top-box
+    out.set(0, 0.8, -0.95);
+    return this.root.localToWorld(out);
+  }
+
+  public sync(state: ScooterState, elapsedTime: number, dt = 0.016): void {
+    if (this.cargoLidTimer > 0) {
+      this.cargoLidTimer = Math.max(0, this.cargoLidTimer - dt);
+    }
+    const targetLidRot = this.cargoLidTimer > 0 ? 1.15 : 0;
+    this.cargoLidPivot.rotation.x += (targetLidRot - this.cargoLidPivot.rotation.x) * Math.min(1, dt * 10);
     const fallenOffset = state.crashed ? 0.24 : 0;
     this.root.position.set(state.x, fallenOffset, state.z);
     this.root.rotation.y = state.heading;

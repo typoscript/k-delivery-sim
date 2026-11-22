@@ -19,6 +19,7 @@ export interface CityMapInfo {
 }
 
 export class CityWorld {
+  public readonly root = new THREE.Group();
   public readonly obstacles: ObstacleBox[] = [];
   public readonly zones: CityZoneMarker[] = [];
   public readonly buildings: MapBuildingFootprint[] = [];
@@ -30,6 +31,10 @@ export class CityWorld {
   private readonly hemiLight: THREE.HemisphereLight;
   private readonly lampGlowMat: THREE.MeshStandardMaterial;
   private readonly windowGlowMat: THREE.MeshStandardMaterial;
+  private readonly lobbyDoors = new Map<
+    string,
+    { leftDoor: THREE.Mesh; rightDoor: THREE.Mesh; open: boolean }
+  >();
 
   // 3D glowing waypoint beacon for active pickup / dropoff
   private readonly beaconGroup = new THREE.Group();
@@ -44,12 +49,13 @@ export class CityWorld {
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    scene.add(this.root);
 
     scene.background = new THREE.Color(0x93c5fd);
     scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0024);
 
     this.hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x475569, 0.9);
-    scene.add(this.hemiLight);
+    this.root.add(this.hemiLight);
 
     this.dirLight = new THREE.DirectionalLight(0xfff7e6, 1.5);
     this.dirLight.position.set(95, 150, 75);
@@ -63,7 +69,7 @@ export class CityWorld {
     this.dirLight.shadow.camera.top = d;
     this.dirLight.shadow.camera.bottom = -d;
     this.dirLight.shadow.bias = -0.0005;
-    scene.add(this.dirLight);
+    this.root.add(this.dirLight);
 
     this.lampGlowMat = new THREE.MeshStandardMaterial({
       color: 0xe2e8f0,
@@ -103,7 +109,7 @@ export class CityWorld {
     beam.position.y = 9.1;
     this.beaconGroup.add(this.beaconRing, beam);
     this.beaconGroup.visible = false;
-    this.scene.add(this.beaconGroup);
+    this.root.add(this.beaconGroup);
 
     this.mapInfo = {
       roadLines: this.roadCoords,
@@ -118,6 +124,7 @@ export class CityWorld {
     this.buildCityBlocks();
     this.buildStreetFurniture();
     this.initDeliveryLocations();
+    this.buildPickupWindowsAndLobbies();
   }
 
   private initDeliveryLocations(): void {
@@ -267,7 +274,7 @@ export class CityWorld {
     );
     grass.rotation.x = -Math.PI / 2;
     grass.receiveShadow = true;
-    this.scene.add(grass);
+    this.root.add(grass);
 
     // Subtle city boundary wall at ±192
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 });
@@ -281,7 +288,7 @@ export class CityWorld {
     for (const [x, z, w, l] of walls) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, l), wallMat);
       m.position.set(x, 0.7, z);
-      this.scene.add(m);
+      this.root.add(m);
     }
   }
 
@@ -304,13 +311,13 @@ export class CityWorld {
       hRoad.rotation.x = -Math.PI / 2;
       hRoad.position.set(0, 0.025, coord);
       hRoad.receiveShadow = true;
-      this.scene.add(hRoad);
+      this.root.add(hRoad);
 
       const vRoad = new THREE.Mesh(new THREE.PlaneGeometry(this.roadWidth, span), asphaltV);
       vRoad.rotation.x = -Math.PI / 2;
       vRoad.position.set(coord, 0.028, 0);
       vRoad.receiveShadow = true;
-      this.scene.add(vRoad);
+      this.root.add(vRoad);
 
       // Center yellow dashed markings between intersections
       for (let p = -140; p <= 140; p += 10) {
@@ -318,12 +325,12 @@ export class CityWorld {
         const dh = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.18), yellowMat);
         dh.rotation.x = -Math.PI / 2;
         dh.position.set(p, 0.04, coord);
-        this.scene.add(dh);
+        this.root.add(dh);
 
         const dv = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 4.2), yellowMat);
         dv.rotation.x = -Math.PI / 2;
         dv.position.set(coord, 0.04, p);
-        this.scene.add(dv);
+        this.root.add(dv);
       }
     }
 
@@ -335,12 +342,12 @@ export class CityWorld {
             const stripeH = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.7), whiteMat);
             stripeH.rotation.x = -Math.PI / 2;
             stripeH.position.set(rx + side * 8.8, 0.042, rz + s);
-            this.scene.add(stripeH);
+            this.root.add(stripeH);
 
             const stripeV = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 2.4), whiteMat);
             stripeV.rotation.x = -Math.PI / 2;
             stripeV.position.set(rx + s, 0.042, rz + side * 8.8);
-            this.scene.add(stripeV);
+            this.root.add(stripeV);
           }
         }
       }
@@ -429,7 +436,7 @@ export class CityWorld {
       group.add(sign, awning);
     }
 
-    this.scene.add(group);
+    this.root.add(group);
     this.obstacles.push({
       minX: x - w / 2,
       maxX: x + w / 2,
@@ -459,7 +466,7 @@ export class CityWorld {
         const pad = new THREE.Mesh(new THREE.BoxGeometry(65.5, 0.14, 65.5), sidewalkMat);
         pad.position.set(bx, 0.07, bz);
         pad.receiveShadow = true;
-        this.scene.add(pad);
+        this.root.add(pad);
       }
     }
 
@@ -471,7 +478,7 @@ export class CityWorld {
     parkGrass.rotation.x = -Math.PI / 2;
     parkGrass.position.set(0, 0.15, 0);
     parkGrass.receiveShadow = true;
-    this.scene.add(parkGrass);
+    this.root.add(parkGrass);
 
     const fountainBase = new THREE.Mesh(
       new THREE.CylinderGeometry(5.5, 6.0, 0.7, 20),
@@ -483,7 +490,7 @@ export class CityWorld {
       new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.15, metalness: 0.2 })
     );
     water.position.set(0, 0.48, 0);
-    this.scene.add(fountainBase, water);
+    this.root.add(fountainBase, water);
     this.obstacles.push({ minX: -5.8, maxX: 5.8, minZ: -5.8, maxZ: 5.8 });
 
     // 2. Main Restaurant / Cafe Strip — Block (-80, 0) RIGHT NEXT TO PLAYER SPAWN!
@@ -612,7 +619,7 @@ export class CityWorld {
         const lamp = new THREE.Mesh(lampGeo, this.lampGlowMat);
         lamp.position.y = 6.2;
         g.add(pole, lamp);
-        this.scene.add(g);
+        this.root.add(g);
       }
     }
 
@@ -656,15 +663,133 @@ export class CityWorld {
       dummy.updateMatrix();
       crowns.setMatrixAt(i, dummy.matrix);
     });
-    this.scene.add(trunks, crowns);
+    this.root.add(trunks, crowns);
   }
 
-  public toggleDayNight(): boolean {
-    this.isNight = !this.isNight;
+  /**
+   * Builds visible 3D Outdoor Pick-up Windows (for shops) and 1st-Floor Glass Lobby Entrances (for residences).
+   */
+  private buildPickupWindowsAndLobbies(): void {
+    const counterMat = new THREE.MeshStandardMaterial({
+      color: 0xcbd5e1,
+      roughness: 0.35,
+      metalness: 0.45,
+    });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 });
+    const screenMat = new THREE.MeshStandardMaterial({
+      color: 0x0ea5e9,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.9,
+    });
+    const glassDoorMat = new THREE.MeshStandardMaterial({
+      color: 0x7dd3fc,
+      roughness: 0.12,
+      metalness: 0.3,
+      transparent: true,
+      opacity: 0.46,
+    });
+    const pinPadMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      emissive: 0x22c55e,
+      emissiveIntensity: 0.55,
+    });
+
+    for (const loc of this.locations) {
+      // Determine which direction the entrance faces (+Z for N-facing shops/villas, -Z for S-facing)
+      const facesNorth =
+        loc.id === 'shop-burger' || loc.id === 'shop-pizza' || loc.id === 'res-villa-c';
+      const wallOffsetZ = facesNorth ? -2.9 : 2.9;
+
+      if (loc.type === 'shop') {
+        const g = new THREE.Group();
+        g.position.set(loc.x, 0.14, loc.z + wallOffsetZ);
+        if (!facesNorth) g.rotation.y = Math.PI;
+
+        // Outdoor pickup counter ledge right at storefront
+        const counter = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.05, 0.72), counterMat);
+        counter.position.set(0, 0.52, 0.36);
+        counter.castShadow = true;
+        g.add(counter);
+
+        // Warm lit pickup window frame above counter
+        const windowFrame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.2, 0.18), darkMat);
+        windowFrame.position.set(0, 1.65, 0.1);
+        g.add(windowFrame);
+
+        // POS Keypad terminal sitting on the outdoor pickup counter!
+        const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), darkMat);
+        posStand.position.set(0.85, 1.18, 0.45);
+        posStand.rotation.x = -0.35;
+        const posScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.22), screenMat);
+        posScreen.position.set(0.85, 1.21, 0.58);
+        posScreen.rotation.x = -0.35;
+        g.add(posStand, posScreen);
+
+        this.root.add(g);
+      } else {
+        // 1st-Floor Apartment Glass Entrance Door + PIN Intercom + Lobby Elevator preview
+        const g = new THREE.Group();
+        g.position.set(loc.x, 0.14, loc.z + wallOffsetZ);
+        if (!facesNorth) g.rotation.y = Math.PI;
+
+        const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.75, 0.45), darkMat);
+        archFrame.position.set(0, 1.38, 0.2);
+        const innerCut = new THREE.Mesh(
+          new THREE.BoxGeometry(2.5, 2.45, 0.48),
+          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
+        );
+        innerCut.position.set(0, 1.24, 0.18);
+        g.add(archFrame, innerCut);
+
+        // Left & right sliding glass doors
+        const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.38, 0.08), glassDoorMat);
+        leftDoor.position.set(-0.6, 1.2, 0.46);
+        const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.38, 0.08), glassDoorMat);
+        rightDoor.position.set(0.6, 1.2, 0.46);
+        g.add(leftDoor, rightDoor);
+
+        // 4-Digit PIN Intercom Keypad beside the glass door
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.08), pinPadMat);
+        pad.position.set(1.42, 1.32, 0.46);
+        g.add(pad);
+
+        this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: false });
+        this.root.add(g);
+      }
+    }
+  }
+
+  public setLobbyDoorOpen(locationId: string | null): void {
+    for (const [id, entry] of this.lobbyDoors.entries()) {
+      entry.open = locationId === id;
+    }
+  }
+
+  public updateLobbyDoors(dt: number): void {
+    const step = Math.min(1, dt * 6);
+    for (const entry of this.lobbyDoors.values()) {
+      const targetL = entry.open ? -1.45 : -0.6;
+      const targetR = entry.open ? 1.45 : 0.6;
+      entry.leftDoor.position.x += (targetL - entry.leftDoor.position.x) * step;
+      entry.rightDoor.position.x += (targetR - entry.rightDoor.position.x) * step;
+    }
+  }
+
+  /** Occlusion toggle: hides entire outdoor city + fog when inside the underground corridor! */
+  public setOutdoorVisible(visible: boolean): void {
+    this.root.visible = visible;
+    if (!visible) {
+      this.scene.background = new THREE.Color(0x11151c);
+      this.scene.fog = null;
+    } else {
+      this.applySkyTheme();
+    }
+  }
+
+  private applySkyTheme(): void {
     if (this.isNight) {
       this.scene.background = new THREE.Color(0x0b1220);
-      (this.scene.fog as THREE.FogExp2).color.setHex(0x0b1220);
-      (this.scene.fog as THREE.FogExp2).density = 0.004;
+      this.scene.fog = new THREE.FogExp2(0x0b1220, 0.004);
       this.dirLight.intensity = 0.25;
       this.dirLight.color.setHex(0x8aa8d6);
       this.hemiLight.intensity = 0.28;
@@ -672,13 +797,19 @@ export class CityWorld {
       this.windowGlowMat.emissiveIntensity = 1.1;
     } else {
       this.scene.background = new THREE.Color(0x93c5fd);
-      (this.scene.fog as THREE.FogExp2).color.setHex(0xa5d4fb);
-      (this.scene.fog as THREE.FogExp2).density = 0.0024;
+      this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0024);
       this.dirLight.intensity = 1.5;
       this.dirLight.color.setHex(0xfff7e6);
       this.hemiLight.intensity = 0.9;
       this.lampGlowMat.emissiveIntensity = 0.2;
       this.windowGlowMat.emissiveIntensity = 0.12;
+    }
+  }
+
+  public toggleDayNight(): boolean {
+    this.isNight = !this.isNight;
+    if (this.root.visible) {
+      this.applySkyTheme();
     }
     return this.isNight;
   }

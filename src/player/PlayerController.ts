@@ -10,6 +10,8 @@ export interface OnFootInput {
 
 export interface PlayerState {
   mode: 'on_foot' | 'riding' | 'knockdown';
+  inCorridor: boolean;
+  baseY: number; // 0 outdoors, -500 inside underground corridor
   x: number;
   y: number;
   z: number;
@@ -49,6 +51,8 @@ export class PlayerController {
   private createInitialState(): PlayerState {
     return {
       mode: 'on_foot',
+      inCorridor: false,
+      baseY: 0,
       x: this.spawnX,
       y: 0,
       z: this.spawnZ,
@@ -96,12 +100,33 @@ export class PlayerController {
     p.tumbleVz = fwdZ * slideMag + leftZ * sideDir * 2.4;
   }
 
+  public teleportTo(x: number, baseY: number, z: number, heading: number, inCorridor: boolean): void {
+    const p = this.state;
+    p.mode = 'on_foot';
+    p.inCorridor = inCorridor;
+    p.baseY = baseY;
+    p.x = x;
+    p.y = baseY;
+    p.z = z;
+    p.vy = 0;
+    p.heading = heading;
+    p.moveSpeed = 0;
+    p.grounded = true;
+    p.knockdownTimer = 0;
+    p.knockdownRoll = 0;
+  }
+
   public tryToggleMount(
     scooter: ScooterState,
     setScooterMounted: (mounted: boolean) => void,
-    obstacles: ObstacleBox[]
+    obstacles: ObstacleBox[],
+    isCarryingFood: boolean
   ): { changed: boolean; message: string } {
     const p = this.state;
+
+    if (p.inCorridor) {
+      return { changed: false, message: '실내 복도에서는 오토바이를 탈 수 없습니다' };
+    }
 
     if (p.mode === 'knockdown') {
       return { changed: false, message: '일어나는 중...' };
@@ -111,6 +136,12 @@ export class PlayerController {
       const dist = Math.hypot(p.x - scooter.x, p.z - scooter.z);
       if (dist > MOUNT_DISTANCE) {
         return { changed: false, message: '오토바이 가까이 가서 [F]를 누르세요' };
+      }
+      if (isCarryingFood) {
+        return {
+          changed: false,
+          message: '🚫 음식을 손에 든 채로는 운전할 수 없습니다! 뒤편 배달통에서 [E]로 적재하세요',
+        };
       }
       const wasFallen = scooter.crashed;
       p.mode = 'riding';
@@ -172,7 +203,8 @@ export class PlayerController {
     input: OnFootInput,
     cameraYaw: number,
     scooter: ScooterState,
-    obstacles: ObstacleBox[]
+    obstacles: ObstacleBox[],
+    corridorClamp?: (x: number, z: number) => [number, number]
   ): void {
     const p = this.state;
     const clampedDt = Math.min(dt, 0.05);
@@ -259,20 +291,26 @@ export class PlayerController {
       const nx = p.x + dirX * p.moveSpeed * clampedDt;
       const nz = p.z + dirZ * p.moveSpeed * clampedDt;
 
-      const hitsScooter = (tx: number, tz: number) =>
-        Math.hypot(tx - scooter.x, tz - scooter.z) < SCOOTER_SPECS.radius + PLAYER_RADIUS * 0.55;
+      if (p.inCorridor && corridorClamp) {
+        const [cx, cz] = corridorClamp(nx, nz);
+        p.x = cx;
+        p.z = cz;
+      } else {
+        const hitsScooter = (tx: number, tz: number) =>
+          Math.hypot(tx - scooter.x, tz - scooter.z) < SCOOTER_SPECS.radius + PLAYER_RADIUS * 0.55;
 
-      if (!collidesWithWorld(nx, p.z, PLAYER_RADIUS, obstacles) && !hitsScooter(nx, p.z)) {
-        p.x = nx;
-      }
-      if (!collidesWithWorld(p.x, nz, PLAYER_RADIUS, obstacles) && !hitsScooter(p.x, nz)) {
-        p.z = nz;
+        if (!collidesWithWorld(nx, p.z, PLAYER_RADIUS, obstacles) && !hitsScooter(nx, p.z)) {
+          p.x = nx;
+        }
+        if (!collidesWithWorld(p.x, nz, PLAYER_RADIUS, obstacles) && !hitsScooter(p.x, nz)) {
+          p.z = nz;
+        }
       }
 
       p.walkCycle += p.moveSpeed * clampedDt * 2.1;
     }
 
-    // Jump & gravity
+    // Jump & gravity relative to current floor level (0 outdoors, -500 inside corridor)
     if (input.jump && p.grounded) {
       p.vy = JUMP_VEL;
       p.grounded = false;
@@ -280,14 +318,21 @@ export class PlayerController {
     if (!p.grounded) {
       p.vy -= GRAVITY * clampedDt;
       p.y += p.vy * clampedDt;
-      if (p.y <= 0) {
-        p.y = 0;
+      if (p.y <= p.baseY) {
+        p.y = p.baseY;
         p.vy = 0;
         p.grounded = true;
       }
+    } else {
+      p.y = p.baseY;
     }
 
-    p.distanceToScooter = Math.hypot(p.x - scooter.x, p.z - scooter.z);
-    p.canMountScooter = p.distanceToScooter <= MOUNT_DISTANCE;
+    if (p.inCorridor) {
+      p.distanceToScooter = 999;
+      p.canMountScooter = false;
+    } else {
+      p.distanceToScooter = Math.hypot(p.x - scooter.x, p.z - scooter.z);
+      p.canMountScooter = p.distanceToScooter <= MOUNT_DISTANCE;
+    }
   }
 }

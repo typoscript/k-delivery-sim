@@ -21,15 +21,17 @@
 - **기술 스택:** TypeScript, Three.js, Vite, Web Audio API (별도 백엔드 없음 — 정적 웹 배포)
 
 ### 핵심 아키텍처
-- `src/main.ts` — 게임 루프, 키 입력, 시스템 통합
-- `src/world/CityWorld.ts` — 3×3 도시 블록(상가 거리, 주거지 아파트/빌라, 중앙 공원), 3D 픽업/배달 비콘
+- `src/main.ts` — 게임 루프, 키 입력, 야외↔복도 오클루전 씬 전환 및 시스템 통합
+- `src/world/CityWorld.ts` — 3×3 도시 블록(상가 야외 픽업대, 아파트 1층 공동현관 유리문, 중앙 공원), 3D 픽업/배달 비콘, 외부 렌더링 토글(`setOutdoorVisible`)
+- `src/world/CorridorRoom.ts` — 지하 독립 좌표(`y = -500`) 모듈형 아파트 실내 복도 프리팹(호수 팻말, 발매트 음식 배치, 엘리베이터 복귀)
 - `src/world/TrafficSystem.ts` — 교차로 3색 신호등 주기, AI 교통 차량 주행·정지·회전·충돌 및 신호 위반 판정
-- `src/player/PlayerController.ts` & `PlayerMesh.ts` — 1인칭 도보 이동, 점프, GTA식 `[F]` 승하차, 전도 기상 회복
-- `src/vehicle/ScooterPhysics.ts` & `ScooterMesh.ts` — 배달 스쿠터 물리, 코너링 2차 기울기(Lean) & 타이어 접지 한계 슬립 전도
+- `src/player/PlayerController.ts` & `PlayerMesh.ts` — 1인칭 도보 이동, 점프, GTA식 `[F]` 승하차(음식 휴대 시 운전 차단), 전도 기상 회복
+- `src/player/HandheldPhone3D.ts` & `HandheldFoodBag3D.ts` — 1인칭 3D 오른손 스마트폰 & 왼손 음식 포장 봉투 메시
+- `src/vehicle/ScooterPhysics.ts` & `ScooterMesh.ts` — 배달 스쿠터 물리, 코너링 2차 기울기(Lean) & 전도, 실시간 좌/우 사이드미러, 배달통(탑박스) 뚜껑 애니메이션
 - `src/camera/CameraController.ts` — 항상 1인칭 시점 (도보 눈높이, 라이딩 핸들바 시점 + 코너 호라이즌 롤, 전도 연출)
-- `src/delivery/DeliveryManager.ts` — 배달 콜 생성, 픽업/배달 상태 머신, 음식 상태(%) 및 수익 정산
-- `src/ui/PhoneMap.ts` & `Hud.ts` — 거치대 스마트폰 풀스크린 GPS 지도, 배달앱 UI, 속도·기울기 계기판
-- `src/audio/GameAudio.ts` — Web Audio API 프로시저럴 사운드 (엔진, 타이어 스키드, 충돌, 경적, 효과음)
+- `src/delivery/DeliveryManager.ts` — 7단계 배달 상태 머신(주문번호/호수/공동현관 PIN 생성, 음식 상태, 수익 정산)
+- `src/ui/PhoneMap.ts`, `Hud.ts`, `ModalUi.ts` — 3D/확대 스마트폰 GPS 지도, POS/공동현관 키패드, 카메라 뷰파인더, 정산 팝업, 2초 엘리베이터 페이드 전환
+- `src/audio/GameAudio.ts` — Web Audio API 프로시저럴 사운드 (엔진, 스키드, 충돌, 경적, 키패드, 배달통, 엘리베이터, 셔터음)
 
 ---
 

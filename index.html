@@ -131,6 +131,113 @@
           <span id="ind-right" class="ind ind-blink">우 (E) ▶</span>
         </div>
       </div>
+
+      <!-- 1. Outdoor Store POS Order-Number Keypad Modal -->
+      <div id="pos-modal" class="modal-backdrop hidden">
+        <div class="keypad-card pos-card">
+          <div class="keypad-header">
+            <span id="pos-shop-title">🍗 황금 치킨 야외 픽업 POS</span>
+            <button class="keypad-close" data-key="close">✕</button>
+          </div>
+          <div id="pos-order-hint" class="keypad-hint">내 주문번호: A-12</div>
+          <div id="pos-display" class="keypad-display placeholder">주문번호 입력</div>
+          <div id="pos-error" class="keypad-error hidden">주문번호 불일치</div>
+          <div class="pos-prefix-row">
+            <button class="kp-btn prefix" data-key="A">A</button>
+            <button class="kp-btn prefix" data-key="B">B</button>
+            <button class="kp-btn prefix" data-key="C">C</button>
+            <button class="kp-btn prefix" data-key="-">-</button>
+          </div>
+          <div class="keypad-grid">
+            <button class="kp-btn" data-key="1">1</button>
+            <button class="kp-btn" data-key="2">2</button>
+            <button class="kp-btn" data-key="3">3</button>
+            <button class="kp-btn" data-key="4">4</button>
+            <button class="kp-btn" data-key="5">5</button>
+            <button class="kp-btn" data-key="6">6</button>
+            <button class="kp-btn" data-key="7">7</button>
+            <button class="kp-btn" data-key="8">8</button>
+            <button class="kp-btn" data-key="9">9</button>
+            <button class="kp-btn warn" data-key="back">⌫</button>
+            <button class="kp-btn" data-key="0">0</button>
+            <button class="kp-btn ok" data-key="enter">확인</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. 1st-Floor Apartment Entrance 4-Digit PIN Modal -->
+      <div id="pin-modal" class="modal-backdrop hidden">
+        <div class="keypad-card pin-card">
+          <div class="keypad-header">
+            <span id="pin-building-title">🏢 아파트 공동현관</span>
+            <button class="keypad-close" data-key="close">✕</button>
+          </div>
+          <div id="pin-code-hint" class="keypad-hint">고객 메모 PIN: 4829</div>
+          <div id="pin-display" class="keypad-display mono">----</div>
+          <div id="pin-error" class="keypad-error hidden">비밀번호 불일치</div>
+          <div class="keypad-grid">
+            <button class="kp-btn" data-key="1">1</button>
+            <button class="kp-btn" data-key="2">2</button>
+            <button class="kp-btn" data-key="3">3</button>
+            <button class="kp-btn" data-key="4">4</button>
+            <button class="kp-btn" data-key="5">5</button>
+            <button class="kp-btn" data-key="6">6</button>
+            <button class="kp-btn" data-key="7">7</button>
+            <button class="kp-btn" data-key="8">8</button>
+            <button class="kp-btn" data-key="9">9</button>
+            <button class="kp-btn warn" data-key="back">⌫</button>
+            <button class="kp-btn" data-key="0">0</button>
+            <button class="kp-btn ok" data-key="enter">열기</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Smartphone Delivery Proof Camera Viewfinder Overlay -->
+      <div id="camera-viewfinder" class="camera-viewfinder hidden">
+        <div class="vf-top">
+          <span class="vf-badge">📸 배달 완료 인증 카메라</span>
+          <span id="camera-stamp" class="vf-stamp">1402호 · 17:35</span>
+        </div>
+        <div class="vf-frame">
+          <span class="vf-corner tl"></span>
+          <span class="vf-corner tr"></span>
+          <span class="vf-corner bl"></span>
+          <span class="vf-corner br"></span>
+          <div class="vf-crosshair"></div>
+          <div class="vf-guide-text">발매트 위 음식 봉투를 비추고 촬영하세요</div>
+        </div>
+        <div class="vf-bottom">
+          <button id="camera-shutter-btn" class="shutter-btn" title="사진 촬영 (Space)">
+            <span class="shutter-inner"></span>
+          </button>
+          <div class="vf-key-hint"><kbd>Space</kbd> 또는 셔터 버튼으로 배달 완료 촬영</div>
+        </div>
+      </div>
+      <div id="camera-flash" class="camera-flash hidden"></div>
+
+      <!-- 4. Delivery Completion Settlement Popup -->
+      <div id="settlement-modal" class="modal-backdrop hidden">
+        <div class="settlement-card">
+          <div class="st-title">🎉 배달 완료 & 정산</div>
+          <div id="settlement-route" class="st-route">황금 치킨 → 햇살 101동 1402호</div>
+          <div class="st-photo-wrap">
+            <img id="settlement-photo" alt="배달 완료 인증 사진" />
+            <span class="st-photo-badge">✓ 문 앞 배달 인증 완료</span>
+          </div>
+          <div id="settlement-breakdown" class="st-breakdown"></div>
+          <div class="st-total-row">
+            <span>최종 정산 금액</span>
+            <span id="settlement-total" class="st-total">+₩4,800</span>
+          </div>
+          <div id="settlement-cumul" class="st-cumul">오늘 누적 수익 ₩4,800 (1건 완료)</div>
+          <button id="settlement-ok-btn" class="st-ok-btn">확인 (엘리베이터로 복귀)</button>
+        </div>
+      </div>
+
+      <!-- 5. 2-Second Elevator Black Fade Overlay -->
+      <div id="fade-overlay" class="fade-overlay hidden">
+        <div id="fade-caption" class="fade-caption">🛗 이동 중...</div>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

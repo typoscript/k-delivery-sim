@@ -2,20 +2,41 @@ import { DeliveryLocation } from '../types';
 
 export interface DeliveryOrder {
   id: string;
+  orderNumber: string; // e.g., "A-12", "B-45", "77"
   shop: DeliveryLocation;
   customer: DeliveryLocation;
+  unitNumber: string; // e.g., "1402호"
+  doorPin: string; // 4-digit apartment entrance PIN, e.g., "4829"
   menuName: string;
   baseFee: number;
   distanceMeters: number;
 }
 
-export type MissionPhase = 'idle' | 'pickup' | 'dropoff';
+export type MissionPhase =
+  | 'to_pickup' // Go to outdoor store pickup counter & enter order number on POS
+  | 'carrying_to_box' // Food bag in hand (CARRYING_FOOD, cannot drive!) -> load into scooter rear cargo box
+  | 'cargo_loaded' // Food inside scooter cargo box (CARGO_LOADED) -> ride to residence & unload from box
+  | 'carrying_to_lobby' // Food bag back in hand -> enter 4-digit PIN at 1st-floor glass door
+  | 'lobby_unlocked' // 1st-floor glass door open -> step to elevator to ride up to corridor
+  | 'in_corridor' // Inside underground corridor (y=-500) -> place food on target unit doormat
+  | 'photo_mode' // Food placed on mat -> smartphone camera viewfinder open -> capture delivery proof photo
+  | 'corridor_exit'; // Delivery settled! Walk back to corridor elevator to return to 1st floor
 
 export interface ActiveMission {
   order: DeliveryOrder;
   phase: MissionPhase;
-  foodIntegrity: number; // 0..100 (drops if rider crashes while carrying food!)
+  foodIntegrity: number; // 0..100
   startedAt: number;
+}
+
+export interface SettlementResult {
+  order: DeliveryOrder;
+  baseFee: number;
+  foodIntegrity: number;
+  tip: number;
+  earned: number;
+  totalEarnings: number;
+  completedCount: number;
 }
 
 export interface RoutePoint {
@@ -24,7 +45,7 @@ export interface RoutePoint {
 }
 
 const ROAD_LINES = [-120, -40, 40, 120];
-export const INTERACT_ZONE_RADIUS = 4.2;
+export const INTERACT_ZONE_RADIUS = 3.6;
 
 export class DeliveryManager {
   public availableOrders: DeliveryOrder[] = [];
@@ -40,6 +61,27 @@ export class DeliveryManager {
     this.shops = locations.filter((l) => l.type === 'shop');
     this.residences = locations.filter((l) => l.type === 'residential');
     this.refreshAvailableOrders();
+  }
+
+  private generateOrderNumber(): string {
+    const prefixes = ['A-', 'B-', 'C-', ''];
+    const p = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const num = 10 + Math.floor(Math.random() * 89);
+    return `${p}${num}`;
+  }
+
+  private generateUnitNumber(): string {
+    const floor = 3 + Math.floor(Math.random() * 14); // 3F ~ 16F
+    const unit = 1 + Math.floor(Math.random() * 4); // 01 ~ 04
+    return `${floor}0${unit}호`;
+  }
+
+  private generateDoorPin(): string {
+    let pin = '';
+    for (let i = 0; i < 4; i++) {
+      pin += String(Math.floor(Math.random() * 10));
+    }
+    return pin;
   }
 
   public refreshAvailableOrders(): void {
@@ -59,12 +101,15 @@ export class DeliveryManager {
       const menuName = menus[Math.floor(Math.random() * menus.length)];
       const manhattan = Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z);
       const distanceMeters = Math.round(manhattan);
-      const baseFee = Math.round((3000 + distanceMeters * 11) / 100) * 100;
+      const baseFee = Math.round((3200 + distanceMeters * 12) / 100) * 100;
 
       orders.push({
         id: `ORD-${this.orderSeq++}`,
+        orderNumber: this.generateOrderNumber(),
         shop,
         customer,
+        unitNumber: this.generateUnitNumber(),
+        doorPin: this.generateDoorPin(),
         menuName,
         baseFee,
         distanceMeters,
@@ -81,7 +126,7 @@ export class DeliveryManager {
 
     this.activeMission = {
       order: found,
-      phase: 'pickup',
+      phase: 'to_pickup',
       foodIntegrity: 100,
       startedAt: performance.now(),
     };
@@ -96,26 +141,121 @@ export class DeliveryManager {
     }
   }
 
-  public getCurrentTarget(): DeliveryLocation | null {
-    if (!this.activeMission) return null;
-    return this.activeMission.phase === 'pickup'
-      ? this.activeMission.order.shop
-      : this.activeMission.order.customer;
+  public isCarryingFood(): boolean {
+    if (!this.activeMission) return false;
+    const p = this.activeMission.phase;
+    return (
+      p === 'carrying_to_box' ||
+      p === 'carrying_to_lobby' ||
+      p === 'lobby_unlocked' ||
+      p === 'in_corridor'
+    );
   }
 
-  public getDistanceToTarget(x: number, z: number): number | null {
-    const target = this.getCurrentTarget();
+  public isCargoLoaded(): boolean {
+    return this.activeMission?.phase === 'cargo_loaded';
+  }
+
+  public completePosPickup(): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'to_pickup') return false;
+    this.activeMission.phase = 'carrying_to_box';
+    return true;
+  }
+
+  public loadFoodIntoCargoBox(): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'carrying_to_box') return false;
+    this.activeMission.phase = 'cargo_loaded';
+    return true;
+  }
+
+  public unloadFoodFromCargoBox(): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'cargo_loaded') return false;
+    this.activeMission.phase = 'carrying_to_lobby';
+    return true;
+  }
+
+  public unlockLobbyDoor(): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'carrying_to_lobby') return false;
+    this.activeMission.phase = 'lobby_unlocked';
+    return true;
+  }
+
+  public enterCorridor(): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'lobby_unlocked') return false;
+    this.activeMission.phase = 'in_corridor';
+    return true;
+  }
+
+  public placeFoodAtDoor(): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'in_corridor') return false;
+    this.activeMission.phase = 'photo_mode';
+    return true;
+  }
+
+  /** Called when the player presses shutter in smartphone camera viewfinder! */
+  public completePhotoSettlement(): SettlementResult | null {
+    if (!this.activeMission || this.activeMission.phase !== 'photo_mode') return null;
+
+    const m = this.activeMission;
+    const integrityFactor = m.foodIntegrity / 100;
+    const tip = m.foodIntegrity >= 95 ? 500 : 0;
+    const earned = Math.round((m.order.baseFee * integrityFactor + tip) / 100) * 100;
+
+    this.totalEarnings += earned;
+    this.completedCount += 1;
+
+    const result: SettlementResult = {
+      order: m.order,
+      baseFee: m.order.baseFee,
+      foodIntegrity: m.foodIntegrity,
+      tip,
+      earned,
+      totalEarnings: this.totalEarnings,
+      completedCount: this.completedCount,
+    };
+
+    // Stay in corridor until player takes the elevator back down!
+    this.activeMission.phase = 'corridor_exit';
+    return result;
+  }
+
+  public finishAfterCorridorExit(): void {
+    this.activeMission = null;
+    this.refreshAvailableOrders();
+  }
+
+  public getCurrentOutdoorTarget(): DeliveryLocation | null {
+    if (!this.activeMission) return null;
+    const p = this.activeMission.phase;
+    if (p === 'to_pickup') return this.activeMission.order.shop;
+    if (p === 'cargo_loaded' || p === 'carrying_to_lobby' || p === 'lobby_unlocked') {
+      return this.activeMission.order.customer;
+    }
+    return null;
+  }
+
+  public getDistanceToOutdoorTarget(x: number, z: number): number | null {
+    const target = this.getCurrentOutdoorTarget();
     if (!target) return null;
     return Math.hypot(x - target.x, z - target.z);
   }
 
-  public isInsideTargetZone(x: number, z: number): boolean {
-    const d = this.getDistanceToTarget(x, z);
-    return d !== null && d <= INTERACT_ZONE_RADIUS;
+  public isNearShopPickup(x: number, z: number): boolean {
+    if (!this.activeMission || this.activeMission.phase !== 'to_pickup') return false;
+    const s = this.activeMission.order.shop;
+    return Math.hypot(x - s.x, z - s.z) <= INTERACT_ZONE_RADIUS;
+  }
+
+  public isNearCustomerLobby(x: number, z: number): boolean {
+    if (!this.activeMission) return false;
+    const p = this.activeMission.phase;
+    if (p !== 'carrying_to_lobby' && p !== 'lobby_unlocked') return false;
+    const c = this.activeMission.order.customer;
+    return Math.hypot(x - c.x, z - c.z) <= INTERACT_ZONE_RADIUS;
   }
 
   public applyCrashDamage(): number {
-    if (!this.activeMission || this.activeMission.phase !== 'dropoff') {
+    if (!this.activeMission || this.activeMission.phase !== 'cargo_loaded') {
       return 0;
     }
     const loss = 28;
@@ -129,61 +269,8 @@ export class DeliveryManager {
     return deducted;
   }
 
-  /**
-   * Attempts pickup or dropoff interaction when player is on foot at target.
-   */
-  public tryInteract(
-    playerX: number,
-    playerZ: number,
-    isRiding: boolean
-  ): { ok: boolean; event?: 'pickup' | 'complete'; message: string; earned?: number } {
-    if (!this.activeMission) {
-      return { ok: false, message: '진행 중인 배달이 없습니다 (스마트폰에서 콜을 수락하세요)' };
-    }
-
-    if (!this.isInsideTargetZone(playerX, playerZ)) {
-      return { ok: false, message: '표시된 구역 안으로 더 가까이 이동하세요' };
-    }
-
-    if (isRiding) {
-      return { ok: false, message: '먼저 [F]로 오토바이에서 내린 뒤 진행하세요!' };
-    }
-
-    if (this.activeMission.phase === 'pickup') {
-      this.activeMission.phase = 'dropoff';
-      const o = this.activeMission.order;
-      return {
-        ok: true,
-        event: 'pickup',
-        message: `${o.shop.emoji} ${o.menuName} 픽업 완료! → ${o.customer.name}으로 배달하세요`,
-      };
-    }
-
-    // Complete delivery!
-    const m = this.activeMission;
-    const integrityFactor = m.foodIntegrity / 100;
-    const tip = m.foodIntegrity >= 95 ? 500 : 0;
-    const earned = Math.round((m.order.baseFee * integrityFactor + tip) / 100) * 100;
-
-    this.totalEarnings += earned;
-    this.completedCount += 1;
-    this.activeMission = null;
-    this.refreshAvailableOrders();
-
-    const tipText = tip > 0 ? ' (안전배달 팁 +₩500!)' : m.foodIntegrity < 80 ? ' (음식 파손 감액)' : '';
-    return {
-      ok: true,
-      event: 'complete',
-      earned,
-      message: `🎉 배달 완료! +₩${earned.toLocaleString()}${tipText}`,
-    };
-  }
-
-  /**
-   * Computes a clean street-snapped GPS route polyline from current position to target.
-   */
   public computeRoute(fromX: number, fromZ: number): RoutePoint[] {
-    const target = this.getCurrentTarget();
+    const target = this.getCurrentOutdoorTarget();
     if (!target) return [];
 
     const snapRoad = (v: number) => {
@@ -199,22 +286,16 @@ export class DeliveryManager {
       return best;
     };
 
-    const startRoadX = snapRoad(fromX);
     const startRoadZ = snapRoad(fromZ);
     const endRoadX = snapRoad(target.x);
     const endRoadZ = snapRoad(target.z);
 
-    // Choose shorter road-snapped L-path
     const pts: RoutePoint[] = [{ x: fromX, z: fromZ }];
-    const dx = Math.abs(fromX - target.x);
-    const dz = Math.abs(fromZ - target.z);
-
-    if (dx + dz < 28) {
+    if (Math.abs(fromX - target.x) + Math.abs(fromZ - target.z) < 28) {
       pts.push({ x: target.x, z: target.z });
       return pts;
     }
 
-    // Snap onto nearest horizontal street, travel X, then travel Z along nearest vertical street
     pts.push({ x: fromX, z: startRoadZ });
     pts.push({ x: endRoadX, z: startRoadZ });
     if (endRoadZ !== startRoadZ) {
@@ -225,16 +306,12 @@ export class DeliveryManager {
     }
     pts.push({ x: target.x, z: target.z });
 
-    // Remove redundant close consecutive points
     const cleaned: RoutePoint[] = [pts[0]];
     for (let i = 1; i < pts.length; i++) {
       const prev = cleaned[cleaned.length - 1];
       if (Math.hypot(pts[i].x - prev.x, pts[i].z - prev.z) > 2) {
         cleaned.push(pts[i]);
       }
-    }
-    if (startRoadX !== endRoadX && cleaned.length < 3) {
-      cleaned.splice(1, 0, { x: startRoadX, z: endRoadZ });
     }
     return cleaned;
   }

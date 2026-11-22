@@ -1011,6 +1011,447 @@ kbd {
   display: none !important;
 }
 
+/* ======================== Order Codes, POS / PIN Keypads, Camera & Settlement ======================== */
+.ord-tag {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(234, 88, 12, 0.16);
+  color: #ea580c;
+  margin-left: 3px;
+}
+
+.order-codes-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 10.5px;
+  color: #475569;
+}
+
+.phone-device.night .order-codes-row {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+}
+
+.order-codes-row b {
+  color: #0d9488;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 13, 22, 0.62);
+  backdrop-filter: blur(5px);
+  pointer-events: auto;
+}
+
+.keypad-card {
+  width: 310px;
+  padding: 18px;
+  border-radius: 20px;
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+  color: #f8fafc;
+}
+
+.keypad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.keypad-close {
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.keypad-hint {
+  font-size: 12px;
+  color: #5eead4;
+  background: rgba(20, 184, 166, 0.14);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 9px;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.keypad-display {
+  height: 52px;
+  border-radius: 12px;
+  background: #090d16;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #38bdf8;
+  margin-bottom: 10px;
+}
+
+.keypad-display.placeholder {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.keypad-display.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #4ade80;
+}
+
+.keypad-error {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fca5a5;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.pos-prefix-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.kp-btn {
+  height: 46px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.kp-btn:hover {
+  background: #334155;
+}
+
+.kp-btn.prefix {
+  height: 38px;
+  font-size: 15px;
+  background: #172554;
+  color: #93c5fd;
+}
+
+.kp-btn.warn {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.kp-btn.ok {
+  background: #0d9488;
+  color: #ffffff;
+}
+
+/* Smartphone Camera Viewfinder Overlay */
+.camera-viewfinder {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px 32px 28px;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 58%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+.vf-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vf-badge {
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.vf-stamp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fef08a;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 5px 12px;
+  border-radius: 8px;
+}
+
+.vf-frame {
+  position: relative;
+  width: min(560px, 78vw);
+  height: min(360px, 52vh);
+  margin: 0 auto;
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+}
+
+.vf-corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-color: #ffffff;
+  border-style: solid;
+}
+
+.vf-corner.tl { top: -2px; left: -2px; border-width: 4px 0 0 4px; }
+.vf-corner.tr { top: -2px; right: -2px; border-width: 4px 4px 0 0; }
+.vf-corner.bl { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; }
+.vf-corner.br { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; }
+
+.vf-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(250, 204, 21, 0.85);
+  border-radius: 50%;
+}
+
+.vf-guide-text {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.vf-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.shutter-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 4px solid #ffffff;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.shutter-inner {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.1s ease;
+}
+
+.shutter-btn:active .shutter-inner {
+  transform: scale(0.88);
+}
+
+.vf-key-hint {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+.camera-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+}
+
+.camera-flash.flash {
+  opacity: 0.92;
+}
+
+/* Delivery Settlement Popup */
+.settlement-card {
+  width: min(390px, 92vw);
+  padding: 20px;
+  border-radius: 22px;
+  background: #0f172a;
+  border: 1px solid rgba(45, 212, 191, 0.45);
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.st-title {
+  font-size: 19px;
+  font-weight: 800;
+  text-align: center;
+  color: #5eead4;
+}
+
+.st-route {
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  color: #cbd5e1;
+}
+
+.st-photo-wrap {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  aspect-ratio: 16 / 10;
+  background: #020617;
+}
+
+.st-photo-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.st-photo-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(5, 150, 105, 0.9);
+  color: #ffffff;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.st-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12.5px;
+}
+
+.st-row {
+  display: flex;
+  justify-content: space-between;
+  color: #cbd5e1;
+}
+
+.st-row.tip {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.st-row.warn {
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.st-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 0 4px;
+}
+
+.st-total {
+  font-size: 24px;
+  color: #34d399;
+}
+
+.st-cumul {
+  font-size: 12px;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.st-ok-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 800;
+  background: #0d9488;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.st-ok-btn:hover {
+  background: #0f766e;
+}
+
+/* 2-Second Elevator Fade-Out Transition Overlay */
+.fade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #000000;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  transition: opacity 0.65s ease;
+}
+
+.fade-overlay.opaque {
+  opacity: 1;
+}
+
+.fade-caption {
+  font-size: 18px;
+  font-weight: 800;
+  color: #e2e8f0;
+  letter-spacing: 0.04em;
+}
+
 @media (max-width: 760px) {
   .phone-device {
     width: 215px;

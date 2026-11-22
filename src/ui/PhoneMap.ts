@@ -434,7 +434,7 @@ export class PhoneMap {
 
         ctx.fillStyle = isNight ? '#f8fafc' : '#0f172a';
         ctx.font = 'bold 15px sans-serif';
-        ctx.fillText(`${first.shop.emoji} ${first.shop.name}`, 36, sheetY + 80);
+        ctx.fillText(`${first.shop.emoji} ${first.shop.name} [#${first.orderNumber}]`, 36, sheetY + 80);
 
         ctx.fillStyle = isNight ? '#34d399' : '#059669';
         ctx.textAlign = 'right';
@@ -443,10 +443,9 @@ export class PhoneMap {
         ctx.fillStyle = isNight ? '#94a3b8' : '#475569';
         ctx.font = '600 13px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(`→ ${first.customer.name} (${first.distanceMeters}m)`, 36, sheetY + 104);
+        ctx.fillText(`→ ${first.customer.name} ${first.unitNumber} (${first.distanceMeters}m)`, 36, sheetY + 104);
       }
 
-      // Clear zoom hint CTA button visual
       ctx.fillStyle = '#0d9488';
       ctx.beginPath();
       ctx.roundRect(24, sheetY + 128, w - 48, 34, 10);
@@ -456,76 +455,123 @@ export class PhoneMap {
       ctx.textAlign = 'center';
       ctx.fillText('🔍 [V] 또는 터치하여 확대 · 콜 수락', w / 2, sheetY + 146);
     } else {
-      const isPickup = m.phase === 'pickup';
-      const dist = delivery.getDistanceToTarget(player.x, player.z) ?? 0;
+      const p = m.phase;
+      const dist = delivery.getDistanceToOutdoorTarget(player.x, player.z);
+      const badgeColor =
+        p === 'to_pickup' || p === 'carrying_to_box' ? '#ea580c' : '#059669';
+      const stepLabel = this.getPhaseShortLabel(p);
 
-      // Step pill
-      ctx.fillStyle = isPickup ? '#ea580c' : '#059669';
+      ctx.fillStyle = badgeColor;
       ctx.beginPath();
-      ctx.roundRect(26, sheetY + 26, 138, 26, 13);
+      ctx.roundRect(26, sheetY + 26, 178, 26, 13);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 13px sans-serif';
+      ctx.font = 'bold 12.5px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(isPickup ? '1단계 · 픽업 이동' : '2단계 · 고객 배달', 95, sheetY + 40);
+      ctx.fillText(stepLabel, 115, sheetY + 40);
 
-      // Distance
-      ctx.fillStyle = isNight ? '#60a5fa' : '#2563eb';
-      ctx.font = 'bold 24px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(`${Math.round(dist)}m`, w - 26, sheetY + 42);
+      if (dist !== null && !player.inCorridor) {
+        ctx.fillStyle = isNight ? '#60a5fa' : '#2563eb';
+        ctx.font = 'bold 22px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${Math.round(dist)}m`, w - 26, sheetY + 42);
+      }
 
-      // Target building & menu
-      const targetTitle = isPickup
-        ? `${m.order.shop.emoji} ${m.order.shop.name}`
-        : `${m.order.customer.emoji} ${m.order.customer.name}`;
+      const targetTitle =
+        p === 'to_pickup' || p === 'carrying_to_box'
+          ? `${m.order.shop.emoji} ${m.order.shop.name}`
+          : `${m.order.customer.emoji} ${m.order.customer.name} ${m.order.unitNumber}`;
       ctx.fillStyle = isNight ? '#f8fafc' : '#0f172a';
-      ctx.font = 'bold 20px sans-serif';
+      ctx.font = 'bold 18px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(targetTitle, 26, sheetY + 80);
+      ctx.fillText(targetTitle, 26, sheetY + 78);
 
       ctx.fillStyle = isNight ? '#94a3b8' : '#475569';
-      ctx.font = '600 14px sans-serif';
-      ctx.fillText(m.order.menuName, 26, sheetY + 105);
+      ctx.font = '700 13px sans-serif';
+      const metaInfo =
+        p === 'to_pickup'
+          ? `주문번호: ${m.order.orderNumber} · ${m.order.menuName}`
+          : `공동현관 PIN: ${m.order.doorPin} · ${m.order.menuName}`;
+      ctx.fillText(metaInfo, 26, sheetY + 102);
 
-      if (!isPickup) {
+      if (p === 'cargo_loaded') {
         const barColor =
           m.foodIntegrity >= 80 ? '#10b981' : m.foodIntegrity >= 50 ? '#f59e0b' : '#ef4444';
         ctx.fillStyle = 'rgba(100,116,139,0.25)';
         ctx.beginPath();
-        ctx.roundRect(26, sheetY + 122, w - 52, 10, 5);
+        ctx.roundRect(26, sheetY + 120, w - 52, 10, 5);
         ctx.fill();
         ctx.fillStyle = barColor;
         ctx.beginPath();
-        ctx.roundRect(26, sheetY + 122, ((w - 52) * m.foodIntegrity) / 100, 10, 5);
+        ctx.roundRect(26, sheetY + 120, ((w - 52) * m.foodIntegrity) / 100, 10, 5);
         ctx.fill();
 
         ctx.fillStyle = isNight ? '#cbd5e1' : '#334155';
         ctx.font = 'bold 13px sans-serif';
-        ctx.fillText(`음식 상태 ${m.foodIntegrity}%`, 26, sheetY + 150);
+        ctx.fillText(`배달통 적재됨 · 상태 ${m.foodIntegrity}%`, 26, sheetY + 148);
       } else {
         ctx.fillStyle = isNight ? '#cbd5e1' : '#334155';
-        ctx.font = 'bold 13px sans-serif';
-        ctx.fillText('주황색 픽업 구역 도착 후 [F] 하차 → [E]', 26, sheetY + 146);
+        ctx.font = 'bold 12.5px sans-serif';
+        ctx.fillText(this.getPhaseHint(p, m.order.orderNumber, m.order.doorPin), 26, sheetY + 144);
       }
-
-      ctx.fillStyle = isNight ? '#94a3b8' : '#64748b';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText('[V] 확대', w - 26, sheetY + 150);
     }
 
     ctx.restore();
   }
 
+  private getPhaseShortLabel(phase: string): string {
+    switch (phase) {
+      case 'to_pickup':
+        return '1단계 · 야외 픽업대';
+      case 'carrying_to_box':
+        return '2단계 · 배달통 적재';
+      case 'cargo_loaded':
+        return '3단계 · 고객지 주행';
+      case 'carrying_to_lobby':
+        return '4단계 · 공동현관 PIN';
+      case 'lobby_unlocked':
+        return '5단계 · 엘리베이터 탑승';
+      case 'in_corridor':
+        return '6단계 · 문 앞 내려놓기';
+      case 'photo_mode':
+        return '7단계 · 완료 사진 촬영';
+      case 'corridor_exit':
+        return '완료 · 1층으로 복귀';
+      default:
+        return '배달 진행 중';
+    }
+  }
+
+  private getPhaseHint(phase: string, orderNo: string, pin: string): string {
+    switch (phase) {
+      case 'to_pickup':
+        return `야외 픽업대 [E] → POS에 "${orderNo}" 입력`;
+      case 'carrying_to_box':
+        return '오토바이 뒤 배달통에서 [E]로 적재 (손에 든 채 운전 불가)';
+      case 'cargo_loaded':
+        return '고객 건물 도착 후 하차(F) → 뒤편 배달통 [E] 꺼내기';
+      case 'carrying_to_lobby':
+        return `1층 유리문 [E] → 공동현관 PIN "${pin}" 입력`;
+      case 'lobby_unlocked':
+        return '열린 현관 앞에서 [E]로 엘리베이터 탑승';
+      case 'in_corridor':
+        return '목표 호수 문 앞 발매트에서 [E]로 음식 내려놓기';
+      case 'photo_mode':
+        return '[Space] 키 또는 셔터 버튼으로 배달 완료 사진 촬영';
+      case 'corridor_exit':
+        return '복도 엘리베이터 앞에서 [E]를 눌러 1층으로 복귀';
+      default:
+        return '';
+    }
+  }
+
   private syncDeliverySheet(player: PlayerState, delivery: DeliveryManager): void {
     const m = delivery.activeMission;
-    const dist = delivery.getDistanceToTarget(player.x, player.z);
-    const inZone = delivery.isInsideTargetZone(player.x, player.z);
-    const roundedDist = dist !== null ? Math.round(dist) : -1;
+    const dist = delivery.getDistanceToOutdoorTarget(player.x, player.z);
+    const roundedDist = dist !== null && !player.inCorridor ? Math.round(dist) : -1;
 
     const fingerprint = m
-      ? `active:${m.order.id}:${m.phase}:${m.foodIntegrity}:${roundedDist}:${inZone}:${player.mode}`
+      ? `active:${m.order.id}:${m.phase}:${m.foodIntegrity}:${roundedDist}:${player.mode}`
       : `list:${delivery.availableOrders.map((o) => o.id).join(',')}`;
 
     if (fingerprint === this.lastSheetFingerprint) return;
@@ -537,12 +583,12 @@ export class PhoneMap {
           (o) => `
           <div class="order-card">
             <div class="order-top">
-              <span class="order-shop">${o.shop.emoji} ${o.shop.name}</span>
+              <span class="order-shop">${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span></span>
               <span class="order-fee">₩${o.baseFee.toLocaleString()}</span>
             </div>
             <div class="order-menu">${o.menuName}</div>
             <div class="order-bottom">
-              <span class="order-dest">→ ${o.customer.name} (${o.distanceMeters}m)</span>
+              <span class="order-dest">→ ${o.customer.name} ${o.unitNumber} (${o.distanceMeters}m)</span>
               <button class="order-accept-btn" data-action="accept" data-id="${o.id}">수락</button>
             </div>
           </div>`
@@ -559,38 +605,35 @@ export class PhoneMap {
       return;
     }
 
-    const isPickup = m.phase === 'pickup';
-    const stepBadge = isPickup
-      ? '<span class="step-badge pickup">1단계 · 픽업 이동</span>'
-      : '<span class="step-badge dropoff">2단계 · 고객 배달</span>';
-    const targetName = isPickup
+    const p = m.phase;
+    const isPickupStage = p === 'to_pickup' || p === 'carrying_to_box';
+    const stepBadge = `<span class="step-badge ${isPickupStage ? 'pickup' : 'dropoff'}">${this.getPhaseShortLabel(p)}</span>`;
+    const targetName = isPickupStage
       ? `${m.order.shop.emoji} ${m.order.shop.name}`
-      : `${m.order.customer.emoji} ${m.order.customer.name}`;
-    const actionLabel = isPickup ? '음식 픽업 완료 [E]' : '문 앞 배달 완료 [E]';
+      : `${m.order.customer.emoji} ${m.order.customer.name} ${m.order.unitNumber}`;
 
     const integrityColor =
       m.foodIntegrity >= 80 ? '#10b981' : m.foodIntegrity >= 50 ? '#f59e0b' : '#ef4444';
 
-    const actionHtml = inZone
-      ? player.mode === 'on_foot'
-        ? `<button class="mission-action-btn ${isPickup ? 'pickup' : 'dropoff'}" data-action="interact">${actionLabel}</button>`
-        : `<div class="mission-hint">먼저 <kbd>F</kbd>로 오토바이에서 내리세요</div>`
-      : `<div class="mission-hint">${isPickup ? '주황색 픽업 구역으로 이동하세요' : '초록색 배달 목적지로 이동하세요'}</div>`;
-
     this.sheetBodyEl.innerHTML = `
       <div class="sheet-header-row">
         ${stepBadge}
-        <button class="sheet-cancel-btn" data-action="cancel">배달 취소</button>
+        ${p !== 'corridor_exit' && !player.inCorridor ? '<button class="sheet-cancel-btn" data-action="cancel">배달 취소</button>' : ''}
       </div>
       <div class="active-target-row">
         <span class="active-target-name">${targetName}</span>
-        <span class="active-target-dist">${roundedDist}m</span>
+        ${roundedDist >= 0 ? `<span class="active-target-dist">${roundedDist}m</span>` : ''}
       </div>
       <div class="active-menu-line">${m.order.menuName} · 기본 ₩${m.order.baseFee.toLocaleString()}</div>
+      <div class="order-codes-row">
+        <span>픽업번호 <b>${m.order.orderNumber}</b></span>
+        <span>현관PIN <b>${m.order.doorPin}</b></span>
+        <span>호수 <b>${m.order.unitNumber}</b></span>
+      </div>
       ${
-        !isPickup
+        p === 'cargo_loaded'
           ? `<div class="integrity-row">
-               <span>음식 상태</span>
+               <span>배달통 음식 상태</span>
                <span style="color:${integrityColor};font-weight:800">${m.foodIntegrity}%</span>
              </div>
              <div class="integrity-track">
@@ -598,7 +641,7 @@ export class PhoneMap {
              </div>`
           : ''
       }
-      ${actionHtml}
+      <div class="mission-hint">${this.getPhaseHint(p, m.order.orderNumber, m.order.doorPin)}</div>
     `;
   }
 
@@ -767,9 +810,9 @@ export class PhoneMap {
     }
 
     // 4. Active Delivery GPS Navigation Route Line + Destination Pin
-    const target = delivery.getCurrentTarget();
-    if (target && delivery.activeMission) {
-      const isPickup = delivery.activeMission.phase === 'pickup';
+    const target = delivery.getCurrentOutdoorTarget();
+    if (target && delivery.activeMission && !player.inCorridor) {
+      const isPickup = delivery.activeMission.phase === 'to_pickup';
       const routeColor = isPickup ? '#f97316' : '#10b981';
       const route = delivery.computeRoute(player.x, player.z);
 
