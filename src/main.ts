@@ -35,7 +35,7 @@ scene.add(camera);
 
 // Core modules
 const world = new CityWorld(scene);
-const traffic = new TrafficSystem(scene);
+const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const delivery = new DeliveryManager(world.locations);
 const scooterPhysics = new ScooterPhysics();

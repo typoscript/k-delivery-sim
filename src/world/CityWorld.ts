@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { CityZoneMarker, DeliveryLocation, ObstacleBox } from '../types';
+import {
+  BusStopPoint,
+  CITY_BLOCK_CENTERS,
+  CITY_ROAD_LINES,
+  CITY_WORLD_LIMIT,
+  CityZoneMarker,
+  DeliveryLocation,
+  ObstacleBox,
+} from '../types';
 
 export interface MapBuildingFootprint {
   x: number;
@@ -11,9 +19,11 @@ export interface MapBuildingFootprint {
 }
 
 export interface CityMapInfo {
-  roadLines: number[]; // [-120, -40, 40, 120]
+  roadLines: readonly number[];
+  blockCenters: readonly number[];
   roadWidth: number;
   zones: CityZoneMarker[];
+  busStops: BusStopPoint[];
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
 }
@@ -24,6 +34,7 @@ export class CityWorld {
   public readonly zones: CityZoneMarker[] = [];
   public readonly buildings: MapBuildingFootprint[] = [];
   public readonly locations: DeliveryLocation[] = [];
+  public readonly busStops: BusStopPoint[] = [];
   public readonly mapInfo: CityMapInfo;
 
   private readonly scene: THREE.Scene;
@@ -44,7 +55,7 @@ export class CityWorld {
 
   public isNight = false;
 
-  private readonly roadCoords = [-120, -40, 40, 120];
+  private readonly roadCoords = CITY_ROAD_LINES;
   private readonly roadWidth = 14;
 
   constructor(scene: THREE.Scene) {
@@ -52,18 +63,18 @@ export class CityWorld {
     scene.add(this.root);
 
     scene.background = new THREE.Color(0x93c5fd);
-    scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0024);
+    scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0018);
 
     this.hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x475569, 0.9);
     this.root.add(this.hemiLight);
 
     this.dirLight = new THREE.DirectionalLight(0xfff7e6, 1.5);
-    this.dirLight.position.set(95, 150, 75);
+    this.dirLight.position.set(140, 210, 110);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.set(2048, 2048);
     this.dirLight.shadow.camera.near = 20;
-    this.dirLight.shadow.camera.far = 420;
-    const d = 155;
+    this.dirLight.shadow.camera.far = 650;
+    const d = 240;
     this.dirLight.shadow.camera.left = -d;
     this.dirLight.shadow.camera.right = d;
     this.dirLight.shadow.camera.top = d;
@@ -101,110 +112,33 @@ export class CityWorld {
       this.beaconRingMat
     );
     this.beaconRing.rotation.x = -Math.PI / 2;
-    this.beaconRing.position.y = 0.2;
+    this.beaconRing.position.y = 0.22;
     const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.15, 2.2, 18, 18, 1, true),
+      new THREE.CylinderGeometry(1.15, 2.2, 22, 18, 1, true),
       this.beaconBeamMat
     );
-    beam.position.y = 9.1;
+    beam.position.y = 11.1;
     this.beaconGroup.add(this.beaconRing, beam);
     this.beaconGroup.visible = false;
     this.root.add(this.beaconGroup);
 
     this.mapInfo = {
       roadLines: this.roadCoords,
+      blockCenters: CITY_BLOCK_CENTERS,
       roadWidth: this.roadWidth,
       zones: this.zones,
+      busStops: this.busStops,
       obstacles: this.obstacles,
       buildings: this.buildings,
     };
 
     this.buildBaseGround();
     this.buildRoadGrid();
-    this.buildCityBlocks();
+    this.buildSidewalksAndBlocks();
+    this.buildBusStops();
     this.buildStreetFurniture();
     this.initDeliveryLocations();
     this.buildPickupWindowsAndLobbies();
-  }
-
-  private initDeliveryLocations(): void {
-    this.locations.push(
-      // Shops (Pickup spots cleanly on storefront sidewalk)
-      {
-        id: 'shop-chicken',
-        name: '황금 치킨',
-        x: -96,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🍗',
-        menus: ['후라이드 치킨 + 콜라', '양념반 후라이드반 세트', '순살 간장치킨 + 치즈볼'],
-      },
-      {
-        id: 'shop-coffee',
-        name: '모닝 커피',
-        x: -78,
-        z: -25.5,
-        type: 'shop',
-        emoji: '☕',
-        menus: ['아이스 아메리카노 2잔', '바닐라 라떼 + 크루아상', '딸기 스무디 + 케이크'],
-      },
-      {
-        id: 'shop-bunsik',
-        name: '명동 분식',
-        x: -61,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🍢',
-        menus: ['로제 떡볶이 + 모둠튀김', '김밥 2줄 + 라볶이 세트', '순대 + 오뎅탕 세트'],
-      },
-      {
-        id: 'shop-burger',
-        name: '수제 버거',
-        x: -14,
-        z: -58.5,
-        type: 'shop',
-        emoji: '🍔',
-        menus: ['더블치즈 버거 세트', '베이컨 BBQ 버거 + 감튀', '크리스피 치킨버거 세트'],
-      },
-      {
-        id: 'shop-pizza',
-        name: '화덕 피자',
-        x: 14,
-        z: -58.5,
-        type: 'shop',
-        emoji: '🍕',
-        menus: ['페퍼로니 라지 피자', '콤비네이션 피자 + 스파게티', '고르곤졸라 + 갈릭디핑'],
-      },
-
-      // Residences (Dropoff spots cleanly at entrance sidewalk)
-      { id: 'res-sun-101', name: '햇살 아파트 101동', x: 68, z: 55, type: 'residential', emoji: '🏢' },
-      { id: 'res-sun-102', name: '햇살 아파트 102동', x: 94, z: 81, type: 'residential', emoji: '🏢' },
-      { id: 'res-villa-a', name: '그린빌라 A동', x: 66, z: -23.5, type: 'residential', emoji: '🏠' },
-      { id: 'res-villa-b', name: '그린빌라 B동', x: 92, z: -23.5, type: 'residential', emoji: '🏠' },
-      { id: 'res-villa-c', name: '그린빌라 C동', x: 79, z: 25, type: 'residential', emoji: '🏠' },
-      { id: 'res-river-201', name: '리버뷰 201동', x: -14, z: 68, type: 'residential', emoji: '🏢' },
-      { id: 'res-river-202', name: '리버뷰 202동', x: 15, z: 68, type: 'residential', emoji: '🏢' }
-    );
-  }
-
-  public updateBeacon(
-    target: DeliveryLocation | null,
-    isPickup: boolean,
-    elapsedTime: number
-  ): void {
-    if (!target) {
-      this.beaconGroup.visible = false;
-      return;
-    }
-    this.beaconGroup.visible = true;
-    this.beaconGroup.position.set(target.x, 0, target.z);
-    const hex = isPickup ? 0xf97316 : 0x10b981;
-    this.beaconRingMat.color.setHex(hex);
-    this.beaconBeamMat.color.setHex(hex);
-
-    const pulse = 1 + Math.sin(elapsedTime * 4.2) * 0.1;
-    this.beaconRing.scale.set(pulse, pulse, 1);
-    this.beaconBeamMat.opacity = 0.18 + Math.sin(elapsedTime * 3.0) * 0.06;
   }
 
   private createAsphaltTexture(rx: number, ry: number): THREE.CanvasTexture {
@@ -212,10 +146,10 @@ export class CityWorld {
     c.width = 256;
     c.height = 256;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#2d343d';
+    ctx.fillStyle = '#2c333c';
     ctx.fillRect(0, 0, 256, 256);
-    for (let i = 0; i < 1400; i++) {
-      const v = 38 + Math.floor(Math.random() * 22);
+    for (let i = 0; i < 1500; i++) {
+      const v = 36 + Math.floor(Math.random() * 22);
       ctx.fillStyle = `rgb(${v},${v + 3},${v + 6})`;
       ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
     }
@@ -226,23 +160,36 @@ export class CityWorld {
     return tex;
   }
 
+  /** Korean pedestrian sidewalk block pattern (보도블록 텍스처) */
   private createSidewalkTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 128;
     c.height = 128;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#9ca3af';
+    ctx.fillStyle = '#b4b8bf';
     ctx.fillRect(0, 0, 128, 128);
-    ctx.strokeStyle = 'rgba(75,85,99,0.45)';
+
+    // Subtle warm/cool Korean interlocking brick pavers
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 4; col++) {
+        ctx.fillStyle = (row + col) % 2 === 0 ? '#aeb3bc' : '#babdc3';
+        ctx.fillRect(col * 32 + 1, row * 32 + 1, 30, 30);
+      }
+    }
+    ctx.strokeStyle = 'rgba(71, 85, 105, 0.35)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, 64, 64);
-    ctx.strokeRect(64, 0, 64, 64);
-    ctx.strokeRect(0, 64, 64, 64);
-    ctx.strokeRect(64, 64, 64, 64);
+    for (let i = 0; i <= 128; i += 32) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i, 128);
+      ctx.moveTo(0, i);
+      ctx.lineTo(128, i);
+      ctx.stroke();
+    }
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(14, 14);
+    tex.repeat.set(16, 16);
     return tex;
   }
 
@@ -257,7 +204,7 @@ export class CityWorld {
     ctx.lineWidth = 6;
     ctx.strokeRect(6, 6, 500, 116);
     ctx.fillStyle = fg;
-    ctx.font = 'bold 54px sans-serif';
+    ctx.font = 'bold 52px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(title, 256, 68);
@@ -267,45 +214,43 @@ export class CityWorld {
   }
 
   private buildBaseGround(): void {
-    // Outer grass terrain
     const grass = new THREE.Mesh(
-      new THREE.PlaneGeometry(460, 460),
+      new THREE.PlaneGeometry(720, 720),
       new THREE.MeshStandardMaterial({ color: 0x4d7c4f, roughness: 0.95 })
     );
     grass.rotation.x = -Math.PI / 2;
     grass.receiveShadow = true;
     this.root.add(grass);
 
-    // Subtle city boundary wall at ±192
+    // City perimeter boundary wall at ±CITY_WORLD_LIMIT
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 });
-    const lim = 192;
+    const lim = CITY_WORLD_LIMIT;
     const walls: Array<[number, number, number, number]> = [
-      [0, lim, lim * 2, 1.2],
-      [0, -lim, lim * 2, 1.2],
-      [lim, 0, 1.2, lim * 2],
-      [-lim, 0, 1.2, lim * 2],
+      [0, lim, lim * 2, 1.4],
+      [0, -lim, lim * 2, 1.4],
+      [lim, 0, 1.4, lim * 2],
+      [-lim, 0, 1.4, lim * 2],
     ];
     for (const [x, z, w, l] of walls) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, l), wallMat);
-      m.position.set(x, 0.7, z);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.6, l), wallMat);
+      m.position.set(x, 0.8, z);
       this.root.add(m);
     }
   }
 
   private buildRoadGrid(): void {
-    const span = 300; // covers -150 to +150
+    const span = 468; // covers -234 to +234
     const asphaltH = new THREE.MeshStandardMaterial({
-      map: this.createAsphaltTexture(20, 2),
+      map: this.createAsphaltTexture(32, 2),
       roughness: 0.9,
     });
     const asphaltV = new THREE.MeshStandardMaterial({
-      map: this.createAsphaltTexture(2, 20),
+      map: this.createAsphaltTexture(2, 32),
       roughness: 0.9,
     });
     const yellowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
     const whiteMat = new THREE.MeshBasicMaterial({ color: 0xf1f5f9 });
 
-    // Horizontal & Vertical roads
     for (const coord of this.roadCoords) {
       const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(span, this.roadWidth), asphaltH);
       hRoad.rotation.x = -Math.PI / 2;
@@ -320,7 +265,7 @@ export class CityWorld {
       this.root.add(vRoad);
 
       // Center yellow dashed markings between intersections
-      for (let p = -140; p <= 140; p += 10) {
+      for (let p = -222; p <= 222; p += 10) {
         if (this.roadCoords.some((rc) => Math.abs(p - rc) < 11)) continue;
         const dh = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.18), yellowMat);
         dh.rotation.x = -Math.PI / 2;
@@ -334,24 +279,35 @@ export class CityWorld {
       }
     }
 
-    // Crosswalks at every intersection
+    // Crosswalks at all 36 intersections (InstancedMesh for super fast rendering!)
+    const stripeGeoH = new THREE.PlaneGeometry(2.4, 0.7);
+    stripeGeoH.rotateX(-Math.PI / 2);
+    const stripeGeoV = new THREE.PlaneGeometry(0.7, 2.4);
+    stripeGeoV.rotateX(-Math.PI / 2);
+
+    const totalCross = this.roadCoords.length * this.roadCoords.length * 2 * 6;
+    const instH = new THREE.InstancedMesh(stripeGeoH, whiteMat, totalCross);
+    const instV = new THREE.InstancedMesh(stripeGeoV, whiteMat, totalCross);
+    const dummy = new THREE.Object3D();
+    let idx = 0;
+
     for (const rx of this.roadCoords) {
       for (const rz of this.roadCoords) {
         for (const side of [-1, 1]) {
-          for (let s = -4.5; s <= 4.5; s += 1.8) {
-            const stripeH = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.7), whiteMat);
-            stripeH.rotation.x = -Math.PI / 2;
-            stripeH.position.set(rx + side * 8.8, 0.042, rz + s);
-            this.root.add(stripeH);
+          for (let s = -4.5; s <= 4.51; s += 1.8) {
+            dummy.position.set(rx + side * 8.8, 0.042, rz + s);
+            dummy.updateMatrix();
+            instH.setMatrixAt(idx, dummy.matrix);
 
-            const stripeV = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 2.4), whiteMat);
-            stripeV.rotation.x = -Math.PI / 2;
-            stripeV.position.set(rx + s, 0.042, rz + side * 8.8);
-            this.root.add(stripeV);
+            dummy.position.set(rx + s, 0.042, rz + side * 8.8);
+            dummy.updateMatrix();
+            instV.setMatrixAt(idx, dummy.matrix);
+            idx++;
           }
         }
       }
     }
+    this.root.add(instH, instV);
   }
 
   private addBuilding(
@@ -364,7 +320,7 @@ export class CityWorld {
     opts?: { signText?: string; signColor?: string; signFace?: 'S' | 'N' | 'E' | 'W'; isResidential?: boolean }
   ): void {
     const group = new THREE.Group();
-    group.position.set(x, 0, z);
+    group.position.set(x, 0.16, z); // sit cleanly on top of the 0.16m raised sidewalk!
 
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d),
@@ -382,13 +338,13 @@ export class CityWorld {
     roof.position.y = h + 0.2;
     group.add(roof);
 
-    // Simple stylized windows on front & back
-    const floors = Math.max(1, Math.floor((h - 1.5) / 3.2));
-    const cols = Math.max(1, Math.floor((w - 2) / 3.4));
+    // Stylized windows (capped rows/cols for crisp performance across 45+ buildings)
+    const floors = Math.min(8, Math.max(1, Math.floor((h - 1.5) / 3.4)));
+    const cols = Math.min(7, Math.max(1, Math.floor((w - 2) / 3.8)));
     for (let f = 0; f < floors; f++) {
-      const wy = 2.6 + f * 3.1;
+      const wy = 2.6 + f * 3.3;
       for (let c = 0; c < cols; c++) {
-        const wx = -((cols - 1) * 3.1) / 2 + c * 3.1;
+        const wx = -((cols - 1) * 3.5) / 2 + c * 3.5;
         for (const side of [-1, 1]) {
           const win = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.3), this.windowGlowMat);
           win.position.set(wx, wy, side * (d / 2 + 0.03));
@@ -398,7 +354,6 @@ export class CityWorld {
       }
     }
 
-    // Storefront awning & signboard
     if (opts?.signText) {
       const signTex = this.createSignTexture(opts.signText, opts.signColor ?? '#0ea5e9');
       const signMat = new THREE.MeshStandardMaterial({
@@ -407,7 +362,7 @@ export class CityWorld {
         emissiveIntensity: 0.35,
         roughness: 0.4,
       });
-      const signW = Math.min(w - 1.4, 9.5);
+      const signW = Math.min(w - 1.4, 9.8);
       const sign = new THREE.Mesh(new THREE.BoxGeometry(signW, 1.7, 0.24), signMat);
       const awning = new THREE.Mesh(
         new THREE.BoxGeometry(signW + 0.6, 0.25, 1.6),
@@ -453,30 +408,77 @@ export class CityWorld {
     });
   }
 
-  private buildCityBlocks(): void {
+  private buildSidewalksAndBlocks(): void {
     const sidewalkMat = new THREE.MeshStandardMaterial({
       map: this.createSidewalkTexture(),
-      roughness: 0.88,
+      roughness: 0.86,
+    });
+    const curbMat = new THREE.MeshStandardMaterial({
+      color: 0xd1d5db, // Bright Korean granite curb stone (화강암 연석)
+      roughness: 0.72,
+    });
+    const tactileMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15, // Yellow tactile paving strip (점자블록) at crosswalk corners
+      roughness: 0.8,
+    });
+    const bollardMat = new THREE.MeshStandardMaterial({
+      color: 0x334155,
+      metalness: 0.55,
+      roughness: 0.45,
     });
 
-    const blockCenters = [-80, 0, 80];
-    for (const bx of blockCenters) {
-      for (const bz of blockCenters) {
-        // Raised sidewalk platform for each 66x66 city block
-        const pad = new THREE.Mesh(new THREE.BoxGeometry(65.5, 0.14, 65.5), sidewalkMat);
-        pad.position.set(bx, 0.07, bz);
+    // Raised 0.16m Korean sidewalks + granite curbs + yellow tactile blocks + corner bollards for all 25 city blocks!
+    const bollardGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.72, 8);
+    const bollardMatrices: THREE.Matrix4[] = [];
+    const dummy = new THREE.Object3D();
+
+    for (const bx of CITY_BLOCK_CENTERS) {
+      for (const bz of CITY_BLOCK_CENTERS) {
+        // Sidewalk platform (65.6m x 65.6m)
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(65.6, 0.16, 65.6), sidewalkMat);
+        pad.position.set(bx, 0.08, bz);
         pad.receiveShadow = true;
         this.root.add(pad);
+
+        // Raised granite curb edging on all 4 sides of each block
+        const curbLen = 65.9;
+        const curbH = 0.2;
+        const curbT = 0.35;
+        for (const side of [-1, 1]) {
+          const cNS = new THREE.Mesh(new THREE.BoxGeometry(curbLen, curbH, curbT), curbMat);
+          cNS.position.set(bx, curbH / 2, bz + side * 32.8);
+          const cEW = new THREE.Mesh(new THREE.BoxGeometry(curbT, curbH, curbLen), curbMat);
+          cEW.position.set(bx + side * 32.8, curbH / 2, bz);
+          this.root.add(cNS, cEW);
+        }
+
+        // Yellow tactile corner pads & protective sidewalk bollards
+        for (const sx of [-1, 1]) {
+          for (const sz of [-1, 1]) {
+            const tac = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.02, 2.6), tactileMat);
+            tac.position.set(bx + sx * 30.8, 0.17, bz + sz * 30.8);
+            this.root.add(tac);
+
+            dummy.position.set(bx + sx * 31.8, 0.52, bz + sz * 31.8);
+            dummy.updateMatrix();
+            bollardMatrices.push(dummy.matrix.clone());
+          }
+        }
       }
     }
 
+    const bollards = new THREE.InstancedMesh(bollardGeo, bollardMat, bollardMatrices.length);
+    bollardMatrices.forEach((m, i) => bollards.setMatrixAt(i, m));
+    this.root.add(bollards);
+
+    // ======================== CENTRAL 9 BLOCKS (Original Core) ========================
     // 1. Central Park Plaza (0, 0)
     const parkGrass = new THREE.Mesh(
-      new THREE.PlaneGeometry(54, 54),
+      new THREE.PlaneGeometry(52, 52),
       new THREE.MeshStandardMaterial({ color: 0x568b52, roughness: 0.92 })
     );
     parkGrass.rotation.x = -Math.PI / 2;
-    parkGrass.position.set(0, 0.15, 0);
+    parkGrass.position.set(0, 0.17, 0);
     parkGrass.receiveShadow = true;
     this.root.add(parkGrass);
 
@@ -484,17 +486,16 @@ export class CityWorld {
       new THREE.CylinderGeometry(5.5, 6.0, 0.7, 20),
       new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.6 })
     );
-    fountainBase.position.set(0, 0.45, 0);
+    fountainBase.position.set(0, 0.5, 0);
     const water = new THREE.Mesh(
       new THREE.CylinderGeometry(4.8, 4.8, 0.75, 20),
       new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.15, metalness: 0.2 })
     );
-    water.position.set(0, 0.48, 0);
+    water.position.set(0, 0.53, 0);
     this.root.add(fountainBase, water);
     this.obstacles.push({ minX: -5.8, maxX: 5.8, minZ: -5.8, maxZ: 5.8 });
 
-    // 2. Main Restaurant / Cafe Strip — Block (-80, 0) RIGHT NEXT TO PLAYER SPAWN!
-    // Facing south toward z = -40 street (player spawns at -64.5, -31.2; scooter at -62, -34.2)
+    // 2. Main Restaurant / Cafe Strip — Block (-80, 0) right next to player spawn!
     this.addBuilding(-96, -15, 16, 8.5, 14, 0xfef3c7, {
       signText: '황금 치킨',
       signColor: '#dc2626',
@@ -510,14 +511,14 @@ export class CityWorld {
       signColor: '#ea580c',
       signFace: 'S',
     });
-    this.addBuilding(-80, 14, 42, 11, 16, 0xdbeafe, {
+    this.addBuilding(-80, 14, 42, 12, 16, 0xdbeafe, {
       signText: '24시 마트',
       signColor: '#2563eb',
       signFace: 'N',
     });
-    this.zones.push({ name: '상가 거리 (픽업존)', x: -78, z: -26, type: 'shop' });
+    this.zones.push({ name: '상가 거리', x: -78, z: -26, type: 'shop' });
 
-    // 3. Secondary Food Alley — Block (0, -80)
+    // 3. South Food Alley — Block (0, -80)
     this.addBuilding(-14, -70, 18, 9, 15, 0xfde68a, {
       signText: '수제 버거',
       signColor: '#b45309',
@@ -528,10 +529,10 @@ export class CityWorld {
       signColor: '#be123c',
       signFace: 'N',
     });
-    this.addBuilding(0, -96, 36, 12, 14, 0xcbd5e1);
+    this.addBuilding(0, -96, 38, 14, 14, 0xcbd5e1);
     this.zones.push({ name: '남부 식당가', x: 0, z: -56, type: 'shop' });
 
-    // 4. Residential Apartments — Block (+80, +80)
+    // 4. Haetsal Apartments — Block (+80, +80)
     this.addBuilding(68, 66, 20, 26, 14, 0xe2e8f0, {
       signText: '햇살 101동',
       signColor: '#16a34a',
@@ -546,7 +547,7 @@ export class CityWorld {
     });
     this.zones.push({ name: '햇살 아파트', x: 80, z: 54, type: 'residential' });
 
-    // 5. Residential Villa Complex — Block (+80, 0)
+    // 5. Green Villa Complex — Block (+80, 0)
     this.addBuilding(66, -12, 16, 12, 15, 0xf5d0a9, {
       signText: '그린빌라 A',
       signColor: '#059669',
@@ -567,14 +568,14 @@ export class CityWorld {
     });
     this.zones.push({ name: '그린 빌라 단지', x: 80, z: -26, type: 'residential' });
 
-    // 6. North Apartments — Block (0, +80)
-    this.addBuilding(-14, 80, 20, 22, 16, 0xe0f2fe, {
+    // 6. Riverview Apartments — Block (0, +80)
+    this.addBuilding(-14, 80, 20, 24, 16, 0xe0f2fe, {
       signText: '리버뷰 201동',
       signColor: '#0284c7',
       signFace: 'S',
       isResidential: true,
     });
-    this.addBuilding(15, 80, 20, 24, 16, 0xe2e8f0, {
+    this.addBuilding(15, 80, 20, 26, 16, 0xe2e8f0, {
       signText: '리버뷰 202동',
       signColor: '#0284c7',
       signFace: 'S',
@@ -582,38 +583,241 @@ export class CityWorld {
     });
     this.zones.push({ name: '리버뷰 아파트', x: 0, z: 56, type: 'residential' });
 
-    // 7. Outer Corner Blocks for skyline & driving routes
-    // NW (-80, +80)
-    this.addBuilding(-80, 80, 32, 18, 22, 0xcbd5e1, {
+    // 7-9. Inner corner blocks
+    this.addBuilding(-80, 80, 32, 22, 22, 0xcbd5e1, {
       signText: '타워 오피스',
       signColor: '#334155',
       signFace: 'S',
     });
-    // SE (+80, -80)
-    this.addBuilding(80, -80, 34, 15, 22, 0xf1f5f9, {
+    this.addBuilding(80, -80, 34, 16, 22, 0xf1f5f9, {
       signText: '스포츠 센터',
       signColor: '#4f46e5',
       signFace: 'N',
     });
-    // SW (-80, -80)
     this.addBuilding(-80, -80, 28, 12, 22, 0xe7e5e4, {
       signText: '동네 주민센터',
       signColor: '#0d9488',
       signFace: 'N',
     });
+
+    // ======================== 16 NEW EXPANDED OUTER CITY BLOCKS! ========================
+    // West Commercial Strip (-160, 0) -> New Pickup Shops!
+    this.addBuilding(-172, -14, 18, 9.5, 15, 0xfef3c7, {
+      signText: '돈까스 하우스',
+      signColor: '#d97706',
+      signFace: 'S',
+    });
+    this.addBuilding(-148, -14, 18, 9, 15, 0xfee2e2, {
+      signText: '마라탕 천국',
+      signColor: '#b91c1c',
+      signFace: 'S',
+    });
+    this.addBuilding(-160, 14, 38, 18, 16, 0x94a3b8);
+    this.zones.push({ name: '서부 먹자골목', x: -160, z: -26, type: 'shop' });
+
+    // East Commercial Strip (+160, 0) -> New Pickup Shops!
+    this.addBuilding(148, -14, 18, 9, 15, 0xffedd5, {
+      signText: '국밥 명가',
+      signColor: '#9a3412',
+      signFace: 'S',
+    });
+    this.addBuilding(172, -14, 18, 9.5, 15, 0xfce7f3, {
+      signText: '베이커리 카페',
+      signColor: '#db2777',
+      signFace: 'S',
+    });
+    this.addBuilding(160, 14, 38, 20, 16, 0xdbeafe);
+    this.zones.push({ name: '동부 카페거리', x: 160, z: -26, type: 'shop' });
+
+    // North High-Rise Residential — Central Parkview Apartments (0, +160) & (-80, +160)
+    this.addBuilding(-14, 150, 20, 30, 15, 0xf1f5f9, {
+      signText: '파크뷰 301동',
+      signColor: '#0f766e',
+      signFace: 'S',
+      isResidential: true,
+    });
+    this.addBuilding(14, 150, 20, 32, 15, 0xe2e8f0, {
+      signText: '파크뷰 302동',
+      signColor: '#0f766e',
+      signFace: 'S',
+      isResidential: true,
+    });
+    this.zones.push({ name: '센트럴 파크뷰', x: 0, z: 136, type: 'residential' });
+
+    // NW Officetel & Skyline (-80, +160) & (-160, +160) & (-160, +80)
+    this.addBuilding(-80, 150, 24, 24, 16, 0xe0e7ff, {
+      signText: '하늘 오피스텔',
+      signColor: '#4338ca',
+      signFace: 'S',
+      isResidential: true,
+    });
+    this.addBuilding(-160, 160, 34, 34, 24, 0x94a3b8, {
+      signText: '서부 비즈니스 타워',
+      signColor: '#1e293b',
+      signFace: 'S',
+    });
+    this.addBuilding(-160, 80, 36, 18, 24, 0xf8fafc, {
+      signText: '서울 중앙병원',
+      signColor: '#dc2626',
+      signFace: 'S',
+    });
+
+    // NE Bluehill Apartments & Skyline (+80, +160), (+160, +160), (+160, +80)
+    this.addBuilding(80, 150, 24, 29, 15, 0xdbeafe, {
+      signText: '블루힐 401동',
+      signColor: '#1d4ed8',
+      signFace: 'S',
+      isResidential: true,
+    });
+    this.addBuilding(160, 160, 34, 36, 24, 0xcbd5e1, {
+      signText: '메트로 스카이타워',
+      signColor: '#0369a1',
+      signFace: 'S',
+    });
+    this.addBuilding(160, 80, 36, 22, 24, 0xfef3c7, {
+      signText: '스타 백화점',
+      signColor: '#b45309',
+      signFace: 'S',
+    });
+    this.zones.push({ name: '블루힐 단지', x: 80, z: 136, type: 'residential' });
+
+    // South Expanded District: (-160, -80), (-160, -160), (-80, -160), (0, -160), (+80, -160), (+160, -160), (+160, -80)
+    this.addBuilding(-160, -80, 32, 16, 22, 0xe2e8f0, {
+      signText: '시립 도서관',
+      signColor: '#0284c7',
+      signFace: 'N',
+    });
+    this.addBuilding(-160, -160, 36, 26, 24, 0x94a3b8);
+    this.addBuilding(-80, -160, 32, 22, 22, 0xcbd5e1);
+    this.addBuilding(0, -150, 26, 14, 15, 0xf5d0a9, {
+      signText: '소나무 빌라',
+      signColor: '#15803d',
+      signFace: 'N',
+      isResidential: true,
+    });
+    this.zones.push({ name: '소나무 빌라', x: 0, z: -136, type: 'residential' });
+
+    this.addBuilding(80, -160, 34, 24, 22, 0xdbeafe, {
+      signText: '남부 테크노파크',
+      signColor: '#1e40af',
+      signFace: 'N',
+    });
+    this.addBuilding(160, -160, 34, 30, 24, 0x94a3b8);
+    this.addBuilding(160, -80, 34, 20, 24, 0xe7e5e4, {
+      signText: '그랜드 마트',
+      signColor: '#059669',
+      signFace: 'N',
+    });
+  }
+
+  /**
+   * Builds 8 realistic Korean Bus Stops (버스정류장) along main boulevards
+   * with shelters, benches, BIT LED signs, and yellow road bus bays!
+   */
+  private buildBusStops(): void {
+    // roadIndex in [-200(0), -120(1), -40(2), 40(3), 120(4), 200(5)]
+    const defs: BusStopPoint[] = [
+      // Along z = -40 (roadIndex 2): Eastbound (+X, dir=1, lane z=-36.5, sidewalk z=-31)
+      { name: '중앙공원 남문', x: -12, z: -36.5, shelterX: -12, shelterZ: -31.2, dir: 1, roadIndex: 2 },
+      { name: '동부 카페거리', x: 148, z: -36.5, shelterX: 148, shelterZ: -31.2, dir: 1, roadIndex: 2 },
+      // Along z = -40 (roadIndex 2): Westbound (-X, dir=3, lane z=-43.5, sidewalk z=-49)
+      { name: '남부 식당가', x: 14, z: -43.5, shelterX: 14, shelterZ: -48.8, dir: 3, roadIndex: 2 },
+      { name: '서부 도서관 앞', x: -146, z: -43.5, shelterX: -146, shelterZ: -48.8, dir: 3, roadIndex: 2 },
+      // Along z = +40 (roadIndex 3): Eastbound (+X, dir=1, lane z=43.5, sidewalk z=49)
+      { name: '리버뷰 아파트', x: -14, z: 43.5, shelterX: -14, shelterZ: 48.8, dir: 1, roadIndex: 3 },
+      { name: '햇살 아파트', x: 78, z: 43.5, shelterX: 78, shelterZ: 48.8, dir: 1, roadIndex: 3 },
+      // Along z = +40 (roadIndex 3): Westbound (-X, dir=3, lane z=36.5, sidewalk z=31)
+      { name: '중앙공원 북문', x: 14, z: 36.5, shelterX: 14, shelterZ: 31.2, dir: 3, roadIndex: 3 },
+      { name: '상가거리 북문', x: -82, z: 36.5, shelterX: -82, shelterZ: 31.2, dir: 3, roadIndex: 3 },
+    ];
+
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.65, roughness: 0.35 });
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.36,
+      roughness: 0.15,
+    });
+    const benchMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.8 });
+    const bayMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+    const signBoardTex = this.createSignTexture('🚌 BUS 101 · 402', '#1d4ed8', '#ffffff');
+    const signBoardMat = new THREE.MeshStandardMaterial({
+      map: signBoardTex,
+      emissive: 0x1e40af,
+      emissiveIntensity: 0.5,
+    });
+
+    for (const stop of defs) {
+      this.busStops.push(stop);
+
+      const g = new THREE.Group();
+      g.position.set(stop.shelterX, 0.16, stop.shelterZ);
+      // dir 1 (+X Eastbound) shelter is on north sidewalk (+Z) facing South (-Z, rotY = PI)
+      // dir 3 (-X Westbound) shelter is on south sidewalk (-Z) facing North (+Z, rotY = 0)
+      if (stop.dir === 1) {
+        g.rotation.y = Math.PI;
+      }
+
+      // Canopy roof & 2 rear pillars
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.16, 2.0), steelMat);
+      roof.position.set(0, 2.65, 0);
+      roof.castShadow = true;
+      g.add(roof);
+
+      for (const sx of [-2.4, 2.4]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.65, 8), steelMat);
+        post.position.set(sx, 1.32, -0.75);
+        g.add(post);
+      }
+
+      // Back wind-shield glass panel
+      const backGlass = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.1, 0.08), glassMat);
+      backGlass.position.set(0, 1.35, -0.75);
+      g.add(backGlass);
+
+      // Waiting bench
+      const bench = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.12, 0.55), benchMat);
+      bench.position.set(0, 0.52, -0.35);
+      g.add(bench);
+
+      // Tall Korean Blue Bus Stop Signpost + BIT LED arrival board
+      const signPole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.3, 8), steelMat);
+      signPole.position.set(3.2, 1.65, 0.25);
+      const signPanel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.55, 0.14), signBoardMat);
+      signPanel.position.set(3.2, 2.95, 0.25);
+      g.add(signPole, signPanel);
+
+      this.root.add(g);
+
+      // Painted Yellow Bus Bay box on the asphalt in front of the shelter!
+      const bayL = 12.5;
+      const bayW = 3.8;
+      for (const zOff of [-bayW / 2, bayW / 2]) {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(bayL, 0.22), bayMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(stop.x, 0.044, stop.z + zOff);
+        this.root.add(line);
+      }
+      for (const xOff of [-bayL / 2, bayL / 2]) {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(0.22, bayW), bayMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(stop.x + xOff, 0.044, stop.z);
+        this.root.add(line);
+      }
+    }
   }
 
   private buildStreetFurniture(): void {
-    // Streetlamps at block corners
+    // Streetlamps at key block corners
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4 });
     const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 6.2, 6);
     const lampGeo = new THREE.BoxGeometry(0.55, 0.14, 0.28);
 
-    const cornerOffsets = [-111, -49, -31, 31, 49, 111];
-    for (const cx of cornerOffsets) {
-      for (const cz of cornerOffsets) {
+    const lampOffsets = [-191, -111, -31, 31, 111, 191];
+    for (const cx of lampOffsets) {
+      for (const cz of lampOffsets) {
         const g = new THREE.Group();
-        g.position.set(cx, 0.14, cz);
+        g.position.set(cx, 0.16, cz);
         const pole = new THREE.Mesh(poleGeo, poleMat);
         pole.position.y = 3.1;
         const lamp = new THREE.Mesh(lampGeo, this.lampGlowMat);
@@ -623,7 +827,7 @@ export class CityWorld {
       }
     }
 
-    // Trees in Central Park & outer perimeter (InstancedMesh)
+    // Street trees in Central Park, along wide sidewalks, and outer greenbelt (InstancedMesh!)
     const treeCoords: Array<[number, number, number]> = [
       [-18, -18, 1.0],
       [18, -18, 1.1],
@@ -634,11 +838,11 @@ export class CityWorld {
       [0, -20, 0.95],
       [0, 20, 1.05],
     ];
-    for (let p = -140; p <= 140; p += 22) {
-      treeCoords.push([p, -158, 1.15]);
-      treeCoords.push([p, 158, 1.15]);
-      treeCoords.push([-158, p, 1.15]);
-      treeCoords.push([158, p, 1.15]);
+    for (let p = -235; p <= 235; p += 24) {
+      treeCoords.push([p, -248, 1.2]);
+      treeCoords.push([p, 248, 1.2]);
+      treeCoords.push([-248, p, 1.2]);
+      treeCoords.push([248, p, 1.2]);
     }
 
     const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 2.4, 7);
@@ -666,9 +870,109 @@ export class CityWorld {
     this.root.add(trunks, crowns);
   }
 
-  /**
-   * Builds visible 3D Outdoor Pick-up Windows (for shops) and 1st-Floor Glass Lobby Entrances (for residences).
-   */
+  private initDeliveryLocations(): void {
+    this.locations.push(
+      // 9 Pickup Shops (5 core + 4 new outer commercial strips!)
+      {
+        id: 'shop-chicken',
+        name: '황금 치킨',
+        x: -96,
+        z: -25.5,
+        type: 'shop',
+        emoji: '🍗',
+        menus: ['후라이드 치킨 + 콜라', '양념반 후라이드반 세트', '순살 간장치킨 + 치즈볼'],
+      },
+      {
+        id: 'shop-coffee',
+        name: '모닝 커피',
+        x: -78,
+        z: -25.5,
+        type: 'shop',
+        emoji: '☕',
+        menus: ['아이스 아메리카노 2잔', '바닐라 라떼 + 크루아상', '딸기 스무디 + 케이크'],
+      },
+      {
+        id: 'shop-bunsik',
+        name: '명동 분식',
+        x: -61,
+        z: -25.5,
+        type: 'shop',
+        emoji: '🍢',
+        menus: ['로제 떡볶이 + 모둠튀김', '김밥 2줄 + 라볶이 세트', '순대 + 오뎅탕 세트'],
+      },
+      {
+        id: 'shop-burger',
+        name: '수제 버거',
+        x: -14,
+        z: -58.5,
+        type: 'shop',
+        emoji: '🍔',
+        facesNorth: true,
+        menus: ['더블치즈 버거 세트', '베이컨 BBQ 버거 + 감튀', '크리스피 치킨버거 세트'],
+      },
+      {
+        id: 'shop-pizza',
+        name: '화덕 피자',
+        x: 14,
+        z: -58.5,
+        type: 'shop',
+        emoji: '🍕',
+        facesNorth: true,
+        menus: ['페퍼로니 라지 피자', '콤비네이션 피자 + 스파게티', '고르곤졸라 + 갈릭디핑'],
+      },
+      {
+        id: 'shop-katsu',
+        name: '돈까스 하우스',
+        x: -172,
+        z: -25.5,
+        type: 'shop',
+        emoji: '🍛',
+        menus: ['등심 돈까스 정식', '치즈 돈까스 + 우동 세트', '안심 카츠 + 카레'],
+      },
+      {
+        id: 'shop-mara',
+        name: '마라탕 천국',
+        x: -148,
+        z: -25.5,
+        type: 'shop',
+        emoji: '🍲',
+        menus: ['마라탕 2단계 + 꿔바로우', '마라샹궈 2인 세트', '계란볶음밥 + 마라탕'],
+      },
+      {
+        id: 'shop-gukbap',
+        name: '국밥 명가',
+        x: 148,
+        z: -25.5,
+        type: 'shop',
+        emoji: '🍚',
+        menus: ['돼지국밥 특 + 수육', '순대국밥 2인 세트', '얼큰 육개장 정식'],
+      },
+      {
+        id: 'shop-bakery',
+        name: '베이커리 카페',
+        x: 172,
+        z: -25.5,
+        type: 'shop',
+        emoji: '🥐',
+        menus: ['소금빵 4개 + 아메리카노', '생크림 케이크 박스', '샌드위치 + 라떼 세트'],
+      },
+
+      // 12 Residential Delivery Buildings (7 core + 5 new outer complexes!)
+      { id: 'res-sun-101', name: '햇살 아파트 101동', x: 68, z: 55, type: 'residential', emoji: '🏢' },
+      { id: 'res-sun-102', name: '햇살 아파트 102동', x: 94, z: 81, type: 'residential', emoji: '🏢' },
+      { id: 'res-villa-a', name: '그린빌라 A동', x: 66, z: -23.5, type: 'residential', emoji: '🏠' },
+      { id: 'res-villa-b', name: '그린빌라 B동', x: 92, z: -23.5, type: 'residential', emoji: '🏠' },
+      { id: 'res-villa-c', name: '그린빌라 C동', x: 79, z: 25, type: 'residential', emoji: '🏠', facesNorth: true },
+      { id: 'res-river-201', name: '리버뷰 201동', x: -14, z: 68, type: 'residential', emoji: '🏢' },
+      { id: 'res-river-202', name: '리버뷰 202동', x: 15, z: 68, type: 'residential', emoji: '🏢' },
+      { id: 'res-park-301', name: '파크뷰 301동', x: -14, z: 138.5, type: 'residential', emoji: '🏢' },
+      { id: 'res-park-302', name: '파크뷰 302동', x: 14, z: 138.5, type: 'residential', emoji: '🏢' },
+      { id: 'res-sky-off', name: '하늘 오피스텔', x: -80, z: 138, type: 'residential', emoji: '🏬' },
+      { id: 'res-blue-401', name: '블루힐 401동', x: 80, z: 138.5, type: 'residential', emoji: '🏢' },
+      { id: 'res-pine-villa', name: '소나무 빌라', x: 0, z: -138.5, type: 'residential', emoji: '🏠', facesNorth: true }
+    );
+  }
+
   private buildPickupWindowsAndLobbies(): void {
     const counterMat = new THREE.MeshStandardMaterial({
       color: 0xcbd5e1,
@@ -695,28 +999,23 @@ export class CityWorld {
     });
 
     for (const loc of this.locations) {
-      // Determine which direction the entrance faces (+Z for N-facing shops/villas, -Z for S-facing)
-      const facesNorth =
-        loc.id === 'shop-burger' || loc.id === 'shop-pizza' || loc.id === 'res-villa-c';
+      const facesNorth = Boolean(loc.facesNorth);
       const wallOffsetZ = facesNorth ? -2.9 : 2.9;
 
       if (loc.type === 'shop') {
         const g = new THREE.Group();
-        g.position.set(loc.x, 0.14, loc.z + wallOffsetZ);
+        g.position.set(loc.x, 0.16, loc.z + wallOffsetZ);
         if (!facesNorth) g.rotation.y = Math.PI;
 
-        // Outdoor pickup counter ledge right at storefront
         const counter = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.05, 0.72), counterMat);
         counter.position.set(0, 0.52, 0.36);
         counter.castShadow = true;
         g.add(counter);
 
-        // Warm lit pickup window frame above counter
         const windowFrame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.2, 0.18), darkMat);
         windowFrame.position.set(0, 1.65, 0.1);
         g.add(windowFrame);
 
-        // POS Keypad terminal sitting on the outdoor pickup counter!
         const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), darkMat);
         posStand.position.set(0.85, 1.18, 0.45);
         posStand.rotation.x = -0.35;
@@ -727,9 +1026,8 @@ export class CityWorld {
 
         this.root.add(g);
       } else {
-        // 1st-Floor Apartment Glass Entrance Door + PIN Intercom + Lobby Elevator preview
         const g = new THREE.Group();
-        g.position.set(loc.x, 0.14, loc.z + wallOffsetZ);
+        g.position.set(loc.x, 0.16, loc.z + wallOffsetZ);
         if (!facesNorth) g.rotation.y = Math.PI;
 
         const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.75, 0.45), darkMat);
@@ -741,14 +1039,12 @@ export class CityWorld {
         innerCut.position.set(0, 1.24, 0.18);
         g.add(archFrame, innerCut);
 
-        // Left & right sliding glass doors
         const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.38, 0.08), glassDoorMat);
         leftDoor.position.set(-0.6, 1.2, 0.46);
         const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.38, 0.08), glassDoorMat);
         rightDoor.position.set(0.6, 1.2, 0.46);
         g.add(leftDoor, rightDoor);
 
-        // 4-Digit PIN Intercom Keypad beside the glass door
         const pad = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.08), pinPadMat);
         pad.position.set(1.42, 1.32, 0.46);
         g.add(pad);
@@ -775,7 +1071,26 @@ export class CityWorld {
     }
   }
 
-  /** Occlusion toggle: hides entire outdoor city + fog when inside the underground corridor! */
+  public updateBeacon(
+    target: DeliveryLocation | null,
+    isPickup: boolean,
+    elapsedTime: number
+  ): void {
+    if (!target) {
+      this.beaconGroup.visible = false;
+      return;
+    }
+    this.beaconGroup.visible = true;
+    this.beaconGroup.position.set(target.x, 0, target.z);
+    const hex = isPickup ? 0xf97316 : 0x10b981;
+    this.beaconRingMat.color.setHex(hex);
+    this.beaconBeamMat.color.setHex(hex);
+
+    const pulse = 1 + Math.sin(elapsedTime * 4.2) * 0.1;
+    this.beaconRing.scale.set(pulse, pulse, 1);
+    this.beaconBeamMat.opacity = 0.18 + Math.sin(elapsedTime * 3.0) * 0.06;
+  }
+
   public setOutdoorVisible(visible: boolean): void {
     this.root.visible = visible;
     if (!visible) {
@@ -789,7 +1104,7 @@ export class CityWorld {
   private applySkyTheme(): void {
     if (this.isNight) {
       this.scene.background = new THREE.Color(0x0b1220);
-      this.scene.fog = new THREE.FogExp2(0x0b1220, 0.004);
+      this.scene.fog = new THREE.FogExp2(0x0b1220, 0.0034);
       this.dirLight.intensity = 0.25;
       this.dirLight.color.setHex(0x8aa8d6);
       this.hemiLight.intensity = 0.28;
@@ -797,7 +1112,7 @@ export class CityWorld {
       this.windowGlowMat.emissiveIntensity = 1.1;
     } else {
       this.scene.background = new THREE.Color(0x93c5fd);
-      this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0024);
+      this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0018);
       this.dirLight.intensity = 1.5;
       this.dirLight.color.setHex(0xfff7e6);
       this.hemiLight.intensity = 0.9;

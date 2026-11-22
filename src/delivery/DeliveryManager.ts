@@ -1,4 +1,4 @@
-import { DeliveryLocation } from '../types';
+import { CITY_ROAD_LINES, DeliveryLocation } from '../types';
 
 export interface DeliveryOrder {
   id: string;
@@ -44,7 +44,7 @@ export interface RoutePoint {
   z: number;
 }
 
-const ROAD_LINES = [-120, -40, 40, 120];
+const ROAD_LINES = CITY_ROAD_LINES;
 export const INTERACT_ZONE_RADIUS = 3.6;
 
 export class DeliveryManager {
@@ -274,7 +274,7 @@ export class DeliveryManager {
     if (!target) return [];
 
     const snapRoad = (v: number) => {
-      let best = ROAD_LINES[0];
+      let best: number = ROAD_LINES[0];
       let bestDist = Infinity;
       for (const r of ROAD_LINES) {
         const d = Math.abs(v - r);

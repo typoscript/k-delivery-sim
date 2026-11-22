@@ -1,3 +1,7 @@
+export const CITY_ROAD_LINES = [-200, -120, -40, 40, 120, 200] as const;
+export const CITY_BLOCK_CENTERS = [-160, -80, 0, 80, 160] as const;
+export const CITY_WORLD_LIMIT = 285;
+
 export interface ObstacleBox {
   minX: number;
   maxX: number;
@@ -20,6 +24,17 @@ export interface DeliveryLocation {
   type: 'shop' | 'residential';
   menus?: string[];
   emoji: string;
+  facesNorth?: boolean;
+}
+
+export interface BusStopPoint {
+  name: string;
+  x: number; // stop point along road or bus bay center
+  z: number;
+  shelterX: number;
+  shelterZ: number;
+  dir: 0 | 1 | 2 | 3; // CardinalDir of bus stopping here (1 = +X East, 3 = -X West, etc.)
+  roadIndex: number; // index into CITY_ROAD_LINES
 }
 
 export function wrapAngle(angle: number): number {
@@ -38,7 +53,7 @@ export function collidesWithWorld(
   z: number,
   radius: number,
   obstacles: ObstacleBox[],
-  worldLimit = 192
+  worldLimit = CITY_WORLD_LIMIT
 ): boolean {
   if (Math.abs(x) > worldLimit - radius || Math.abs(z) > worldLimit - radius) {
     return true;

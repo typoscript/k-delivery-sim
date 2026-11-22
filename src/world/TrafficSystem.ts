@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ObstacleBox, clamp, wrapAngle } from '../types';
+import { BusStopPoint, CITY_ROAD_LINES, ObstacleBox, clamp, wrapAngle } from '../types';
 
 export type SignalColor = 'green' | 'yellow' | 'red';
 
@@ -18,20 +18,22 @@ export interface TrafficCarSnapshot {
 
 type CardinalDir = 0 | 1 | 2 | 3; // 0: +Z (N), 1: +X (E), 2: -Z (S), 3: -X (W)
 
-const ROAD_LINES = [-120, -40, 40, 120];
-const LANE_OFFSET = 3.5; // right-hand lane center offset from road centerline
-const STOP_LINE_DIST = 11.2; // distance from intersection center where cars stop on red
+const ROAD_LINES = CITY_ROAD_LINES;
+const LANE_OFFSET = 3.5;
+const STOP_LINE_DIST = 11.2;
 const CYCLE_DURATION = 18.0;
 
-interface AiCar {
+interface AiVehicle {
   mesh: THREE.Group;
   brakeMat: THREE.MeshStandardMaterial;
   headlightMat: THREE.MeshStandardMaterial;
+  hazardMat?: THREE.MeshStandardMaterial;
+  isBus: boolean;
   x: number;
   z: number;
   heading: number;
   dir: CardinalDir;
-  roadIndex: number; // index into ROAD_LINES for the road currently traveling along
+  roadIndex: number;
   speed: number;
   cruiseSpeed: number;
   braking: boolean;
@@ -40,6 +42,9 @@ interface AiCar {
   turnTargetZ: number;
   turnTargetDir: CardinalDir;
   turnTargetRoadIndex: number;
+  // Bus stop dwell state
+  busStopWaitTimer: number;
+  busStopCooldown: number;
   colorHex: string;
   halfWidth: number;
   halfLength: number;
@@ -48,13 +53,13 @@ interface AiCar {
 function dirVector(dir: CardinalDir): [number, number] {
   switch (dir) {
     case 0:
-      return [0, 1]; // +Z (North)
+      return [0, 1];
     case 1:
-      return [1, 0]; // +X (East)
+      return [1, 0];
     case 2:
-      return [0, -1]; // -Z (South)
+      return [0, -1];
     case 3:
-      return [-1, 0]; // -X (West)
+      return [-1, 0];
   }
 }
 
@@ -71,13 +76,7 @@ function dirHeading(dir: CardinalDir): number {
   }
 }
 
-/** Right-hand lane coordinate perpendicular to travel direction */
 function laneCoordForDir(roadCoord: number, dir: CardinalDir): number {
-  // forward × up = (-fz, 0, fx)
-  // dir 0 (+Z): right is -X -> roadCoord - LANE_OFFSET
-  // dir 2 (-Z): right is +X -> roadCoord + LANE_OFFSET
-  // dir 1 (+X): right is +Z -> roadCoord + LANE_OFFSET
-  // dir 3 (-X): right is -Z -> roadCoord - LANE_OFFSET
   if (dir === 0 || dir === 3) return roadCoord - LANE_OFFSET;
   return roadCoord + LANE_OFFSET;
 }
@@ -88,9 +87,9 @@ function isAxisNS(dir: CardinalDir): boolean {
 
 export class TrafficSystem {
   public readonly root = new THREE.Group();
-  private readonly cars: AiCar[] = [];
+  private readonly vehicles: AiVehicle[] = [];
+  private readonly busStops: BusStopPoint[];
 
-  // Shared emissive materials for all 16 intersections (zero per-frame allocations!)
   private readonly nsRedMat: THREE.MeshStandardMaterial;
   private readonly nsYellowMat: THREE.MeshStandardMaterial;
   private readonly nsGreenMat: THREE.MeshStandardMaterial;
@@ -100,12 +99,12 @@ export class TrafficSystem {
 
   public signalState: SignalStateSnapshot = { ns: 'green', ew: 'red', remainingSec: 6.5 };
 
-  // Red-light violation detector state for player scooter
   private prevPlayerX = -62;
   private prevPlayerZ = -34.2;
   private violationCooldown = 0;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, busStops: BusStopPoint[]) {
+    this.busStops = busStops;
     scene.add(this.root);
 
     this.nsRedMat = new THREE.MeshStandardMaterial({ color: 0x3b0a0a, emissive: 0xef4444, emissiveIntensity: 0 });
@@ -117,7 +116,7 @@ export class TrafficSystem {
     this.ewGreenMat = new THREE.MeshStandardMaterial({ color: 0x0a3b20, emissive: 0x22c55e, emissiveIntensity: 0 });
 
     this.buildTrafficSignals();
-    this.spawnTrafficCars();
+    this.spawnTrafficVehicles();
   }
 
   private buildTrafficSignals(): void {
@@ -131,29 +130,18 @@ export class TrafficSystem {
       roughness: 0.6,
     });
 
-    const poleGeo = new THREE.CylinderGeometry(0.11, 0.14, 5.4, 7);
-    const armGeo = new THREE.CylinderGeometry(0.08, 0.09, 5.2, 7);
+    const poleGeo = new THREE.CylinderGeometry(0.11, 0.14, 5.4, 6);
+    const armGeo = new THREE.CylinderGeometry(0.08, 0.09, 5.2, 6);
     armGeo.rotateZ(Math.PI / 2);
     const housingGeo = new THREE.BoxGeometry(1.75, 0.56, 0.34);
-    const lampGeo = new THREE.SphereGeometry(0.17, 10, 8);
+    const lampGeo = new THREE.SphereGeometry(0.17, 8, 6);
 
-    // Build 2 diagonal overhead signal poles per intersection (4 traffic directions visible!)
     for (const ix of ROAD_LINES) {
       for (const iz of ROAD_LINES) {
-        // Place overhead signal arms for NS and EW visibility
-        const configs: Array<{
-          px: number;
-          pz: number;
-          rotY: number;
-          axis: 'ns' | 'ew';
-        }> = [
-          // Visible to Northbound (+Z) traffic (far-right corner at ix - 8.2, iz + 8.2)
+        const configs: Array<{ px: number; pz: number; rotY: number; axis: 'ns' | 'ew' }> = [
           { px: ix - 8.2, pz: iz + 8.2, rotY: 0, axis: 'ns' },
-          // Visible to Southbound (-Z) traffic (far-right corner at ix + 8.2, iz - 8.2)
           { px: ix + 8.2, pz: iz - 8.2, rotY: Math.PI, axis: 'ns' },
-          // Visible to Eastbound (+X) traffic (far-right corner at ix + 8.2, iz + 8.2)
           { px: ix + 8.2, pz: iz + 8.2, rotY: Math.PI / 2, axis: 'ew' },
-          // Visible to Westbound (-X) traffic (far-right corner at ix - 8.2, iz - 8.2)
           { px: ix - 8.2, pz: iz - 8.2, rotY: -Math.PI / 2, axis: 'ew' },
         ];
 
@@ -164,22 +152,15 @@ export class TrafficSystem {
 
           const pole = new THREE.Mesh(poleGeo, poleMat);
           pole.position.y = 2.7;
-          g.add(pole);
-
-          // Cantilever arm extending inward over the oncoming right-hand lane (+X local)
           const arm = new THREE.Mesh(armGeo, poleMat);
           arm.position.set(2.5, 5.15, 0);
-          g.add(arm);
-
           const housing = new THREE.Mesh(housingGeo, housingMat);
           housing.position.set(4.1, 5.05, 0);
-          g.add(housing);
 
           const rMat = cfg.axis === 'ns' ? this.nsRedMat : this.ewRedMat;
           const yMat = cfg.axis === 'ns' ? this.nsYellowMat : this.ewYellowMat;
           const gMat = cfg.axis === 'ns' ? this.nsGreenMat : this.ewGreenMat;
 
-          // Korean horizontal traffic light order facing oncoming driver (-Z local): Red | Yellow | Green
           const redLamp = new THREE.Mesh(lampGeo, rMat);
           redLamp.position.set(4.6, 5.05, -0.15);
           const yelLamp = new THREE.Mesh(lampGeo, yMat);
@@ -187,11 +168,141 @@ export class TrafficSystem {
           const grnLamp = new THREE.Mesh(lampGeo, gMat);
           grnLamp.position.set(3.6, 5.05, -0.15);
 
-          g.add(redLamp, yelLamp, grnLamp);
+          g.add(pole, arm, housing, redLamp, yelLamp, grnLamp);
           this.root.add(g);
         }
       }
     }
+  }
+
+  private createBusDisplayTexture(routeLabel: string): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 64;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(0, 0, 256, 64);
+    ctx.fillStyle = '#f97316';
+    ctx.font = 'bold 34px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(routeLabel, 128, 34);
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  /** Builds a detailed Korean Blue/Green City Bus (시내버스) */
+  private createBusMesh(
+    bodyColor: number,
+    routeLabel: string
+  ): {
+    group: THREE.Group;
+    brakeMat: THREE.MeshStandardMaterial;
+    headlightMat: THREE.MeshStandardMaterial;
+    hazardMat: THREE.MeshStandardMaterial;
+  } {
+    const group = new THREE.Group();
+    const length = 9.4;
+    const width = 2.45;
+    const height = 2.85;
+
+    const paintMat = new THREE.MeshStandardMaterial({
+      color: bodyColor,
+      roughness: 0.35,
+      metalness: 0.2,
+    });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      roughness: 0.14,
+      metalness: 0.5,
+    });
+    const roofAcMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.65, roughness: 0.3 });
+
+    const brakeMat = new THREE.MeshStandardMaterial({
+      color: 0x7f1d1d,
+      emissive: 0xef4444,
+      emissiveIntensity: 0.3,
+    });
+    const headlightMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      emissive: 0xfffbeb,
+      emissiveIntensity: 0.4,
+    });
+    const hazardMat = new THREE.MeshStandardMaterial({
+      color: 0x78350f,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0,
+    });
+
+    // Main bus body
+    const body = new THREE.Mesh(new THREE.BoxGeometry(width, height, length), paintMat);
+    body.position.set(0, 0.45 + height / 2, 0);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    group.add(body);
+
+    // Classic Korean city bus lower white livery stripe
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(width + 0.03, 0.36, length - 0.1), stripeMat);
+    stripe.position.set(0, 1.05, 0);
+    group.add(stripe);
+
+    // Panoramic front windshield & side passenger window bands
+    const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.22, 1.32, 0.08), glassMat);
+    frontGlass.position.set(0, 2.02, length / 2 + 0.02);
+    group.add(frontGlass);
+
+    for (const side of [-1, 1]) {
+      const sideGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.12, length - 1.1), glassMat);
+      sideGlass.position.set(side * (width / 2 + 0.01), 2.15, -0.1);
+      group.add(sideGlass);
+    }
+
+    // Glowing LED front route sign (e.g. "101 중앙공원")
+    const ledSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.75, 0.34),
+      new THREE.MeshBasicMaterial({ map: this.createBusDisplayTexture(routeLabel) })
+    );
+    ledSign.position.set(0, 2.95, length / 2 + 0.04);
+    group.add(ledSign);
+
+    // Roof A/C pod
+    const acUnit = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.32, 3.2), roofAcMat);
+    acUnit.position.set(0, 0.45 + height + 0.16, -0.3);
+    group.add(acUnit);
+
+    // Front headlights, rear brake lights & hazard blinkers
+    for (const side of [-1, 1]) {
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.2, 0.08), headlightMat);
+      hl.position.set(side * 0.85, 0.86, length / 2 + 0.03);
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 0.08), brakeMat);
+      tl.position.set(side * 0.85, 1.0, -length / 2 - 0.03);
+      const hzFront = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 0.08), hazardMat);
+      hzFront.position.set(side * 1.1, 1.12, length / 2 + 0.03);
+      const hzRear = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.2, 0.08), hazardMat);
+      hzRear.position.set(side * 1.05, 1.32, -length / 2 - 0.03);
+      group.add(hl, tl, hzFront, hzRear);
+    }
+
+    // 4 large bus wheels
+    const wheelGeo = new THREE.CylinderGeometry(0.48, 0.48, 0.28, 14);
+    wheelGeo.rotateZ(Math.PI / 2);
+    const rimGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.3, 10);
+    rimGeo.rotateZ(Math.PI / 2);
+    for (const wz of [-2.8, 2.8]) {
+      for (const side of [-1, 1]) {
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.position.set(side * 1.16, 0.48, wz);
+        const r = new THREE.Mesh(rimGeo, rimMat);
+        r.position.set(side * 1.16, 0.48, wz);
+        group.add(w, r);
+      }
+    }
+
+    return { group, brakeMat, headlightMat, hazardMat };
   }
 
   private createCarMesh(
@@ -231,14 +342,12 @@ export class TrafficSystem {
     const length = isVan ? 4.5 : 4.2;
     const width = 1.88;
 
-    // Lower body
     const body = new THREE.Mesh(new THREE.BoxGeometry(width, 0.72, length), paintMat);
     body.position.set(0, 0.66, 0);
     body.castShadow = true;
     body.receiveShadow = true;
     group.add(body);
 
-    // Cabin / roof
     const cabinLen = isVan ? 3.2 : 2.15;
     const cabinHeight = isVan ? 0.95 : 0.64;
     const cabinZ = isVan ? -0.35 : -0.18;
@@ -247,14 +356,12 @@ export class TrafficSystem {
     cabin.castShadow = true;
     group.add(cabin);
 
-    // Windshields
     const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.28, cabinHeight * 0.66, 0.06), glassMat);
     frontGlass.position.set(0, 1.0 + cabinHeight * 0.45, cabinZ + cabinLen / 2 + 0.01);
     const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.28, cabinHeight * 0.62, 0.06), glassMat);
     rearGlass.position.set(0, 1.0 + cabinHeight * 0.45, cabinZ - cabinLen / 2 - 0.01);
     group.add(frontGlass, rearGlass);
 
-    // Korean Taxi roof cap
     if (isTaxi) {
       const cap = new THREE.Mesh(
         new THREE.BoxGeometry(0.55, 0.2, 0.24),
@@ -268,18 +375,14 @@ export class TrafficSystem {
       group.add(cap);
     }
 
-    // Headlights (+Z front) & Brake lights (-Z rear)
     for (const side of [-1, 1]) {
       const hl = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.16, 0.08), headlightMat);
       hl.position.set(side * 0.64, 0.68, length / 2 + 0.02);
-      group.add(hl);
-
       const tl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.16, 0.08), brakeMat);
       tl.position.set(side * 0.62, 0.72, -length / 2 - 0.02);
-      group.add(tl);
+      group.add(hl, tl);
     }
 
-    // 4 wheels
     const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12);
     wheelGeo.rotateZ(Math.PI / 2);
     const rimGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.24, 10);
@@ -298,37 +401,100 @@ export class TrafficSystem {
     return { group, brakeMat, headlightMat };
   }
 
-  private spawnTrafficCars(): void {
+  private spawnTrafficVehicles(): void {
+    // --- 1. Spawn 6 Korean City Buses (Blue Trunk & Green Branch buses!) ---
+    const busSpawns: Array<{
+      dir: CardinalDir;
+      roadIdx: number;
+      along: number;
+      color: number;
+      label: string;
+    }> = [
+      { dir: 1, roadIdx: 2, along: -92, color: 0x1d4ed8, label: '101 중앙공원' }, // z=-40 Eastbound (right near spawn!)
+      { dir: 3, roadIdx: 2, along: 92, color: 0x15803d, label: '402 상가거리' }, // z=-40 Westbound
+      { dir: 1, roadIdx: 3, along: -85, color: 0x1d4ed8, label: '101 햇살아파트' }, // z=+40 Eastbound
+      { dir: 3, roadIdx: 3, along: 105, color: 0x15803d, label: '402 리버뷰' }, // z=+40 Westbound
+      { dir: 0, roadIdx: 2, along: -95, color: 0x1d4ed8, label: '701 파크뷰' }, // x=-40 Northbound
+      { dir: 2, roadIdx: 3, along: 95, color: 0x15803d, label: '702 남부타워' }, // x=+40 Southbound
+    ];
+
+    for (const b of busSpawns) {
+      const { group, brakeMat, headlightMat, hazardMat } = this.createBusMesh(b.color, b.label);
+      const roadCoord = ROAD_LINES[b.roadIdx];
+      const lane = laneCoordForDir(roadCoord, b.dir);
+      const x = isAxisNS(b.dir) ? lane : b.along;
+      const z = isAxisNS(b.dir) ? b.along : lane;
+      const heading = dirHeading(b.dir);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = heading;
+      this.root.add(group);
+
+      this.vehicles.push({
+        mesh: group,
+        brakeMat,
+        headlightMat,
+        hazardMat,
+        isBus: true,
+        x,
+        z,
+        heading,
+        dir: b.dir,
+        roadIndex: b.roadIdx,
+        speed: 6.5,
+        cruiseSpeed: 9.2, // ~33 km/h realistic city bus speed
+        braking: false,
+        turning: false,
+        turnTargetX: x,
+        turnTargetZ: z,
+        turnTargetDir: b.dir,
+        turnTargetRoadIndex: b.roadIdx,
+        busStopWaitTimer: 0,
+        busStopCooldown: 0,
+        colorHex: b.color === 0x1d4ed8 ? '#2563eb' : '#16a34a',
+        halfWidth: 1.25,
+        halfLength: 4.75,
+      });
+    }
+
+    // --- 2. Spawn 22 AI Cars (Sedans, Seoul Taxis, Vans across the 6x6 city!) ---
     const palette: Array<{ hex: number; css: string; taxi?: boolean; van?: boolean }> = [
-      { hex: 0xf8fafc, css: '#f8fafc' }, // White sedan
-      { hex: 0xf97316, css: '#f97316', taxi: true }, // Seoul orange taxi
-      { hex: 0x94a3b8, css: '#94a3b8' }, // Silver sedan
-      { hex: 0x1e3a8a, css: '#3b82f6' }, // Navy sedan
-      { hex: 0xe2e8f0, css: '#e2e8f0', van: true }, // Delivery van
-      { hex: 0x334155, css: '#64748b' }, // Dark grey sedan
-      { hex: 0xfacc15, css: '#facc15', taxi: true }, // Yellow taxi
-      { hex: 0x0f766e, css: '#14b8a6' }, // Teal SUV
+      { hex: 0xf8fafc, css: '#f8fafc' },
+      { hex: 0xf97316, css: '#f97316', taxi: true },
+      { hex: 0x94a3b8, css: '#94a3b8' },
+      { hex: 0x1e3a8a, css: '#3b82f6' },
+      { hex: 0xe2e8f0, css: '#e2e8f0', van: true },
+      { hex: 0x334155, css: '#64748b' },
+      { hex: 0xfacc15, css: '#facc15', taxi: true },
+      { hex: 0x0f766e, css: '#14b8a6' },
     ];
 
-    // Pre-placed well-spaced spawn slots across the 4x4 city grid (clear of player spawn at -62, -34.2)
-    const spawns: Array<{ dir: CardinalDir; roadIdx: number; along: number }> = [
-      { dir: 1, roadIdx: 1, along: -95 }, // z=-40 Eastbound
-      { dir: 1, roadIdx: 2, along: -80 }, // z=+40 Eastbound
-      { dir: 1, roadIdx: 2, along: 10 },
-      { dir: 1, roadIdx: 3, along: -60 }, // z=+120 Eastbound
-      { dir: 3, roadIdx: 0, along: 75 }, // z=-120 Westbound
-      { dir: 3, roadIdx: 1, along: 65 }, // z=-40 Westbound
-      { dir: 3, roadIdx: 2, along: 85 }, // z=+40 Westbound
-      { dir: 0, roadIdx: 0, along: -80 }, // x=-120 Northbound
-      { dir: 0, roadIdx: 1, along: -10 }, // x=-40 Northbound
-      { dir: 0, roadIdx: 2, along: -85 }, // x=+40 Northbound
-      { dir: 0, roadIdx: 3, along: 5 }, // x=+120 Northbound
-      { dir: 2, roadIdx: 1, along: 85 }, // x=-40 Southbound
-      { dir: 2, roadIdx: 2, along: 75 }, // x=+40 Southbound
-      { dir: 2, roadIdx: 3, along: -15 }, // x=+120 Southbound
+    const carSpawns: Array<{ dir: CardinalDir; roadIdx: number; along: number }> = [
+      { dir: 1, roadIdx: 1, along: -150 },
+      { dir: 1, roadIdx: 2, along: 15 },
+      { dir: 1, roadIdx: 3, along: 15 },
+      { dir: 1, roadIdx: 4, along: -140 },
+      { dir: 1, roadIdx: 4, along: 75 },
+      { dir: 1, roadIdx: 5, along: -80 },
+      { dir: 3, roadIdx: 0, along: 145 },
+      { dir: 3, roadIdx: 1, along: 80 },
+      { dir: 3, roadIdx: 2, along: -155 },
+      { dir: 3, roadIdx: 3, along: 160 },
+      { dir: 3, roadIdx: 4, along: -10 },
+      { dir: 0, roadIdx: 0, along: -140 },
+      { dir: 0, roadIdx: 1, along: -80 },
+      { dir: 0, roadIdx: 1, along: 90 },
+      { dir: 0, roadIdx: 2, along: 85 },
+      { dir: 0, roadIdx: 3, along: -150 },
+      { dir: 0, roadIdx: 4, along: -5 },
+      { dir: 0, roadIdx: 5, along: -85 },
+      { dir: 2, roadIdx: 1, along: 155 },
+      { dir: 2, roadIdx: 2, along: -15 },
+      { dir: 2, roadIdx: 4, along: 145 },
+      { dir: 2, roadIdx: 5, along: 85 },
     ];
 
-    spawns.forEach((sp, idx) => {
+    carSpawns.forEach((sp, idx) => {
       const style = palette[idx % palette.length];
       const { group, brakeMat, headlightMat } = this.createCarMesh(
         style.hex,
@@ -346,23 +512,26 @@ export class TrafficSystem {
       group.rotation.y = heading;
       this.root.add(group);
 
-      this.cars.push({
+      this.vehicles.push({
         mesh: group,
         brakeMat,
         headlightMat,
+        isBus: false,
         x,
         z,
         heading,
         dir: sp.dir,
         roadIndex: sp.roadIdx,
         speed: 7.5,
-        cruiseSpeed: 9.2 + (idx % 4) * 1.1, // ~33 to 45 km/h
+        cruiseSpeed: 9.4 + (idx % 4) * 1.15,
         braking: false,
         turning: false,
         turnTargetX: x,
         turnTargetZ: z,
         turnTargetDir: sp.dir,
         turnTargetRoadIndex: sp.roadIdx,
+        busStopWaitTimer: 0,
+        busStopCooldown: 0,
         colorHex: style.css,
         halfWidth: 1.0,
         halfLength: style.van ? 2.3 : 2.15,
@@ -371,7 +540,7 @@ export class TrafficSystem {
   }
 
   public getCarSnapshots(): TrafficCarSnapshot[] {
-    return this.cars.map((c) => ({
+    return this.vehicles.map((c) => ({
       x: c.x,
       z: c.z,
       heading: c.heading,
@@ -379,9 +548,8 @@ export class TrafficSystem {
     }));
   }
 
-  /** Returns car obstacle boxes for walking collision & low-speed scooter collision */
   public getCarObstacleBoxes(): ObstacleBox[] {
-    return this.cars.map((c) => {
+    return this.vehicles.map((c) => {
       const ns = Math.abs(Math.cos(c.heading)) > 0.7;
       const rx = ns ? c.halfWidth : c.halfLength;
       const rz = ns ? c.halfLength : c.halfWidth;
@@ -459,17 +627,26 @@ export class TrafficSystem {
       this.violationCooldown -= clampedDt;
     }
 
-    // Check player red-light violation when riding across an intersection stop line
     if (isRiding && Math.abs(playerSpeed) > 4.2 && this.violationCooldown <= 0) {
       this.checkPlayerRedLight(playerX, playerZ, onRedLightViolation);
     }
     this.prevPlayerX = playerX;
     this.prevPlayerZ = playerZ;
 
-    // Step every AI car
-    for (let i = 0; i < this.cars.length; i++) {
-      const car = this.cars[i];
-      this.stepCar(car, i, clampedDt, isNight, playerX, playerZ, playerSpeed, isRiding, onCarCollisionCrash);
+    const blinkOn = Math.floor(elapsedTime * 2.6) % 2 === 0;
+    for (let i = 0; i < this.vehicles.length; i++) {
+      this.stepVehicle(
+        this.vehicles[i],
+        i,
+        clampedDt,
+        isNight,
+        blinkOn,
+        playerX,
+        playerZ,
+        playerSpeed,
+        isRiding,
+        onCarCollisionCrash
+      );
     }
   }
 
@@ -484,7 +661,6 @@ export class TrafficSystem {
       for (const iz of ROAD_LINES) {
         if (movingNS) {
           if (Math.abs(x - ix) > 6.8) continue;
-          // Crossing into intersection box [-7.5, +7.5] from outside
           const wasOutside = Math.abs(this.prevPlayerZ - iz) >= 7.5;
           const nowInside = Math.abs(z - iz) < 7.5;
           if (wasOutside && nowInside && this.signalState.ns === 'red') {
@@ -506,11 +682,12 @@ export class TrafficSystem {
     }
   }
 
-  private stepCar(
-    car: AiCar,
+  private stepVehicle(
+    car: AiVehicle,
     index: number,
     dt: number,
     isNight: boolean,
+    blinkOn: boolean,
     playerX: number,
     playerZ: number,
     playerSpeed: number,
@@ -521,12 +698,36 @@ export class TrafficSystem {
     let mustStop = false;
     let desiredSpeed = car.cruiseSpeed;
 
-    // 1. Check upcoming intersection traffic signal & decision point
+    // 0. Bus Stop Dwelling Logic (only for City Buses!)
+    if (car.isBus) {
+      if (car.busStopCooldown > 0) car.busStopCooldown -= dt;
+
+      if (car.busStopWaitTimer > 0) {
+        car.busStopWaitTimer -= dt;
+        mustStop = true;
+      } else if (!car.turning && car.busStopCooldown <= 0) {
+        for (const stop of this.busStops) {
+          if (stop.dir !== car.dir || stop.roadIndex !== car.roadIndex) continue;
+          const distAhead = (stop.x - car.x) * fx + (stop.z - car.z) * fz;
+          if (distAhead > -1.5 && distAhead < 14) {
+            if (distAhead <= 2.2) {
+              car.busStopWaitTimer = 3.4; // stop for 3.4s at bus stop!
+              car.busStopCooldown = 14.0;
+              mustStop = true;
+            } else {
+              desiredSpeed = Math.min(desiredSpeed, distAhead * 0.7);
+            }
+          }
+        }
+      }
+    }
+
+    // 1. Intersection signals & turning
     if (!car.turning) {
       const along = isAxisNS(car.dir) ? car.z : car.x;
       const stepSign = isAxisNS(car.dir) ? fz : fx;
+      const stopDist = car.isBus ? STOP_LINE_DIST + 2.4 : STOP_LINE_DIST;
 
-      // Find nearest upcoming road line ahead
       let nextLineIdx = -1;
       let nextDist = Infinity;
       for (let r = 0; r < ROAD_LINES.length; r++) {
@@ -539,21 +740,19 @@ export class TrafficSystem {
 
       if (nextLineIdx !== -1) {
         const sig = this.getSignalForDirection(car.dir);
-        // Stop cleanly at stop line if Red or Yellow and not already inside intersection
-        if (sig !== 'green' && nextDist > 7.5 && nextDist < STOP_LINE_DIST + 12) {
-          if (nextDist <= STOP_LINE_DIST + 1.5) {
+        if (sig !== 'green' && nextDist > 8.0 && nextDist < stopDist + 13) {
+          if (nextDist <= stopDist + 1.5) {
             mustStop = true;
           } else {
-            desiredSpeed = Math.min(desiredSpeed, (nextDist - STOP_LINE_DIST) * 0.9);
+            desiredSpeed = Math.min(desiredSpeed, (nextDist - stopDist) * 0.85);
           }
         }
 
-        // Choose turn or straight when entering the intersection (or forced turn at outer edge!)
         const isOuterEdge =
           (stepSign > 0 && nextLineIdx === ROAD_LINES.length - 1) ||
           (stepSign < 0 && nextLineIdx === 0);
 
-        if (nextDist < 7.2 && nextDist > 2.5 && (sig === 'green' || nextDist < 6.0)) {
+        if (nextDist < 7.4 && nextDist > 2.5 && (sig === 'green' || nextDist < 6.2)) {
           const leftDir = ((car.dir + 3) % 4) as CardinalDir;
           const rightDir = ((car.dir + 1) % 4) as CardinalDir;
           const canGoStraight = !isOuterEdge;
@@ -564,7 +763,11 @@ export class TrafficSystem {
           };
 
           const options: CardinalDir[] = [];
-          if (canGoStraight) options.push(car.dir, car.dir); // prefer going straight
+          if (canGoStraight) {
+            // Buses strongly prefer continuing along main bus corridors!
+            options.push(car.dir, car.dir);
+            if (car.isBus) options.push(car.dir, car.dir);
+          }
           if (canTurnDir(rightDir)) options.push(rightDir);
           if (canTurnDir(leftDir)) options.push(leftDir);
 
@@ -576,7 +779,7 @@ export class TrafficSystem {
             const targetRoadCoord = ROAD_LINES[nextLineIdx];
             const targetLane = laneCoordForDir(targetRoadCoord, chosen);
             const [tfx, tfz] = dirVector(chosen);
-            const exitOffset = 8.2;
+            const exitOffset = car.isBus ? 9.8 : 8.2;
             const ix = isAxisNS(car.dir) ? ROAD_LINES[car.roadIndex] : ROAD_LINES[nextLineIdx];
             const iz = isAxisNS(car.dir) ? ROAD_LINES[nextLineIdx] : ROAD_LINES[car.roadIndex];
 
@@ -587,19 +790,22 @@ export class TrafficSystem {
       }
     }
 
-    // 2. Check obstacle ahead (other AI cars & Player!)
+    // 2. Check vehicles & player ahead
     const curFx = Math.sin(car.heading);
     const curFz = Math.cos(car.heading);
+    const lookAhead = car.isBus ? 18.0 : 14.0;
+    const stopGap = car.isBus ? 10.2 : 7.5;
 
-    for (let j = 0; j < this.cars.length; j++) {
+    for (let j = 0; j < this.vehicles.length; j++) {
       if (j === index) continue;
-      const other = this.cars[j];
+      const other = this.vehicles[j];
       const dx = other.x - car.x;
       const dz = other.z - car.z;
       const forwardDist = dx * curFx + dz * curFz;
       const lateralDist = Math.abs(dx * curFz - dz * curFx);
-      if (forwardDist > 0 && forwardDist < 13.5 && lateralDist < 2.2) {
-        if (forwardDist < 7.2) {
+      const safeGap = stopGap + (other.isBus ? 2.6 : 0);
+      if (forwardDist > 0 && forwardDist < lookAhead + (other.isBus ? 3 : 0) && lateralDist < 2.4) {
+        if (forwardDist < safeGap) {
           mustStop = true;
         } else {
           desiredSpeed = Math.min(desiredSpeed, other.speed * 0.85);
@@ -607,38 +813,38 @@ export class TrafficSystem {
       }
     }
 
-    // Yield / brake for player in front of the car
     const pdx = playerX - car.x;
     const pdz = playerZ - car.z;
     const pForward = pdx * curFx + pdz * curFz;
     const pLateral = Math.abs(pdx * curFz - pdz * curFx);
-    if (pForward > 0 && pForward < 12.5 && pLateral < 2.1) {
-      if (pForward < 5.5) {
+    const playerStop = car.isBus ? 8.2 : 5.6;
+    if (pForward > 0 && pForward < playerStop + 7.0 && pLateral < 2.3) {
+      if (pForward < playerStop) {
         mustStop = true;
       } else {
         desiredSpeed = Math.min(desiredSpeed, 2.0);
       }
     }
 
-    // 3. Longitudinal speed update
+    // 3. Speed update
     if (mustStop) {
-      car.speed = Math.max(0, car.speed - 12.5 * dt);
+      car.speed = Math.max(0, car.speed - (car.isBus ? 9.5 : 12.5) * dt);
       car.braking = true;
     } else if (car.speed < desiredSpeed) {
-      car.speed = Math.min(desiredSpeed, car.speed + 5.2 * dt);
+      car.speed = Math.min(desiredSpeed, car.speed + (car.isBus ? 3.8 : 5.2) * dt);
       car.braking = false;
     } else {
       car.speed = Math.max(desiredSpeed, car.speed - 6.5 * dt);
       car.braking = car.speed > desiredSpeed + 0.5;
     }
 
-    // 4. Move along lane or smoothly complete intersection turn
+    // 4. Move along lane or turn smoothly
     if (car.turning) {
       const toTx = car.turnTargetX - car.x;
       const toTz = car.turnTargetZ - car.z;
       const dist = Math.hypot(toTx, toTz);
-      const turnSpeed = Math.min(car.speed, 7.5);
-      if (dist < 0.7) {
+      const turnSpeed = Math.min(car.speed, car.isBus ? 6.2 : 7.5);
+      if (dist < 0.8) {
         car.x = car.turnTargetX;
         car.z = car.turnTargetZ;
         car.dir = car.turnTargetDir;
@@ -648,14 +854,13 @@ export class TrafficSystem {
       } else {
         const targetHeading = Math.atan2(toTx, toTz);
         const hDiff = wrapAngle(targetHeading - car.heading);
-        car.heading = wrapAngle(car.heading + hDiff * Math.min(1, dt * 6.5));
+        car.heading = wrapAngle(car.heading + hDiff * Math.min(1, dt * (car.isBus ? 5.2 : 6.5)));
         car.x += (toTx / dist) * turnSpeed * dt;
         car.z += (toTz / dist) * turnSpeed * dt;
       }
     } else {
       car.x += fx * car.speed * dt;
       car.z += fz * car.speed * dt;
-      // Gently keep centered in right-hand lane
       const idealLane = laneCoordForDir(ROAD_LINES[car.roadIndex], car.dir);
       if (isAxisNS(car.dir)) {
         car.x += (idealLane - car.x) * Math.min(1, dt * 4);
@@ -666,14 +871,13 @@ export class TrafficSystem {
       car.heading = wrapAngle(car.heading + wrapAngle(targetH - car.heading) * Math.min(1, dt * 8));
     }
 
-    // Keep within grid bounds safety net
-    car.x = clamp(car.x, -145, 145);
-    car.z = clamp(car.z, -145, 145);
+    car.x = clamp(car.x, -225, 225);
+    car.z = clamp(car.z, -225, 225);
 
-    // 5. High-speed collision check with riding player scooter!
+    // 5. High-speed collision check with riding player
     if (isRiding && Math.abs(playerSpeed) > 8.5) {
-      const distToPlayer = Math.hypot(car.x - playerX, car.z - playerZ);
-      if (distToPlayer < 2.25) {
+      const hitRadius = car.isBus ? 3.2 : 2.25;
+      if (Math.hypot(car.x - playerX, car.z - playerZ) < hitRadius) {
         onCarCollisionCrash(car.x, car.z);
       }
     }
@@ -682,6 +886,9 @@ export class TrafficSystem {
     car.mesh.position.set(car.x, 0, car.z);
     car.mesh.rotation.y = car.heading;
     car.brakeMat.emissiveIntensity = car.braking || car.speed < 0.3 ? 2.8 : isNight ? 0.8 : 0.25;
-    car.headlightMat.emissiveIntensity = isNight ? 2.8 : 0.35;
+    car.headlightMat.emissiveIntensity = isNight ? 2.8 : 0.4;
+    if (car.hazardMat) {
+      car.hazardMat.emissiveIntensity = car.busStopWaitTimer > 0 && blinkOn ? 3.2 : 0;
+    }
   }
 }

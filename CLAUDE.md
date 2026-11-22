@@ -22,9 +22,9 @@
 
 ### 핵심 아키텍처
 - `src/main.ts` — 게임 루프, 키 입력, 야외↔복도 오클루전 씬 전환 및 시스템 통합
-- `src/world/CityWorld.ts` — 3×3 도시 블록(상가 야외 픽업대, 아파트 1층 공동현관 유리문, 중앙 공원), 3D 픽업/배달 비콘, 외부 렌더링 토글(`setOutdoorVisible`)
+- `src/world/CityWorld.ts` — 5×5(25개) 확장 도시 블록(보도블록 인도·연석·점자블록, 상가 야외 픽업대 9곳, 아파트/빌라 공동현관 12곳, 버스정류장 8곳, 고층 타워·병원·백화점), 외부 렌더링 토글(`setOutdoorVisible`)
 - `src/world/CorridorRoom.ts` — 지하 독립 좌표(`y = -500`) 모듈형 아파트 실내 복도 프리팹(호수 팻말, 발매트 음식 배치, 엘리베이터 복귀)
-- `src/world/TrafficSystem.ts` — 교차로 3색 신호등 주기, AI 교통 차량 주행·정지·회전·충돌 및 신호 위반 판정
+- `src/world/TrafficSystem.ts` — 36개 교차로 3색 신호등 주기, AI 시내버스(정류장 정차·비상등 포함) 및 승용차·택시·밴 주행·회전·충돌·신호 위반 판정
 - `src/player/PlayerController.ts` & `PlayerMesh.ts` — 1인칭 도보 이동, 점프, GTA식 `[F]` 승하차(음식 휴대 시 운전 차단), 전도 기상 회복
 - `src/player/HandheldPhone3D.ts` & `HandheldFoodBag3D.ts` — 1인칭 3D 오른손 스마트폰 & 왼손 음식 포장 봉투 메시
 - `src/vehicle/ScooterPhysics.ts` & `ScooterMesh.ts` — 배달 스쿠터 물리, 코너링 2차 기울기(Lean) & 전도, 실시간 좌/우 사이드미러, 배달통(탑박스) 뚜껑 애니메이션

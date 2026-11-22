@@ -71,19 +71,19 @@ export class PhoneMap {
 
     this.zoomInBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.zoomLevel = clamp(this.zoomLevel + 0.35, 0.72, 2.8);
+      this.zoomLevel = clamp(this.zoomLevel + 0.32, 0.48, 2.8);
     });
 
     this.zoomOutBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.zoomLevel = clamp(this.zoomLevel - 0.35, 0.72, 2.8);
+      this.zoomLevel = clamp(this.zoomLevel - 0.32, 0.48, 2.8);
     });
 
     this.followBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.followPlayer = !this.followPlayer;
       this.followBtn.classList.toggle('active', this.followPlayer);
-      this.zoomLevel = this.followPlayer ? 1.5 : 0.76;
+      this.zoomLevel = this.followPlayer ? 1.5 : 0.56;
     });
 
     this.unzoomBtn.addEventListener('click', (e) => {
@@ -770,10 +770,10 @@ export class PhoneMap {
     const toX = (wx: number) => centerX - (wx - this.camX) * scale;
     const toY = (wz: number) => centerY - (wz - this.camZ) * scale;
 
-    // 1. Blocks & Central Park
-    for (const bx of [-80, 0, 80]) {
-      for (const bz of [-80, 0, 80]) {
-        const bw = 65.5 * scale;
+    // 1. Blocks & Central Park (all 25 city blocks!)
+    for (const bx of mapInfo.blockCenters) {
+      for (const bz of mapInfo.blockCenters) {
+        const bw = 65.6 * scale;
         ctx.fillStyle = bx === 0 && bz === 0 ? theme.park : theme.block;
         ctx.beginPath();
         ctx.roundRect(toX(bx) - bw / 2, toY(bz) - bw / 2, bw, bw, 4 * this.zoomLevel);
@@ -785,15 +785,15 @@ export class PhoneMap {
     ctx.arc(toX(0), toY(0), 5.6 * scale, 0, Math.PI * 2);
     ctx.fill();
 
-    // 2. Road Grid
+    // 2. Road Grid (6x6 expanded boulevards!)
     const roadW = mapInfo.roadWidth * scale;
     const drawRoads = () => {
       ctx.beginPath();
       for (const c of mapInfo.roadLines) {
-        ctx.moveTo(toX(-152), toY(c));
-        ctx.lineTo(toX(152), toY(c));
-        ctx.moveTo(toX(c), toY(-152));
-        ctx.lineTo(toX(c), toY(152));
+        ctx.moveTo(toX(-234), toY(c));
+        ctx.lineTo(toX(234), toY(c));
+        ctx.moveTo(toX(c), toY(-234));
+        ctx.lineTo(toX(c), toY(234));
       }
     };
     ctx.lineCap = 'square';
@@ -841,7 +841,21 @@ export class PhoneMap {
       }
     }
 
-    // 3.5. Intersection signal status dots (other cars intentionally NOT shown!)
+    // 3.5. Bus stop icons & Intersection signal status dots (other vehicles NOT shown!)
+    for (const bs of mapInfo.busStops) {
+      const bx = toX(bs.shelterX);
+      const by = toY(bs.shelterZ);
+      ctx.fillStyle = '#1d4ed8';
+      ctx.beginPath();
+      ctx.roundRect(bx - 4.5, by - 4.5, 9, 9, 2.5);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('B', bx, by + 0.5);
+    }
+
     const sigHex = (c: 'green' | 'yellow' | 'red') =>
       c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
 
