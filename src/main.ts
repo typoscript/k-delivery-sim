@@ -142,27 +142,22 @@ window.addEventListener('keydown', (e) => {
       if (playerCtrl.state.mode === 'on_foot') {
         handleDeliveryInteract();
       } else if (playerCtrl.state.mode === 'riding') {
-        scooterPhysics.state.hazard = false;
-        scooterPhysics.state.rightBlinker = !scooterPhysics.state.rightBlinker;
-        if (scooterPhysics.state.rightBlinker) scooterPhysics.state.leftBlinker = false;
+        const on = scooterPhysics.toggleRightBlinker();
+        hud.showToast(on ? '▶ 우측 깜빡이 ON (회전 후 자동 해제)' : '우측 깜빡이 OFF', 1600);
       }
       break;
     }
     case 'KeyQ': {
       if (playerCtrl.state.mode === 'riding') {
-        scooterPhysics.state.hazard = false;
-        scooterPhysics.state.leftBlinker = !scooterPhysics.state.leftBlinker;
-        if (scooterPhysics.state.leftBlinker) scooterPhysics.state.rightBlinker = false;
+        const on = scooterPhysics.toggleLeftBlinker();
+        hud.showToast(on ? '◀ 좌측 깜빡이 ON (회전 후 자동 해제)' : '좌측 깜빡이 OFF', 1600);
       }
       break;
     }
     case 'KeyX': {
       if (playerCtrl.state.mode === 'riding') {
-        scooterPhysics.state.hazard = !scooterPhysics.state.hazard;
-        if (scooterPhysics.state.hazard) {
-          scooterPhysics.state.leftBlinker = false;
-          scooterPhysics.state.rightBlinker = false;
-        }
+        const on = scooterPhysics.toggleHazard();
+        hud.showToast(on ? '⚠ 비상등 ON' : '비상등 OFF', 1600);
       }
       break;
     }
@@ -343,6 +338,8 @@ function animate(now: number): void {
     world.mapInfo
   );
 
+  // Render live rear-view side mirrors before main 1st-person scene pass
+  scooterMesh.renderMirrors(renderer, scene, scooterPhysics.state);
   renderer.render(scene, camera);
 }
 

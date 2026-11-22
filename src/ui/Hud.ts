@@ -127,9 +127,13 @@ export class Hud {
 
       const blinkOn = Math.floor(elapsedTime * 2.5) % 2 === 0;
       this.indLeft.className =
-        (scooter.leftBlinker || scooter.hazard) && blinkOn ? 'ind active-amber' : 'ind';
+        (scooter.leftBlinker || scooter.hazard) && blinkOn
+          ? 'ind ind-blink active-amber'
+          : 'ind ind-blink';
       this.indRight.className =
-        (scooter.rightBlinker || scooter.hazard) && blinkOn ? 'ind active-amber' : 'ind';
+        (scooter.rightBlinker || scooter.hazard) && blinkOn
+          ? 'ind ind-blink active-amber'
+          : 'ind ind-blink';
       this.indLight.className = scooter.headlights ? 'ind active-amber' : 'ind';
       this.indTime.className = isNight ? 'ind active-blue' : 'ind';
       this.indTime.textContent = isNight ? '밤' : '낮';

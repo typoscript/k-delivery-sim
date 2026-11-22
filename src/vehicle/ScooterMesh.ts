@@ -11,11 +11,26 @@ export class ScooterMesh {
   private readonly mountedPhone3D = new THREE.Group();
   public readonly riderMountPoint = new THREE.Group();
 
+  // Live Rear-View Side Mirror Render Targets & Cameras
+  private readonly leftMirrorRT: THREE.WebGLRenderTarget;
+  private readonly rightMirrorRT: THREE.WebGLRenderTarget;
+  private readonly leftMirrorCam: THREE.PerspectiveCamera;
+  private readonly rightMirrorCam: THREE.PerspectiveCamera;
+  private readonly leftMirrorAnchor = new THREE.Object3D();
+  private readonly rightMirrorAnchor = new THREE.Object3D();
+  private readonly mirrorGlassMeshes: THREE.Mesh[] = [];
+  private readonly tmpMirrorPos = new THREE.Vector3();
+  private readonly tmpMirrorTarget = new THREE.Vector3();
+
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightMat: THREE.MeshStandardMaterial;
   private readonly brakeLightMat: THREE.MeshStandardMaterial;
   private readonly leftBlinkerMat: THREE.MeshStandardMaterial;
   private readonly rightBlinkerMat: THREE.MeshStandardMaterial;
+  private readonly dashLeftLedMat: THREE.MeshStandardMaterial;
+  private readonly dashRightLedMat: THREE.MeshStandardMaterial;
+  private readonly leftBlinkerGlow: THREE.PointLight;
+  private readonly rightBlinkerGlow: THREE.PointLight;
 
   constructor(scene: THREE.Scene) {
     this.headlightMat = new THREE.MeshStandardMaterial({
@@ -38,16 +53,45 @@ export class ScooterMesh {
       emissive: 0xf59e0b,
       emissiveIntensity: 0,
     });
+    this.dashLeftLedMat = new THREE.MeshStandardMaterial({
+      color: 0x14532d,
+      emissive: 0x22c55e,
+      emissiveIntensity: 0.08,
+    });
+    this.dashRightLedMat = new THREE.MeshStandardMaterial({
+      color: 0x14532d,
+      emissive: 0x22c55e,
+      emissiveIntensity: 0.08,
+    });
+
+    // Setup real-time side mirror render targets (horizontally flipped for true reflection!)
+    const mirrorOpts: THREE.RenderTargetOptions = {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: true,
+    };
+    this.leftMirrorRT = new THREE.WebGLRenderTarget(256, 160, mirrorOpts);
+    this.leftMirrorRT.texture.wrapS = THREE.RepeatWrapping;
+    this.leftMirrorRT.texture.repeat.set(-1, 1);
+    this.leftMirrorRT.texture.offset.set(1, 0);
+
+    this.rightMirrorRT = new THREE.WebGLRenderTarget(256, 160, mirrorOpts);
+    this.rightMirrorRT.texture.wrapS = THREE.RepeatWrapping;
+    this.rightMirrorRT.texture.repeat.set(-1, 1);
+    this.rightMirrorRT.texture.offset.set(1, 0);
+
+    this.leftMirrorCam = new THREE.PerspectiveCamera(62, 256 / 160, 0.25, 280);
+    this.rightMirrorCam = new THREE.PerspectiveCamera(62, 256 / 160, 0.25, 280);
 
     this.root.add(this.bodyTiltGroup);
 
     const bodyPaint = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc, // Crisp white urban scooter
+      color: 0xf8fafc,
       roughness: 0.3,
       metalness: 0.25,
     });
     const accentPaint = new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9, // Delivery sky-blue accent
+      color: 0x0ea5e9,
       roughness: 0.35,
       metalness: 0.2,
     });
@@ -62,7 +106,7 @@ export class ScooterMesh {
       metalness: 0.85,
     });
     const boxMat = new THREE.MeshStandardMaterial({
-      color: 0x14b8a6, // Iconic mint-teal Korean delivery thermal box!
+      color: 0x14b8a6,
       roughness: 0.42,
       metalness: 0.1,
     });
@@ -72,7 +116,7 @@ export class ScooterMesh {
     this.rearWheel.position.set(0, SCOOTER_SPECS.wheelRadius, 0);
     this.bodyTiltGroup.add(this.rearWheel);
 
-    // --- Main Scooter Frame & Floorboard (z = -0.1 to +1.35) ---
+    // --- Main Scooter Frame & Floorboard ---
     const floorboard = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.12, 1.05), darkMat);
     floorboard.position.set(0, 0.34, 0.65);
     floorboard.castShadow = true;
@@ -83,24 +127,21 @@ export class ScooterMesh {
     rearBody.castShadow = true;
     this.bodyTiltGroup.add(rearBody);
 
-    // Side accent trim
     const sideTrim = new THREE.Mesh(new THREE.BoxGeometry(0.49, 0.1, 0.76), accentPaint);
     sideTrim.position.set(0, 0.58, 0.14);
     this.bodyTiltGroup.add(sideTrim);
 
-    // Padded scooter seat
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.76), darkMat);
     seat.position.set(0, 0.82, 0.22);
     seat.castShadow = true;
     this.bodyTiltGroup.add(seat);
 
-    // Exhaust muffler on right (-X)
     const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.62, 10), chromeMat);
     exhaust.rotation.x = Math.PI / 2 - 0.16;
     exhaust.position.set(-0.27, 0.36, 0.08);
     this.bodyTiltGroup.add(exhaust);
 
-    // --- Rear Delivery Thermal Box (배달통!) ---
+    // --- Rear Delivery Thermal Box ---
     const rack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.48), darkMat);
     rack.position.set(0, 0.88, -0.34);
     this.bodyTiltGroup.add(rack);
@@ -115,7 +156,6 @@ export class ScooterMesh {
     boxLid.position.set(0, 1.4, -0.36);
     this.bodyTiltGroup.add(boxLid);
 
-    // Reflective safety strip on back of delivery box
     const reflectMat = new THREE.MeshStandardMaterial({
       color: 0xfef08a,
       emissive: 0xfacc15,
@@ -130,12 +170,12 @@ export class ScooterMesh {
     tailLight.position.set(0, 0.64, -0.33);
     this.bodyTiltGroup.add(tailLight);
 
-    const rearLeftBlink = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.06), this.leftBlinkerMat);
-    rearLeftBlink.position.set(0.18, 0.64, -0.33);
+    const rearLeftBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.leftBlinkerMat);
+    rearLeftBlink.position.set(0.19, 0.64, -0.33);
     this.bodyTiltGroup.add(rearLeftBlink);
 
-    const rearRightBlink = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.06), this.rightBlinkerMat);
-    rearRightBlink.position.set(-0.18, 0.64, -0.33);
+    const rearRightBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.rightBlinkerMat);
+    rearRightBlink.position.set(-0.19, 0.64, -0.33);
     this.bodyTiltGroup.add(rearRightBlink);
 
     // --- Front Fairing & Leg Shield ---
@@ -155,15 +195,14 @@ export class ScooterMesh {
     headlight.position.set(0, 0.78, 1.38);
     this.bodyTiltGroup.add(headlight);
 
-    const frontLeftBlink = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.06), this.leftBlinkerMat);
-    frontLeftBlink.position.set(0.2, 0.76, 1.36);
+    const frontLeftBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.leftBlinkerMat);
+    frontLeftBlink.position.set(0.21, 0.76, 1.36);
     this.bodyTiltGroup.add(frontLeftBlink);
 
-    const frontRightBlink = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.06), this.rightBlinkerMat);
-    frontRightBlink.position.set(-0.2, 0.76, 1.36);
+    const frontRightBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.rightBlinkerMat);
+    frontRightBlink.position.set(-0.21, 0.76, 1.36);
     this.bodyTiltGroup.add(frontRightBlink);
 
-    // Headlight spotlight beam
     this.headlightSpot = new THREE.SpotLight(0xfff7e0, 0, 55, Math.PI / 4, 0.55, 1.2);
     this.headlightSpot.position.set(0, 0.82, 1.44);
     const spotTarget = new THREE.Object3D();
@@ -172,16 +211,14 @@ export class ScooterMesh {
     this.headlightSpot.target = spotTarget;
     this.bodyTiltGroup.add(this.headlightSpot);
 
-    // --- Steerable Front Fork + Handlebars + Front Wheel (at z = wheelbase 1.38) ---
+    // --- Steerable Front Fork + Handlebars + Live Side Mirrors + Dashboard Blinker LEDs ---
     this.handlebarGroup.position.set(0, 0, SCOOTER_SPECS.wheelbase);
     this.bodyTiltGroup.add(this.handlebarGroup);
 
-    // Front wheel
     this.frontWheel = this.createWheel();
     this.frontWheel.position.set(0, SCOOTER_SPECS.wheelRadius, 0);
     this.handlebarGroup.add(this.frontWheel);
 
-    // Front fork tubes
     for (const side of [-1, 1]) {
       const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.78, 8), chromeMat);
       fork.position.set(side * 0.11, 0.62, -0.08);
@@ -189,36 +226,89 @@ export class ScooterMesh {
       this.handlebarGroup.add(fork);
     }
 
-    // Front fender
     const fender = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.42), bodyPaint);
     fender.position.set(0, 0.6, 0.02);
     this.handlebarGroup.add(fender);
 
-    // Handlebar stem + bar + grips + windscreen + mirrors
-    const barCenter = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.16), darkMat);
-    barCenter.position.set(0, 1.12, -0.2);
+    // Instrument dash pod (visible directly in 1st-person!)
+    const barCenter = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11, 0.18), darkMat);
+    barCenter.position.set(0, 1.12, -0.21);
     this.handlebarGroup.add(barCenter);
 
-    const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.74, 8), chromeMat);
+    // 1st-Person Dashboard Blinker Indicator LEDs (◀ Left / ▶ Right)
+    const ledGeo = new THREE.BoxGeometry(0.055, 0.024, 0.014);
+    const leftDashLed = new THREE.Mesh(ledGeo, this.dashLeftLedMat);
+    leftDashLed.position.set(0.1, 1.165, -0.295);
+    leftDashLed.rotation.x = -0.35;
+    const rightDashLed = new THREE.Mesh(ledGeo, this.dashRightLedMat);
+    rightDashLed.position.set(-0.1, 1.165, -0.295);
+    rightDashLed.rotation.x = -0.35;
+    this.handlebarGroup.add(leftDashLed, rightDashLed);
+
+    const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.78, 8), chromeMat);
     handleBar.rotation.z = Math.PI / 2;
     handleBar.position.set(0, 1.12, -0.22);
     this.handlebarGroup.add(handleBar);
 
+    // Subtle amber glow lights for left & right turn signals
+    this.leftBlinkerGlow = new THREE.PointLight(0xf59e0b, 0, 5.5);
+    this.leftBlinkerGlow.position.set(0.42, 1.12, -0.15);
+    this.rightBlinkerGlow = new THREE.PointLight(0xf59e0b, 0, 5.5);
+    this.rightBlinkerGlow.position.set(-0.42, 1.12, -0.15);
+    this.handlebarGroup.add(this.leftBlinkerGlow, this.rightBlinkerGlow);
+
     for (const side of [-1, 1]) {
+      const isLeft = side === 1;
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.16, 8), darkMat);
       grip.rotation.z = Math.PI / 2;
-      grip.position.set(side * 0.34, 1.12, -0.22);
+      grip.position.set(side * 0.35, 1.12, -0.22);
       this.handlebarGroup.add(grip);
 
-      // Mirrors
-      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.2, 6), darkMat);
-      stalk.position.set(side * 0.25, 1.24, -0.2);
-      stalk.rotation.z = -side * 0.35;
+      // Bar-end amber turn signal pod visible in 1st-person periphery!
+      const barEndLamp = new THREE.Mesh(
+        new THREE.SphereGeometry(0.032, 10, 8),
+        isLeft ? this.leftBlinkerMat : this.rightBlinkerMat
+      );
+      barEndLamp.position.set(side * 0.44, 1.12, -0.22);
+      this.handlebarGroup.add(barEndLamp);
+
+      // --- Real-Time Working Side Mirrors (positioned clearly in 1st-person view!) ---
+      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.25, 8), darkMat);
+      stalk.position.set(side * 0.31, 1.24, -0.21);
+      stalk.rotation.z = -side * 0.42;
       this.handlebarGroup.add(stalk);
 
-      const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.04), darkMat);
-      mirror.position.set(side * 0.32, 1.34, -0.2);
-      this.handlebarGroup.add(mirror);
+      // Mirror head assembly angled cleanly toward driver's 1st-person eyes
+      const mirrorHead = new THREE.Group();
+      mirrorHead.position.set(side * 0.41, 1.355, -0.21);
+      // Slight inward yaw toward center driver eye & upward tilt
+      mirrorHead.rotation.y = side * 0.22;
+      mirrorHead.rotation.x = 0.12;
+
+      // Mirror back housing & chrome rim
+      const housing = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.145, 0.026), darkMat);
+      const rim = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.155, 0.012), chromeMat);
+      rim.position.z = -0.01;
+      mirrorHead.add(housing, rim);
+
+      // Live Rear-View Mirror Glass Plane facing driver (-Z local)
+      const rt = isLeft ? this.leftMirrorRT : this.rightMirrorRT;
+      const mirrorGlassMat = new THREE.MeshBasicMaterial({
+        map: rt.texture,
+        toneMapped: false,
+      });
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.128), mirrorGlassMat);
+      glass.position.z = -0.018;
+      glass.rotation.y = Math.PI; // face driver (-Z)
+      mirrorHead.add(glass);
+      this.mirrorGlassMeshes.push(glass);
+
+      // Anchor point for the rear-facing mirror camera
+      const anchor = isLeft ? this.leftMirrorAnchor : this.rightMirrorAnchor;
+      anchor.position.set(side * 0.04, 0, -0.08);
+      mirrorHead.add(anchor);
+
+      this.handlebarGroup.add(mirrorHead);
     }
 
     // Clear mini windshield
@@ -227,14 +317,14 @@ export class ScooterMesh {
       roughness: 0.1,
       metalness: 0.2,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.32,
     });
-    const windscreen = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.03), screenMat);
-    windscreen.position.set(0, 1.32, -0.1);
+    const windscreen = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 0.03), screenMat);
+    windscreen.position.set(0, 1.31, -0.08);
     windscreen.rotation.x = -0.32;
     this.handlebarGroup.add(windscreen);
 
-    // Handlebar Smartphone Mount Cradle (visible right in 1st-person view!)
+    // Handlebar Smartphone Mount Cradle
     const mountClampMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7 });
     const cradleStem = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.08, 6), mountClampMat);
     cradleStem.position.set(0, 1.18, -0.19);
@@ -249,7 +339,7 @@ export class ScooterMesh {
     }
     this.handlebarGroup.add(cradleStem, cradleBack);
 
-    // 3D Smartphone placed inside handlebar cradle (toggled via Tab while riding!)
+    // 3D Smartphone placed inside handlebar cradle
     this.mountedPhone3D.position.set(0, 1.245, -0.182);
     this.mountedPhone3D.rotation.x = -0.42;
     const phoneBody = new THREE.Mesh(
@@ -271,7 +361,7 @@ export class ScooterMesh {
     this.mountedPhone3D.visible = false;
     this.handlebarGroup.add(this.mountedPhone3D);
 
-    // Kickstand on left side (+X)
+    // Kickstand
     this.kickstandGroup.position.set(0.2, 0.28, 0.45);
     const standLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), darkMat);
     standLeg.position.set(0.06, -0.15, -0.02);
@@ -279,7 +369,6 @@ export class ScooterMesh {
     this.kickstandGroup.add(standLeg);
     this.bodyTiltGroup.add(this.kickstandGroup);
 
-    // Rider mount anchor inside bodyTiltGroup so rider leans WITH the scooter!
     this.riderMountPoint.position.set(0, 0.86, 0.28);
     this.bodyTiltGroup.add(this.riderMountPoint);
 
@@ -322,7 +411,6 @@ export class ScooterMesh {
   }
 
   public sync(state: ScooterState, elapsedTime: number): void {
-    // Lift pivot slightly when fallen flat (~81 deg) so side fairing rests cleanly on road
     const fallenOffset = state.crashed ? 0.24 : 0;
     this.root.position.set(state.x, fallenOffset, state.z);
     this.root.rotation.y = state.heading;
@@ -334,7 +422,6 @@ export class ScooterMesh {
     this.frontWheel.rotation.x = state.wheelSpin;
     this.rearWheel.rotation.x = state.wheelSpin;
 
-    // Flip kickstand up when mounted or crashed, down when neatly parked
     this.kickstandGroup.rotation.x = state.mounted || state.crashed ? 1.25 : 0;
 
     // Lights
@@ -343,14 +430,71 @@ export class ScooterMesh {
     this.brakeLightMat.emissiveIntensity = state.braking ? 2.6 : state.headlights ? 0.7 : 0.15;
 
     const blinkOn = Math.floor(elapsedTime * 2.5) % 2 === 0;
-    this.leftBlinkerMat.emissiveIntensity =
-      (state.leftBlinker || state.hazard) && blinkOn ? 2.8 : 0;
-    this.rightBlinkerMat.emissiveIntensity =
-      (state.rightBlinker || state.hazard) && blinkOn ? 2.8 : 0;
+    const leftActive = (state.leftBlinker || state.hazard) && blinkOn;
+    const rightActive = (state.rightBlinker || state.hazard) && blinkOn;
+
+    this.leftBlinkerMat.emissiveIntensity = leftActive ? 3.2 : 0;
+    this.rightBlinkerMat.emissiveIntensity = rightActive ? 3.2 : 0;
+    this.dashLeftLedMat.emissiveIntensity = leftActive ? 3.4 : 0.06;
+    this.dashRightLedMat.emissiveIntensity = rightActive ? 3.4 : 0.06;
+    this.leftBlinkerGlow.intensity = leftActive ? 2.2 : 0;
+    this.rightBlinkerGlow.intensity = rightActive ? 2.2 : 0;
+  }
+
+  /**
+   * Renders live rear views into both left & right handlebar side mirror textures!
+   * Only runs while mounted on the scooter so on-foot performance is untouched.
+   */
+  public renderMirrors(
+    renderer: THREE.WebGLRenderer,
+    scene: THREE.Scene,
+    state: ScooterState
+  ): void {
+    if (!state.mounted || state.crashed) return;
+
+    this.root.updateMatrixWorld(true);
+
+    const backX = -Math.sin(state.heading);
+    const backZ = -Math.cos(state.heading);
+    const leftX = Math.cos(state.heading);
+    const leftZ = -Math.sin(state.heading);
+
+    // Temporarily hide mirror glass planes to avoid sampling the RenderTarget while rendering to it
+    for (const m of this.mirrorGlassMeshes) m.visible = false;
+
+    const prevTarget = renderer.getRenderTarget();
+
+    // Left mirror camera: rear + slight outward-left view (shows left lane behind rider!)
+    this.leftMirrorAnchor.getWorldPosition(this.tmpMirrorPos);
+    this.leftMirrorCam.position.copy(this.tmpMirrorPos);
+    this.tmpMirrorTarget.set(
+      this.tmpMirrorPos.x + (backX + leftX * 0.22) * 25,
+      this.tmpMirrorPos.y - 1.1,
+      this.tmpMirrorPos.z + (backZ + leftZ * 0.22) * 25
+    );
+    this.leftMirrorCam.up.set(0, 1, 0);
+    this.leftMirrorCam.lookAt(this.tmpMirrorTarget);
+    renderer.setRenderTarget(this.leftMirrorRT);
+    renderer.render(scene, this.leftMirrorCam);
+
+    // Right mirror camera: rear + slight outward-right view (shows right lane & curb behind rider!)
+    this.rightMirrorAnchor.getWorldPosition(this.tmpMirrorPos);
+    this.rightMirrorCam.position.copy(this.tmpMirrorPos);
+    this.tmpMirrorTarget.set(
+      this.tmpMirrorPos.x + (backX - leftX * 0.22) * 25,
+      this.tmpMirrorPos.y - 1.1,
+      this.tmpMirrorPos.z + (backZ - leftZ * 0.22) * 25
+    );
+    this.rightMirrorCam.up.set(0, 1, 0);
+    this.rightMirrorCam.lookAt(this.tmpMirrorTarget);
+    renderer.setRenderTarget(this.rightMirrorRT);
+    renderer.render(scene, this.rightMirrorCam);
+
+    renderer.setRenderTarget(prevTarget);
+    for (const m of this.mirrorGlassMeshes) m.visible = true;
   }
 
   public getFirstPersonEyeWorld(out: THREE.Vector3): THREE.Vector3 {
-    // Driver helmet eye position looking cleanly over handlebars & windshield
     out.set(0, 1.56, 0.45);
     return this.bodyTiltGroup.localToWorld(out);
   }

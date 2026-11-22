@@ -57,6 +57,7 @@ export class ScooterPhysics {
   private prevSpeed = 0;
   private reverseHoldTimer = 0;
   private overLeanTimer = 0;
+  private blinkerTurnAccum = 0;
   private onCrashCallback: ((crashSide: number, impactSpeed: number) => void) | null = null;
 
   private readonly spawnX = -62;
@@ -107,6 +108,33 @@ export class ScooterPhysics {
     this.prevSpeed = 0;
     this.reverseHoldTimer = 0;
     this.overLeanTimer = 0;
+    this.blinkerTurnAccum = 0;
+  }
+
+  public toggleLeftBlinker(): boolean {
+    this.state.hazard = false;
+    this.state.leftBlinker = !this.state.leftBlinker;
+    if (this.state.leftBlinker) this.state.rightBlinker = false;
+    this.blinkerTurnAccum = 0;
+    return this.state.leftBlinker;
+  }
+
+  public toggleRightBlinker(): boolean {
+    this.state.hazard = false;
+    this.state.rightBlinker = !this.state.rightBlinker;
+    if (this.state.rightBlinker) this.state.leftBlinker = false;
+    this.blinkerTurnAccum = 0;
+    return this.state.rightBlinker;
+  }
+
+  public toggleHazard(): boolean {
+    this.state.hazard = !this.state.hazard;
+    if (this.state.hazard) {
+      this.state.leftBlinker = false;
+      this.state.rightBlinker = false;
+    }
+    this.blinkerTurnAccum = 0;
+    return this.state.hazard;
   }
 
   public setMounted(mounted: boolean): void {
@@ -332,6 +360,21 @@ export class ScooterPhysics {
     // Bicycle model turning
     const omega = (s.speed / SCOOTER_SPECS.wheelbase) * Math.tan(s.steerAngle);
     const lateralAccel = s.speed * omega; // m/s^2 (positive when turning left while moving forward)
+
+    // Auto-cancel turn signal cleanly after completing a turn (> 52 deg) and straightening handlebars
+    if (!s.hazard && (s.leftBlinker || s.rightBlinker)) {
+      const expectedSign = s.leftBlinker ? 1 : -1;
+      if (omega * expectedSign > 0.15) {
+        this.blinkerTurnAccum += Math.abs(omega * dt);
+      }
+      if (this.blinkerTurnAccum > 0.92 && Math.abs(s.steerAngle) < 0.08) {
+        s.leftBlinker = false;
+        s.rightBlinker = false;
+        this.blinkerTurnAccum = 0;
+      }
+    } else {
+      this.blinkerTurnAccum = 0;
+    }
 
     // --- 3. Realistic Motorcycle Cornering Lean Dynamics & Traction Circle ---
     // Equilibrium lean angle to counter centrifugal force: tan(theta) = a_lat / g

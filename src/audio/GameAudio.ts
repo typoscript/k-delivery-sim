@@ -194,19 +194,20 @@ export class GameAudio {
     });
   }
 
-  private playBlinkerClick(): void {
+  private playBlinkerClick(isOnPhase: boolean): void {
     if (!this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = 'square';
-    osc.frequency.value = 780;
-    gain.gain.setValueAtTime(0.06, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.024);
+    // Realistic alternating tick / tock blinker relay frequency
+    osc.frequency.value = isOnPhase ? 820 : 620;
+    gain.gain.setValueAtTime(0.085, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.026);
     osc.connect(gain);
     gain.connect(this.masterGain);
     osc.start(now);
-    osc.stop(now + 0.028);
+    osc.stop(now + 0.03);
   }
 
   public update(scooter: ScooterState, elapsedTime: number): void {
@@ -252,7 +253,7 @@ export class GameAudio {
     const anyBlink = scooter.leftBlinker || scooter.rightBlinker || scooter.hazard;
     const blinkPhase = Math.floor(elapsedTime * 2.5) % 2 === 0;
     if (anyBlink && blinkPhase !== this.lastBlinkPhase) {
-      this.playBlinkerClick();
+      this.playBlinkerClick(blinkPhase);
     }
     this.lastBlinkPhase = blinkPhase;
   }
