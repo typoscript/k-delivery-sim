@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>K-Delivery Sim — 1인칭 배달 시뮬레이터</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud">
+      <!-- Top Left: Mode & Controls -->
+      <div class="hud-panel top-left">
+        <div class="title-row">
+          <span class="badge">K-DELIVERY SIM</span>
+          <span id="mode-badge" class="mode-pill foot">🚶 1인칭 도보</span>
+          <button id="toggle-help-btn" class="mini-btn" title="조작법 열기/닫기 (F1)">조작법</button>
+        </div>
+        <div id="help-panel" class="help-grid">
+          <div><kbd>F</kbd> <strong>오토바이 탑승 / 하차</strong></div>
+          <div><kbd>E</kbd> <strong>픽업 / 배달 완료</strong> (도보)</div>
+          <div><kbd>Tab</kbd> 스마트폰 확대 / 축소</div>
+          <div><kbd>W A S D</kbd> 이동 / 오토바이 주행</div>
+          <div><kbd>마우스 드래그</kbd> / <kbd>←→</kbd> 시선 회전</div>
+          <div><kbd>Shift</kbd> 달리기 · <kbd>Space</kbd> 점프/브레이크</div>
+          <div><kbd>Q</kbd> <kbd>E</kbd> / <kbd>X</kbd> 깜빡이 / 비상등</div>
+          <div><kbd>L</kbd> / <kbd>N</kbd> 라이트 / 낮·밤</div>
+          <div><kbd>H</kbd> / <kbd>M</kbd> 경적 / 음소거</div>
+          <div><kbd>Backspace</kbd> 위치 초기화</div>
+        </div>
+      </div>
+
+      <!-- Right Side: Realistic Mounted Smartphone with Full-Screen Live GPS Map & Delivery App -->
+      <div id="rider-phone" class="phone-device">
+        <div class="phone-btn-vol-up"></div>
+        <div class="phone-btn-vol-down"></div>
+        <div class="phone-btn-power"></div>
+
+        <div class="phone-screen">
+          <!-- Full-bleed live GPS map background -->
+          <canvas id="phone-map-canvas"></canvas>
+
+          <!-- Smartphone top status bar + Dynamic Island -->
+          <div class="phone-statusbar">
+            <span id="phone-clock" class="sb-time">16:30</span>
+            <div class="phone-island">
+              <span class="island-cam"></span>
+            </div>
+            <div class="sb-right">
+              <span class="sb-5g">5G</span>
+              <span class="sb-battery"><i></i></span>
+            </div>
+          </div>
+
+          <!-- Delivery App Floating Top Bar -->
+          <div class="app-topbar">
+            <div class="app-loc-card">
+              <div class="app-loc-row">
+                <span class="loc-dot"></span>
+                <span id="phone-area-name" class="loc-name">상가 거리</span>
+                <button id="phone-expand-btn" class="phone-mini-btn" title="스마트폰 확대/축소 (Tab)">확대</button>
+              </div>
+              <div class="app-sub-row">
+                <span id="phone-status-pill" class="app-status-pill foot">🚶 도보 이동</span>
+                <span id="phone-earnings" class="earnings-tag">₩0 (0건)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Floating Map Controls (Zoom & Follow GPS) -->
+          <div class="map-controls">
+            <button id="map-zoom-in" class="map-ctrl-btn" title="지도 확대">+</button>
+            <button id="map-zoom-out" class="map-ctrl-btn" title="지도 축소">−</button>
+            <button id="map-follow-btn" class="map-ctrl-btn gps-btn" title="내 위치 추적 / 전체 지도">◎</button>
+          </div>
+
+          <!-- Delivery App Interactive Bottom Sheet (Orders / Active Mission) -->
+          <div class="app-bottom-sheet">
+            <div class="sheet-handle"></div>
+            <div id="phone-sheet-body" class="sheet-body"></div>
+          </div>
+
+          <div class="phone-home-bar"></div>
+        </div>
+      </div>
+
+      <!-- Center Notifications & Prompts -->
+      <div id="toast" class="toast hidden"></div>
+      <div id="slip-warning" class="slip-warning hidden">⚠ 코너 기울기 과다! 감속하지 않으면 넘어집니다!</div>
+      <div id="interact-prompt" class="interact-prompt hidden">
+        <kbd>F</kbd> 배달 오토바이 탑승
+      </div>
+
+      <!-- Bottom Left: Riding Speedometer + Corner Lean Physics Meter -->
+      <div id="riding-cluster" class="hud-panel bottom-left hidden">
+        <div class="ride-main">
+          <div class="speed-box">
+            <div id="speed-val" class="speed-num">0</div>
+            <div class="speed-unit">km/h</div>
+          </div>
+          <div class="ride-meta">
+            <div class="lean-header">
+              <span>코너 기울기</span>
+              <span id="lean-val" class="lean-deg">0°</span>
+            </div>
+            <div class="lean-track">
+              <div id="lean-bar" class="lean-fill safe"></div>
+            </div>
+            <div class="ride-sub">정차 후 <kbd>F</kbd> 하차 · 과속 코너 주의</div>
+          </div>
+        </div>
+
+        <div class="indicator-row">
+          <span id="ind-left" class="ind">◀</span>
+          <span id="ind-light" class="ind">라이트</span>
+          <span id="ind-time" class="ind">낮</span>
+          <span id="ind-audio" class="ind">사운드</span>
+          <span id="ind-right" class="ind">▶</span>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

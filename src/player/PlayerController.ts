@@ -1,0 +1,293 @@
+import { ObstacleBox, clamp, collidesWithWorld, wrapAngle } from '../types';
+import { SCOOTER_SPECS, ScooterState } from '../vehicle/ScooterPhysics';
+
+export interface OnFootInput {
+  forward: number; // +1 W, -1 S
+  strafe: number; // +1 A (left), -1 D (right)
+  sprint: boolean;
+  jump: boolean;
+}
+
+export interface PlayerState {
+  mode: 'on_foot' | 'riding' | 'knockdown';
+  x: number;
+  y: number;
+  z: number;
+  vy: number;
+  heading: number; // radians; 0 = +Z
+  moveSpeed: number;
+  walkCycle: number;
+  grounded: boolean;
+  canMountScooter: boolean;
+  distanceToScooter: number;
+
+  // Lowside crash tumble recovery
+  knockdownTimer: number;
+  knockdownRoll: number;
+  tumbleVx: number;
+  tumbleVz: number;
+}
+
+const PLAYER_RADIUS = 0.42;
+const WALK_SPEED = 4.6;
+const SPRINT_SPEED = 8.0;
+const GRAVITY = 22.0;
+const JUMP_VEL = 7.4;
+export const MOUNT_DISTANCE = 3.4;
+
+export class PlayerController {
+  public state: PlayerState;
+
+  private readonly spawnX = -64.5;
+  private readonly spawnZ = -31.2;
+  private readonly spawnHeading = Math.PI - 0.65;
+
+  constructor() {
+    this.state = this.createInitialState();
+  }
+
+  private createInitialState(): PlayerState {
+    return {
+      mode: 'on_foot',
+      x: this.spawnX,
+      y: 0,
+      z: this.spawnZ,
+      vy: 0,
+      heading: this.spawnHeading,
+      moveSpeed: 0,
+      walkCycle: 0,
+      grounded: true,
+      canMountScooter: false,
+      distanceToScooter: 0,
+      knockdownTimer: 0,
+      knockdownRoll: 0,
+      tumbleVx: 0,
+      tumbleVz: 0,
+    };
+  }
+
+  public reset(): void {
+    this.state = this.createInitialState();
+  }
+
+  /** Called when the scooter suffers a lowside crash while riding! */
+  public ejectFromScooter(scooter: ScooterState, crashSide: number, impactSpeed: number): void {
+    const p = this.state;
+    const leftX = Math.cos(scooter.heading);
+    const leftZ = -Math.sin(scooter.heading);
+    const fwdX = Math.sin(scooter.heading);
+    const fwdZ = Math.cos(scooter.heading);
+
+    // Eject slightly to the fallen side
+    const sideDir = crashSide < 0 ? 1 : -1;
+    p.mode = 'knockdown';
+    p.x = scooter.x + leftX * sideDir * 0.9;
+    p.z = scooter.z + leftZ * sideDir * 0.9;
+    p.y = 0.35;
+    p.vy = 2.0;
+    p.grounded = false;
+    p.heading = scooter.heading;
+    p.moveSpeed = 0;
+
+    p.knockdownTimer = 1.65;
+    p.knockdownRoll = crashSide * 0.72;
+    const slideMag = Math.min(impactSpeed * 0.65, 9.0);
+    p.tumbleVx = fwdX * slideMag + leftX * sideDir * 2.4;
+    p.tumbleVz = fwdZ * slideMag + leftZ * sideDir * 2.4;
+  }
+
+  public tryToggleMount(
+    scooter: ScooterState,
+    setScooterMounted: (mounted: boolean) => void,
+    obstacles: ObstacleBox[]
+  ): { changed: boolean; message: string } {
+    const p = this.state;
+
+    if (p.mode === 'knockdown') {
+      return { changed: false, message: '일어나는 중...' };
+    }
+
+    if (p.mode === 'on_foot') {
+      const dist = Math.hypot(p.x - scooter.x, p.z - scooter.z);
+      if (dist > MOUNT_DISTANCE) {
+        return { changed: false, message: '오토바이 가까이 가서 [F]를 누르세요' };
+      }
+      const wasFallen = scooter.crashed;
+      p.mode = 'riding';
+      p.y = 0;
+      p.vy = 0;
+      p.moveSpeed = 0;
+      p.grounded = true;
+      setScooterMounted(true);
+      return {
+        changed: true,
+        message: wasFallen
+          ? '쓰러진 오토바이를 일으켜 탑승했습니다!'
+          : '오토바이 탑승! (코너링 시 과속 기울기 주의)',
+      };
+    }
+
+    // Riding -> dismount
+    if (Math.abs(scooter.speed) > 4.2) {
+      return { changed: false, message: '속도를 줄인 뒤 [F]로 하차하세요!' };
+    }
+
+    const leftX = Math.cos(scooter.heading);
+    const leftZ = -Math.sin(scooter.heading);
+    const fwdX = Math.sin(scooter.heading);
+    const fwdZ = Math.cos(scooter.heading);
+
+    const candidates: Array<[number, number]> = [
+      [scooter.x + leftX * 1.25 + fwdX * 0.25, scooter.z + leftZ * 1.25 + fwdZ * 0.25],
+      [scooter.x - leftX * 1.25 + fwdX * 0.25, scooter.z - leftZ * 1.25 + fwdZ * 0.25],
+      [scooter.x - fwdX * 1.6, scooter.z - fwdZ * 1.6],
+      [scooter.x + fwdX * 2.1, scooter.z + fwdZ * 2.1],
+    ];
+
+    let exitX = scooter.x + leftX * 1.25;
+    let exitZ = scooter.z + leftZ * 1.25;
+    for (const [cx, cz] of candidates) {
+      if (!collidesWithWorld(cx, cz, PLAYER_RADIUS, obstacles)) {
+        exitX = cx;
+        exitZ = cz;
+        break;
+      }
+    }
+
+    p.mode = 'on_foot';
+    p.x = exitX;
+    p.y = 0;
+    p.z = exitZ;
+    p.vy = 0;
+    p.heading = scooter.heading;
+    p.moveSpeed = 0;
+    p.grounded = true;
+    setScooterMounted(false);
+
+    return { changed: true, message: '하차 완료 — 도보 이동 모드' };
+  }
+
+  public step(
+    dt: number,
+    input: OnFootInput,
+    cameraYaw: number,
+    scooter: ScooterState,
+    obstacles: ObstacleBox[]
+  ): void {
+    const p = this.state;
+    const clampedDt = Math.min(dt, 0.05);
+
+    if (p.mode === 'riding') {
+      p.x = scooter.x;
+      p.z = scooter.z;
+      p.y = 0;
+      p.heading = scooter.heading;
+      p.moveSpeed = 0;
+      p.canMountScooter = false;
+      p.distanceToScooter = 0;
+      return;
+    }
+
+    if (p.mode === 'knockdown') {
+      // Tumble & slide on asphalt, then get back up on foot!
+      const speed = Math.hypot(p.tumbleVx, p.tumbleVz);
+      if (speed > 0.08) {
+        const newSpeed = Math.max(0, speed - 9.5 * clampedDt);
+        const ratio = newSpeed / speed;
+        p.tumbleVx *= ratio;
+        p.tumbleVz *= ratio;
+        const nx = p.x + p.tumbleVx * clampedDt;
+        const nz = p.z + p.tumbleVz * clampedDt;
+        if (!collidesWithWorld(nx, p.z, PLAYER_RADIUS, obstacles)) p.x = nx;
+        if (!collidesWithWorld(p.x, nz, PLAYER_RADIUS, obstacles)) p.z = nz;
+      }
+
+      if (!p.grounded) {
+        p.vy -= GRAVITY * clampedDt;
+        p.y += p.vy * clampedDt;
+        if (p.y <= 0) {
+          p.y = 0;
+          p.vy = 0;
+          p.grounded = true;
+        }
+      }
+
+      p.knockdownTimer -= clampedDt;
+      // Smoothly level out roll in the last 0.5s as rider stands up
+      if (p.knockdownTimer < 0.5) {
+        p.knockdownRoll *= Math.exp(-clampedDt * 7);
+      }
+
+      if (p.knockdownTimer <= 0) {
+        p.mode = 'on_foot';
+        p.knockdownRoll = 0;
+        p.knockdownTimer = 0;
+        p.tumbleVx = 0;
+        p.tumbleVz = 0;
+        // Face toward the fallen scooter so player immediately sees it!
+        p.heading = Math.atan2(scooter.x - p.x, scooter.z - p.z);
+      }
+
+      p.distanceToScooter = Math.hypot(p.x - scooter.x, p.z - scooter.z);
+      p.canMountScooter = false;
+      return;
+    }
+
+    // --- 1st-Person On-Foot Movement ---
+    const fwdX = Math.sin(cameraYaw);
+    const fwdZ = Math.cos(cameraYaw);
+    const leftX = Math.cos(cameraYaw);
+    const leftZ = -Math.sin(cameraYaw);
+
+    let dirX = fwdX * input.forward + leftX * input.strafe;
+    let dirZ = fwdZ * input.forward + leftZ * input.strafe;
+    const len = Math.hypot(dirX, dirZ);
+
+    // In 1st-person, player's heading always aligns with look direction
+    p.heading = wrapAngle(cameraYaw);
+
+    const targetSpeed = len > 0.01 ? (input.sprint ? SPRINT_SPEED : WALK_SPEED) : 0;
+    if (len > 0.01) {
+      dirX /= len;
+      dirZ /= len;
+    }
+
+    const accelRate = targetSpeed > p.moveSpeed ? 20 : 24;
+    p.moveSpeed += clamp(targetSpeed - p.moveSpeed, -accelRate * clampedDt, accelRate * clampedDt);
+
+    if (p.moveSpeed > 0.05 && len > 0.01) {
+      const nx = p.x + dirX * p.moveSpeed * clampedDt;
+      const nz = p.z + dirZ * p.moveSpeed * clampedDt;
+
+      const hitsScooter = (tx: number, tz: number) =>
+        Math.hypot(tx - scooter.x, tz - scooter.z) < SCOOTER_SPECS.radius + PLAYER_RADIUS * 0.55;
+
+      if (!collidesWithWorld(nx, p.z, PLAYER_RADIUS, obstacles) && !hitsScooter(nx, p.z)) {
+        p.x = nx;
+      }
+      if (!collidesWithWorld(p.x, nz, PLAYER_RADIUS, obstacles) && !hitsScooter(p.x, nz)) {
+        p.z = nz;
+      }
+
+      p.walkCycle += p.moveSpeed * clampedDt * 2.1;
+    }
+
+    // Jump & gravity
+    if (input.jump && p.grounded) {
+      p.vy = JUMP_VEL;
+      p.grounded = false;
+    }
+    if (!p.grounded) {
+      p.vy -= GRAVITY * clampedDt;
+      p.y += p.vy * clampedDt;
+      if (p.y <= 0) {
+        p.y = 0;
+        p.vy = 0;
+        p.grounded = true;
+      }
+    }
+
+    p.distanceToScooter = Math.hypot(p.x - scooter.x, p.z - scooter.z);
+    p.canMountScooter = p.distanceToScooter <= MOUNT_DISTANCE;
+  }
+}
