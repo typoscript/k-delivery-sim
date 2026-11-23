@@ -338,6 +338,81 @@ export class GameAudio {
     osc.stop(now + 0.03);
   }
 
+  /** Realistic hollow wooden apartment door knock sound ("똑! 똑! 똑!") */
+  public playDoorKnockSound(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    [0, 0.22, 0.44].forEach((offset) => {
+      const t = now + offset;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(190, t);
+      osc.frequency.exponentialRampToValueAtTime(72, t + 0.075);
+      g.gain.setValueAtTime(0.42, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.09);
+    });
+  }
+
+  /** Apartment intercom doorbell ("딩동~") + synthesized friendly dialogue cadence ("누구세요? 배달이요!") */
+  public playIntercomBellAndVoice(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+
+    // 1. Classic Korean apartment "딩~ 동~" chime (E5 -> C5)
+    [659.25, 523.25].forEach((freq, i) => {
+      const t = now + i * 0.28;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.28, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.46);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.48);
+    });
+
+    // 2. Subtle intercom speaker cadence ("누구세요?" rising tone, then "배달이요!" confirmation tone)
+    const syllables: Array<{ t: number; f: number; dur: number }> = [
+      // "누-구-세-요?" (intercom bandpass voice pitch contour)
+      { t: 0.65, f: 290, dur: 0.08 },
+      { t: 0.75, f: 310, dur: 0.08 },
+      { t: 0.85, f: 340, dur: 0.09 },
+      { t: 0.96, f: 390, dur: 0.12 },
+      // "배-달-이-요!" (slightly lower rider voice contour)
+      { t: 1.22, f: 210, dur: 0.08 },
+      { t: 1.32, f: 230, dur: 0.08 },
+      { t: 1.42, f: 245, dur: 0.08 },
+      { t: 1.52, f: 265, dur: 0.11 },
+    ];
+    for (const s of syllables) {
+      const t = now + s.t;
+      const osc = this.ctx.createOscillator();
+      const filt = this.ctx.createBiquadFilter();
+      const g = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(s.f, t);
+      filt.type = 'bandpass';
+      filt.frequency.value = 1100;
+      filt.Q.value = 3.2;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.11, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + s.dur);
+      osc.connect(filt);
+      filt.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + s.dur + 0.02);
+    }
+  }
+
   /** Baemin Connect style crisp double-arpeggio dispatch notification + haptic vibrate pulse */
   public playDispatchCallAlert(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

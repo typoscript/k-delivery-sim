@@ -9,6 +9,8 @@ import {
   RAIN_SURCHARGE_BONUS,
   SINGLE_FLAT_FEE,
   SINGLE_TIME_LIMIT_SEC,
+  generateKoreanLobbyPin,
+  generateRandomInstruction,
 } from './DeliveryManager';
 
 export type DispatchOfferState = 'IDLE' | 'OFFERING' | 'COOLDOWN';
@@ -199,14 +201,6 @@ export class OrderDispatchManager {
     return `${floor}0${unit}호`;
   }
 
-  private generateDoorPin(): string {
-    let pin = '';
-    for (let i = 0; i < 4; i++) {
-      pin += String(Math.floor(Math.random() * 10));
-    }
-    return pin;
-  }
-
   private createOffer(type: DispatchOrderType, delivery: DeliveryManager): DispatchOffer | null {
     const usedNumbers = new Set<string>([
       ...delivery.activeMissions.map((m) => m.order.orderNumber),
@@ -249,6 +243,9 @@ export class OrderDispatchManager {
         Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z)
       );
 
+      const pinObj = generateKoreanLobbyPin();
+      const deliveryInstruction = generateRandomInstruction();
+
       if (type === 'SINGLE') {
         // 한집배달: 기본 ₩4,500 + 거리 할증, 제한시간 300초
         const distBonus = Math.round((distanceMeters * 12) / 100) * 100;
@@ -256,12 +253,14 @@ export class OrderDispatchManager {
           id: `DSP-${this.orderSeq++}`,
           orderNumber: this.generateOrderNumber(usedNumbers, type),
           dispatchType: 'SINGLE',
+          deliveryInstruction,
           baseFlatFee: SINGLE_FLAT_FEE,
           timeLimitSec: SINGLE_TIME_LIMIT_SEC,
           shop,
           customer,
           unitNumber: this.generateUnitNumber(),
-          doorPin: this.generateDoorPin(),
+          doorPin: pinObj.code,
+          doorPinLabel: pinObj.label,
           menuName,
           baseFee: SINGLE_FLAT_FEE + distBonus,
           rainBonus,
@@ -273,12 +272,14 @@ export class OrderDispatchManager {
           id: `DSP-${this.orderSeq++}`,
           orderNumber: this.generateOrderNumber(usedNumbers, type),
           dispatchType: 'ALTTLE_BUNDLE',
+          deliveryInstruction,
           baseFlatFee: ALTTLE_FLAT_FEE,
           timeLimitSec: ALTTLE_TIME_LIMIT_SEC,
           shop,
           customer,
           unitNumber: this.generateUnitNumber(),
-          doorPin: this.generateDoorPin(),
+          doorPin: pinObj.code,
+          doorPinLabel: pinObj.label,
           menuName,
           baseFee: ALTTLE_FLAT_FEE,
           rainBonus,

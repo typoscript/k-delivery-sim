@@ -14,7 +14,12 @@ import { HandheldPhone3D } from './player/HandheldPhone3D';
 import { HandheldFoodBag3D } from './player/HandheldFoodBag3D';
 import { CameraController } from './camera/CameraController';
 import { GameAudio } from './audio/GameAudio';
-import { DeliveryManager, MAX_CONCURRENT_ORDERS, RoutePoint } from './delivery/DeliveryManager';
+import {
+  DeliveryManager,
+  MAX_CONCURRENT_ORDERS,
+  RoutePoint,
+  getInstructionMeta,
+} from './delivery/DeliveryManager';
 import { OrderDispatchManager } from './delivery/OrderDispatchManager';
 import { Hud } from './ui/Hud';
 import { ModalUi } from './ui/ModalUi';
@@ -116,10 +121,14 @@ const enterElevatorToCorridor = (missionId: string) => {
     },
     () => {
       audio.playElevatorDing();
-      hud.showToast(
-        `🏢 ${m.order.unitNumber} 문 앞 발매트에서 [E]를 눌러 [#${m.order.orderNumber}] 음식을 내려놓으세요`,
-        3600
-      );
+      const inst = getInstructionMeta(m.order.deliveryInstruction);
+      const actionMsg =
+        m.order.deliveryInstruction === 'KNOCK_DOOR'
+          ? `🏢 ${m.order.unitNumber} 앞에서 [E]로 노크 후 음식을 내려놓으세요 (${inst.badge})`
+          : m.order.deliveryInstruction === 'MEET_FACE'
+            ? `🏢 ${m.order.unitNumber} 옆 인터폰 벨을 [E]로 눌러 대면 전달하세요 (${inst.badge})`
+            : `🏢 ${m.order.unitNumber} 문 앞 발매트에서 [E]를 눌러 음식을 내려놓으세요 (${inst.badge})`;
+      hud.showToast(actionMsg, 4200);
     }
   );
 };
@@ -167,22 +176,26 @@ const exitCorridorToStreet = () => {
   );
 };
 
-const handleTakeDeliveryPhoto = () => {
-  const m = delivery.getCorridorMission();
-  if (!m || m.phase !== 'photo_mode') return;
-  audio.playCameraShutter();
-  modalUi.triggerCameraFlash();
+let npcTookFoodBag = false;
 
+const finalizeCorridorSettlement = () => {
   renderer.render(scene, camera);
   const photoDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
-
   const result = delivery.completePhotoSettlement();
   if (result) {
     audio.playChime('complete');
     window.setTimeout(() => {
       modalUi.showSettlement(result, photoDataUrl);
-    }, 220);
+    }, 200);
   }
+};
+
+const handleTakeDeliveryPhoto = () => {
+  const m = delivery.getCorridorMission();
+  if (!m || m.phase !== 'photo_mode') return;
+  audio.playCameraShutter();
+  modalUi.triggerCameraFlash();
+  finalizeCorridorSettlement();
 };
 
 const handleCargoSlotAction = (slotIndex: number) => {
@@ -323,15 +336,69 @@ const handleContextInteract = () => {
     if (!cm) return;
 
     if (cm.phase === 'in_corridor') {
-      if (corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z)) {
+      if (!corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z)) {
+        hud.showToast(`${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`);
+        return;
+      }
+
+      const inst = cm.order.deliveryInstruction;
+      hud.stowPhoneToPocket();
+
+      if (inst === 'PHOTO_DOOR') {
+        // Branch 1: PHOTO_DOOR -> place on mat -> camera viewfinder -> Space shutter
         corridorRoom.placeFoodOnTargetMat();
         delivery.placeFoodAtDoor();
-        hud.stowPhoneToPocket();
         audio.playCargoBoxSound();
         modalUi.openCameraViewfinder(cm.order);
         hud.showToast('📸 음식을 발매트에 내려놓았습니다! [Space]로 인증 사진을 찍으세요', 3400);
-      } else {
-        hud.showToast(`${cm.order.unitNumber} 문 앞 발매트로 가까이 가세요`);
+        return;
+      }
+
+      if (inst === 'KNOCK_DOOR') {
+        // Branch 2: KNOCK_DOOR -> knock sound ("똑똑똑") -> auto place food on mat -> complete after 3s
+        delivery.startKnockDelivery();
+        audio.playDoorKnockSound();
+        corridorRoom.placeFoodOnTargetMat();
+        hud.showToast('✊ 똑똑똑! 문 앞에 음식을 내려놓았습니다... (3초 후 배달 완료)', 3100);
+        window.setTimeout(() => {
+          const cur = delivery.getCorridorMission();
+          if (cur && cur.phase === 'knock_waiting') {
+            finalizeCorridorSettlement();
+          }
+        }, 3000);
+        return;
+      }
+
+      if (inst === 'MEET_FACE') {
+        // Branch 3: MEET_FACE -> intercom bell ("누구세요? 배달이요!") -> 70° door open -> 3D NPC takes food!
+        npcTookFoodBag = false;
+        delivery.startMeetFaceDelivery();
+        corridorRoom.triggerIntercomRing();
+        audio.playIntercomBellAndVoice();
+        hud.showToast('🔔 딩동! 고객: "누구세요?" — 라이더: "배달이요!"', 2400);
+
+        window.setTimeout(() => {
+          const cur = delivery.getCorridorMission();
+          if (!cur || cur.phase !== 'meet_waiting') return;
+          corridorRoom.openTargetDoorForNpc();
+        }, 780);
+
+        window.setTimeout(() => {
+          const cur = delivery.getCorridorMission();
+          if (!cur || cur.phase !== 'meet_waiting') return;
+          npcTookFoodBag = true;
+          corridorRoom.triggerNpcReceiveFood();
+          audio.playCargoBoxSound();
+          hud.showToast('🙋 고객이 음식을 직접 수령했습니다! "감사합니다, 수고하세요~"', 2200);
+        }, 1620);
+
+        window.setTimeout(() => {
+          const cur = delivery.getCorridorMission();
+          if (!cur || cur.phase !== 'meet_waiting') return;
+          corridorRoom.retreatNpcSlightly();
+          finalizeCorridorSettlement();
+        }, 2850);
+        return;
       }
       return;
     }
@@ -851,7 +918,7 @@ function animate(now: number): void {
       }
     );
   } else {
-    corridorRoom.updateVisual(elapsed);
+    corridorRoom.updateVisual(elapsed, dt);
   }
 
   const allObstacles = inCorridor
@@ -959,12 +1026,12 @@ function animate(now: number): void {
     dt,
     elapsed
   );
-  handheldFoodBag3D.update(
-    delivery.isCarryingFood() && !isRiding && modalUi.activeModal !== 'transition',
-    playerCtrl.state,
-    dt,
-    elapsed
-  );
+  const showHandBag =
+    (delivery.isCarryingFood() ||
+      (delivery.getCorridorMission()?.phase === 'meet_waiting' && !npcTookFoodBag)) &&
+    !isRiding &&
+    modalUi.activeModal !== 'transition';
+  handheldFoodBag3D.update(showHandBag, playerCtrl.state, dt, elapsed);
 
   playerMesh.sync(
     playerCtrl.state,

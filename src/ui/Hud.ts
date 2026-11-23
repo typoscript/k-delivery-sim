@@ -243,7 +243,20 @@ export class Hud {
     const corridorM = delivery.getCorridorMission();
     if (player.inCorridor && corridorM) {
       if (corridorM.phase === 'in_corridor' && ctx.nearCorridorTargetDoor) {
-        return `<kbd>E</kbd> ${corridorM.order.unitNumber} 문 앞 발매트에 [#${corridorM.order.orderNumber}] 내려놓기`;
+        const inst = corridorM.order.deliveryInstruction;
+        if (inst === 'KNOCK_DOOR') {
+          return `<kbd>E</kbd> ✊ ${corridorM.order.unitNumber} 문 노크(똑똑똑) 후 음식 내려놓기`;
+        }
+        if (inst === 'MEET_FACE') {
+          return `<kbd>E</kbd> 🔔 ${corridorM.order.unitNumber} 인터폰 벨 누르기 (직접 대면 수령)`;
+        }
+        return `<kbd>E</kbd> 📸 ${corridorM.order.unitNumber} 문 앞 발매트에 [#${corridorM.order.orderNumber}] 내려놓기`;
+      }
+      if (corridorM.phase === 'knock_waiting') {
+        return '✊ 똑똑똑! 문 앞에 내려놓았습니다 — 배달 완료 처리 중...';
+      }
+      if (corridorM.phase === 'meet_waiting') {
+        return '🔔 "누구세요? 배달이요!" — 고객이 문을 열고 수령 중...';
       }
       if (corridorM.phase === 'corridor_exit' && ctx.nearCorridorElevator) {
         return '<kbd>E</kbd> 🛗 엘리베이터 타고 1층으로 내려가기';

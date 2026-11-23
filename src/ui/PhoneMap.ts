@@ -8,6 +8,7 @@ import {
   DeliveryManager,
   MAX_CONCURRENT_ORDERS,
   NavigationPlan,
+  getInstructionMeta,
 } from '../delivery/DeliveryManager';
 import { DispatchOffer } from '../delivery/OrderDispatchManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
@@ -51,6 +52,7 @@ export class PhoneMap {
   private readonly areaEl = document.getElementById('phone-area-name')!;
   private readonly earningsEl = document.getElementById('phone-earnings')!;
   private readonly statusPillEl = document.getElementById('phone-status-pill')!;
+  private readonly pinTooltipEl = document.getElementById('phone-pin-tooltip')!;
   private readonly sheetBodyEl = document.getElementById('phone-sheet-body')!;
 
   private readonly zoomInBtn = document.getElementById('map-zoom-in')!;
@@ -410,6 +412,7 @@ export class PhoneMap {
       }
 
       this.syncDeliverySheet(player, delivery, navPlan);
+      this.syncPinTooltip(delivery, navPlan);
       this.syncDispatchPopup(activeOffer);
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -451,6 +454,18 @@ export class PhoneMap {
     }
   }
 
+  /** Highlights Korean apartment lobby PIN pattern & delivery instruction at the top of the smartphone app */
+  private syncPinTooltip(delivery: DeliveryManager, navPlan: NavigationPlan): void {
+    const focus = navPlan.focusMission ?? delivery.activeMission;
+    if (!focus) {
+      this.pinTooltipEl.classList.add('hidden');
+      return;
+    }
+    const inst = getInstructionMeta(focus.order.deliveryInstruction);
+    this.pinTooltipEl.innerHTML = `🔑 공동현관 <b>${focus.order.doorPinLabel}</b> · ${inst.badge}`;
+    this.pinTooltipEl.classList.remove('hidden');
+  }
+
   /** Syncs the interactive 20s circular progress call popup inside the zoomed smartphone UI */
   private syncDispatchPopup(offer: DispatchOffer | null): void {
     if (!offer) {
@@ -485,7 +500,7 @@ export class PhoneMap {
           (o, idx) => `
           <div class="dp-stop-item">
             <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span></div>
-            <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber} (${o.menuName})</div>
+            <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
           </div>`
         )
         .join('');
@@ -967,6 +982,24 @@ export class PhoneMap {
       91
     );
 
+    // Top highlight tooltip on 3D phone screen for active Korean lobby PIN pattern & delivery instruction
+    const focusOnFoot = navPlan.focusMission ?? delivery.activeMission;
+    if (focusOnFoot) {
+      const inst = getInstructionMeta(focusOnFoot.order.deliveryInstruction);
+      ctx.fillStyle = 'rgba(15, 118, 110, 0.95)';
+      ctx.beginPath();
+      ctx.roundRect(14, 112, w - 28, 30, 10);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.font = 'bold 12.5px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        `🔑 ${focusOnFoot.order.doorPinLabel} · ${inst.badge}`.slice(0, 32),
+        w / 2,
+        127
+      );
+    }
+
     // Bottom sheet card
     const sheetY = h - 196;
     ctx.fillStyle = isNight ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.96)';
@@ -1055,9 +1088,10 @@ export class PhoneMap {
       ctx.fillText(targetTitle, 24, sheetY + 72);
 
       ctx.fillStyle = isNight ? '#94a3b8' : '#475569';
-      ctx.font = '700 13px sans-serif';
+      ctx.font = '700 12.5px sans-serif';
+      const instMeta = getInstructionMeta(m.order.deliveryInstruction);
       ctx.fillText(
-        `주문 #${m.order.orderNumber} · PIN ${m.order.doorPin} · ${m.order.menuName.slice(0, 14)}`,
+        `#${m.order.orderNumber} · ${instMeta.badge} · ${m.order.doorPinLabel}`.slice(0, 34),
         24,
         sheetY + 96
       );
@@ -1102,9 +1136,13 @@ export class PhoneMap {
       case 'lobby_unlocked':
         return '현관 개방 · 엘리베이터';
       case 'in_corridor':
-        return '복도 · 문 앞 내려놓기';
+        return '복도 · 고객 요청 전달';
       case 'photo_mode':
         return '완료 인증 사진 촬영';
+      case 'knock_waiting':
+        return '노크 완료 · 확인 대기';
+      case 'meet_waiting':
+        return '대면 수령 진행 중';
       case 'corridor_exit':
         return '완료 · 1층으로 복귀';
       default:
@@ -1187,7 +1225,7 @@ export class PhoneMap {
             <span class="order-fee">₩${(o.baseFee + o.rainBonus).toLocaleString()}</span>
           </div>
           <div class="order-menu">
-            ${o.menuName}
+            ${o.menuName} · <span class="inst-badge">${getInstructionMeta(o.deliveryInstruction).badge}</span>
             ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 할증 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
           </div>
           <div class="order-bottom">
@@ -1230,7 +1268,11 @@ export class PhoneMap {
         const isFocused = m.order.id === focusId;
         const isPinned = delivery.selectedMissionId === m.order.id;
         const inCorridorPhase =
-          m.phase === 'in_corridor' || m.phase === 'photo_mode' || m.phase === 'corridor_exit';
+          m.phase === 'in_corridor' ||
+          m.phase === 'photo_mode' ||
+          m.phase === 'knock_waiting' ||
+          m.phase === 'meet_waiting' ||
+          m.phase === 'corridor_exit';
 
         let slotPill = '';
         if (m.cargoSlot !== null) {
@@ -1266,11 +1308,11 @@ export class PhoneMap {
             <div class="order-top">
               <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}</span>
             </div>
-            <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b></div>
+            <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b> <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
             <div class="order-codes-row">
               <span>주문 <b>${m.order.orderNumber}</b></span>
-              <span>PIN <b>${m.order.doorPin}</b></span>
-              <span style="color:${intColor};font-weight:800">상태 ${m.foodIntegrity}%</span>
+              <span>현관 <b>${m.order.doorPinLabel}</b></span>
+              <span style="color:${intColor};font-weight:800">${m.foodIntegrity}%</span>
             </div>
             <div class="accepted-actions">
               ${

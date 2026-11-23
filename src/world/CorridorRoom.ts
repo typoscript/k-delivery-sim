@@ -10,13 +10,19 @@ interface UnitDoorSlot {
   matX: number;
   matZ: number;
   facingX: number; // +1 if on left wall (-X), -1 if on right wall (+X)
+  group: THREE.Group;
+  doorPivot: THREE.Group;
+  bellLedMat: THREE.MeshStandardMaterial;
   plaqueMat: THREE.MeshStandardMaterial;
   unitNumber: string;
 }
 
 /**
  * Isolated Underground Modular Apartment Corridor Prefab (y = -500).
- * Completely occluded from the outdoor city — outdoor world is set visible=false while inside!
+ * Supports all 3 customer delivery instructions:
+ *  - PHOTO_DOOR: place food on doormat + smartphone photo
+ *  - KNOCK_DOOR: knock on door + auto-place food on mat
+ *  - MEET_FACE: press intercom bell -> smooth 70° inward door pivot -> 3D low-poly NPC reaches out & receives food!
  */
 export class CorridorRoom {
   public readonly root = new THREE.Group();
@@ -24,6 +30,21 @@ export class CorridorRoom {
   private readonly doors: UnitDoorSlot[] = [];
   private readonly targetHighlightRing: THREE.Mesh;
   private readonly placedFoodBag: THREE.Group;
+
+  // Low-poly 3D Customer NPC for MEET_FACE deliveries
+  private readonly npcGroup = new THREE.Group();
+  private readonly npcRightArmPivot = new THREE.Group();
+  private readonly npcHeldBag: THREE.Group;
+
+  // Door swing & NPC handoff animation state
+  private targetDoorOpenAngle = 0; // 0 rad (closed) -> 70° (1.2217 rad open!)
+  private currentDoorOpenAngle = 0;
+  private npcVisible = false;
+  private npcStepTarget = 0; // 0 (inside) -> 1 (doorway)
+  private npcStepCur = 0;
+  private npcArmReachTarget = 0; // 0 (down) -> 1 (extended toward rider)
+  private npcArmReachCur = 0;
+  private bellFlashTimer = 0;
 
   public targetDoorIndex = 1;
   public foodPlacedOnMat = false;
@@ -131,7 +152,7 @@ export class CorridorRoom {
     callBtn.position.set(1.3, 1.15, -length / 2 + 0.06);
     this.root.add(elevFrame, elevDoorL, elevDoorR, elevLabel, callBtn);
 
-    // --- 4 Apartment Unit Doors (2 on Left wall, 2 on Right wall) ---
+    // --- 4 Apartment Unit Doors with Hinged Pivot, Foyer Alcove & Intercom Bell ---
     const doorConfigs: Array<{ x: number; z: number; facingX: number }> = [
       { x: -width / 2 + 0.04, z: -1.6, facingX: 1 },
       { x: width / 2 - 0.04, z: -1.6, facingX: -1 },
@@ -146,34 +167,67 @@ export class CorridorRoom {
     });
     const lockMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.35, metalness: 0.6 });
     const matCarpet = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.95 });
+    const foyerWallMat = new THREE.MeshStandardMaterial({ color: 0xfff3df, roughness: 0.85, side: THREE.BackSide });
+    const intercomBodyMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4 });
 
     doorConfigs.forEach((cfg, idx) => {
       const doorGroup = new THREE.Group();
       doorGroup.position.set(cfg.x, 0, cfg.z);
       doorGroup.rotation.y = cfg.facingX > 0 ? Math.PI / 2 : -Math.PI / 2;
 
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.26, 2.22, 0.1), frameMat);
-      frame.position.set(0, 1.11, 0.02);
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.12, 0.08), doorPanelMat);
-      panel.position.set(0, 1.06, 0.05);
+      // Outer door frame pillars & lintel (hollow center so opened door reveals interior!)
+      const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.22, 0.14), frameMat);
+      frameL.position.set(-0.6, 1.11, 0.02);
+      const frameR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.22, 0.14), frameMat);
+      frameR.position.set(0.6, 1.11, 0.02);
+      const frameTop = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.1, 0.14), frameMat);
+      frameTop.position.set(0, 2.18, 0.02);
 
-      // Digital smart lock
+      // Warm-lit interior foyer alcove behind the door (visible when door swings open 70°!)
+      const foyerBox = new THREE.Mesh(new THREE.BoxGeometry(1.38, 2.28, 1.35), foyerWallMat);
+      foyerBox.position.set(0, 1.14, -0.68);
+      const foyerFloor = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.35, 1.35),
+        new THREE.MeshStandardMaterial({ color: 0xc8a986, roughness: 0.75 })
+      );
+      foyerFloor.rotation.x = -Math.PI / 2;
+      foyerFloor.position.set(0, 0.02, -0.68);
+
+      // Hinged Door Pivot on left jamb (x = -0.56): positive Y rotation swings door smoothly INWARD (-Z)!
+      const doorPivot = new THREE.Group();
+      doorPivot.position.set(-0.56, 0, 0.05);
+
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.12, 0.07), doorPanelMat);
+      panel.position.set(0.56, 1.06, 0);
+
       const smartLock = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.28, 0.06), lockMat);
-      smartLock.position.set(0.4, 1.05, 0.1);
+      smartLock.position.set(0.96, 1.05, 0.055);
 
-      // Dynamic Unit Number Plaque above/on door
       const plaqueMat = new THREE.MeshStandardMaterial({
         map: this.createPlaqueTexture(`140${idx + 1}호`, '#1e293b', '#f8fafc'),
         roughness: 0.4,
       });
       const plaque = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.18), plaqueMat);
-      plaque.position.set(0, 1.72, 0.1);
+      plaque.position.set(0.56, 1.72, 0.045);
+
+      doorPivot.add(panel, smartLock, plaque);
+
+      // Intercom Doorbell Unit mounted beside the door frame (right side x = +0.82)
+      const intercom = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 0.05), intercomBodyMat);
+      intercom.position.set(0.82, 1.32, 0.04);
+      const bellLedMat = new THREE.MeshStandardMaterial({
+        color: 0x0f172a,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.45,
+      });
+      const bellBtn = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 0.025), bellLedMat);
+      bellBtn.position.set(0.82, 1.26, 0.07);
 
       // Welcome Doormat right in front of the door!
       const doormat = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.025, 0.58), matCarpet);
       doormat.position.set(0, 0.012, 0.52);
 
-      doorGroup.add(frame, panel, smartLock, plaque, doormat);
+      doorGroup.add(frameL, frameR, frameTop, foyerBox, foyerFloor, doorPivot, intercom, bellBtn, doormat);
       this.root.add(doorGroup);
 
       this.doors.push({
@@ -182,12 +236,18 @@ export class CorridorRoom {
         matX: cfg.x + cfg.facingX * 0.54,
         matZ: cfg.z,
         facingX: cfg.facingX,
+        group: doorGroup,
+        doorPivot,
+        bellLedMat,
         plaqueMat,
         unitNumber: `140${idx + 1}호`,
       });
     });
 
-    // Subtle emerald glow marker around the active delivery doormat
+    // Build reusable 3D Low-Poly Customer NPC for MEET_FACE handoff
+    this.npcHeldBag = this.buildCustomerNpc();
+
+    // Subtle glow ring marker around the active delivery doormat
     this.targetHighlightRing = new THREE.Mesh(
       new THREE.RingGeometry(0.48, 0.58, 24),
       new THREE.MeshBasicMaterial({
@@ -208,6 +268,56 @@ export class CorridorRoom {
     this.root.add(this.placedFoodBag);
 
     scene.add(this.root);
+  }
+
+  /** Builds a stylized low-poly Korean apartment resident NPC with articulated right arm + food bag */
+  private buildCustomerNpc(): THREE.Group {
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xf6c9a5, roughness: 0.72 });
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0x1e2028, roughness: 0.85 });
+    const shirtMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.78 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.85 });
+
+    // Legs
+    for (const sx of [-0.11, 0.11]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.74, 0.16), pantsMat);
+      leg.position.set(sx, 0.37, 0);
+      this.npcGroup.add(leg);
+    }
+
+    // Cozy homewear torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.58, 0.24), shirtMat);
+    torso.position.set(0, 1.03, 0);
+    this.npcGroup.add(torso);
+
+    // Head + hair cap
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.28, 0.26), skinMat);
+    head.position.set(0, 1.48, 0);
+    const hair = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.28), hairMat);
+    hair.position.set(0, 1.6, -0.01);
+    this.npcGroup.add(head, hair);
+
+    // Left arm (relaxed at side)
+    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.12), shirtMat);
+    leftArm.position.set(-0.28, 1.04, 0);
+    this.npcGroup.add(leftArm);
+
+    // Articulated Right Arm Pivot (shoulder) that reaches forward (+Z) to receive the food bag!
+    this.npcRightArmPivot.position.set(0.28, 1.24, 0);
+    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.12), shirtMat);
+    rightArm.position.set(0, -0.22, 0);
+    const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), skinMat);
+    rightHand.position.set(0, -0.47, 0);
+
+    // Held takeout food bag (hidden until handoff moment!)
+    const heldBag = HandheldFoodBag3D.createFoodBagMesh();
+    heldBag.position.set(0, -0.63, 0.04);
+    heldBag.visible = false;
+
+    this.npcRightArmPivot.add(rightArm, rightHand, heldBag);
+    this.npcGroup.add(this.npcRightArmPivot);
+
+    this.npcGroup.visible = false;
+    return heldBag;
   }
 
   private createTileTexture(): THREE.CanvasTexture {
@@ -250,9 +360,8 @@ export class CorridorRoom {
     return tex;
   }
 
-  /** Configures the corridor's 4 unit plaques and sets which door is the delivery target */
+  /** Configures the corridor's 4 unit plaques, resets hinged doors & attaches NPC to target foyer */
   public configureForUnit(targetUnitNumber: string): void {
-    // Parse floor prefix (e.g. "1402호" -> floor 14, target slot 1)
     const numMatch = targetUnitNumber.match(/(\d+)/);
     const num = numMatch ? parseInt(numMatch[1], 10) : 1402;
     const floor = Math.floor(num / 100);
@@ -261,10 +370,27 @@ export class CorridorRoom {
     this.foodPlacedOnMat = false;
     this.placedFoodBag.visible = false;
 
+    // Reset all doors closed and NPC state
+    this.targetDoorOpenAngle = 0;
+    this.currentDoorOpenAngle = 0;
+    this.npcVisible = false;
+    this.npcStepTarget = 0;
+    this.npcStepCur = 0;
+    this.npcArmReachTarget = 0;
+    this.npcArmReachCur = 0;
+    this.bellFlashTimer = 0;
+    this.npcGroup.visible = false;
+    this.npcHeldBag.visible = false;
+    this.npcRightArmPivot.rotation.x = 0;
+
     for (let i = 0; i < this.doors.length; i++) {
+      this.doors[i].doorPivot.rotation.y = 0;
       const label = `${floor}0${i + 1}호`;
       this.doors[i].unitNumber = label;
       const isTarget = i === this.targetDoorIndex;
+      this.doors[i].bellLedMat.emissive.setHex(isTarget ? 0x22c55e : 0x38bdf8);
+      this.doors[i].bellLedMat.emissiveIntensity = isTarget ? 1.4 : 0.35;
+
       const oldMap = this.doors[i].plaqueMat.map;
       this.doors[i].plaqueMat.map = this.createPlaqueTexture(
         label,
@@ -276,6 +402,11 @@ export class CorridorRoom {
     }
 
     const target = this.doors[this.targetDoorIndex];
+    // Mount NPC cleanly inside the target door's local foyer coordinate space!
+    target.group.add(this.npcGroup);
+    this.npcGroup.position.set(0.05, 0, -0.78);
+    this.npcGroup.rotation.set(0, 0, 0);
+
     this.targetHighlightRing.position.set(target.matX, 0.032, target.matZ);
     this.targetHighlightRing.visible = true;
   }
@@ -289,6 +420,32 @@ export class CorridorRoom {
     this.targetHighlightRing.visible = false;
   }
 
+  /** Triggered when player presses [E] at intercom doorbell for MEET_FACE delivery */
+  public triggerIntercomRing(): void {
+    this.bellFlashTimer = 1.6;
+    this.targetHighlightRing.visible = false;
+  }
+
+  /** Smoothly pivots target apartment door inward to 70° and brings 3D NPC to doorway */
+  public openTargetDoorForNpc(): void {
+    this.targetDoorOpenAngle = (70 * Math.PI) / 180; // exactly 70 degrees!
+    this.npcVisible = true;
+    this.npcGroup.visible = true;
+    this.npcStepTarget = 1;
+  }
+
+  /** NPC extends right arm forward and receives the 3D takeout food bag from the rider */
+  public triggerNpcReceiveFood(): void {
+    this.npcArmReachTarget = 1;
+    this.npcHeldBag.visible = true;
+  }
+
+  /** NPC steps slightly back inside after thanking the rider */
+  public retreatNpcSlightly(): void {
+    this.npcArmReachTarget = 0.25;
+    this.npcStepTarget = 0.45;
+  }
+
   public getTargetDoorMat(): { x: number; z: number; unitNumber: string } {
     const d = this.doors[this.targetDoorIndex];
     return { x: d.matX, z: d.matZ, unitNumber: d.unitNumber };
@@ -296,7 +453,7 @@ export class CorridorRoom {
 
   public isNearTargetDoor(px: number, pz: number): boolean {
     const d = this.doors[this.targetDoorIndex];
-    return Math.hypot(px - d.matX, pz - d.matZ) <= 2.15;
+    return Math.hypot(px - d.matX, pz - d.matZ) <= 2.25;
   }
 
   public isNearElevator(px: number, pz: number): boolean {
@@ -307,11 +464,38 @@ export class CorridorRoom {
     return [clamp(x, -2.15, 2.15), clamp(z, -7.4, 7.4)];
   }
 
-  public updateVisual(elapsedTime: number): void {
+  public updateVisual(elapsedTime: number, dt = 0.016): void {
     if (!this.root.visible) return;
+    const step = Math.min(1, dt * 5.2);
+
     if (this.targetHighlightRing.visible) {
       const s = 1 + Math.sin(elapsedTime * 4.5) * 0.08;
       this.targetHighlightRing.scale.set(s, s, 1);
+    }
+
+    // Smooth hinged door 70° pivot animation
+    const targetDoor = this.doors[this.targetDoorIndex];
+    if (targetDoor) {
+      this.currentDoorOpenAngle += (this.targetDoorOpenAngle - this.currentDoorOpenAngle) * step;
+      targetDoor.doorPivot.rotation.y = this.currentDoorOpenAngle;
+
+      if (this.bellFlashTimer > 0) {
+        this.bellFlashTimer = Math.max(0, this.bellFlashTimer - dt);
+        const blink = Math.floor(elapsedTime * 10) % 2 === 0;
+        targetDoor.bellLedMat.emissive.setHex(blink ? 0xfacc15 : 0x22c55e);
+        targetDoor.bellLedMat.emissiveIntensity = blink ? 3.5 : 1.0;
+      }
+    }
+
+    // Smooth low-poly NPC doorway step & hand-reach animation
+    if (this.npcVisible) {
+      this.npcStepCur += (this.npcStepTarget - this.npcStepCur) * Math.min(1, dt * 4.5);
+      this.npcArmReachCur += (this.npcArmReachTarget - this.npcArmReachCur) * Math.min(1, dt * 7.0);
+
+      // Step from z=-0.82 (inside foyer) to z=-0.16 (right at open threshold)
+      this.npcGroup.position.z = -0.82 + this.npcStepCur * 0.66;
+      // Rotate right arm forward (-X rotation raises arm toward +Z toward player!)
+      this.npcRightArmPivot.rotation.x = -this.npcArmReachCur * 1.18;
     }
   }
 }

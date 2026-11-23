@@ -7,6 +7,7 @@ import {
   FUEL_PRICE_PER_PERCENT,
   REPAIR_COST_PER_DAMAGE_STAGE,
   SettlementResult,
+  getInstructionMeta,
 } from '../delivery/DeliveryManager';
 
 export type ActiveModalType =
@@ -64,7 +65,8 @@ export class ModalUi {
   private readonly pinError = document.getElementById('pin-error')!;
   private pinMissionId = '';
   private pinExpected = '';
-  private pinValue = '';
+  private pinExpectedLabel = '';
+  private pinTokens: string[] = [];
   private pinHasPhone = true;
 
   // Cargo Box 3-Slot Modal
@@ -286,13 +288,15 @@ export class ModalUi {
     this.activeModal = 'pin';
     this.pinMissionId = order.id;
     this.pinExpected = order.doorPin;
-    this.pinValue = '';
+    this.pinExpectedLabel = order.doorPinLabel;
+    this.pinTokens = [];
     this.pinHasPhone = hasPhone;
     this.pinBuildingTitle.textContent = `${order.customer.emoji} ${order.customer.name} 공동현관`;
     this.pinHint.textContent = hasPhone
-      ? `고객 요청 메모 PIN: ${order.doorPin} (${order.unitNumber})`
-      : '📱 휴대폰이 오토바이에 있어 PIN 자동 조회 불가 ([Esc] 후 폰 회수 또는 직접 입력)';
-    this.pinDisplay.textContent = '----';
+      ? `공동현관 출입 패턴: ${order.doorPinLabel} (${order.unitNumber})`
+      : '📱 휴대폰이 오토바이에 있어 PIN 패턴 조회 불가 ([Esc] 후 폰 회수 또는 직접 입력)';
+    this.pinDisplay.textContent = '패턴 입력';
+    this.pinDisplay.classList.add('placeholder');
     this.pinError.classList.add('hidden');
     this.pinBackdrop.classList.remove('hidden');
   }
@@ -373,8 +377,8 @@ export class ModalUi {
                 <span>${m.order.shop.emoji} ${m.order.shop.name} · ${m.order.menuName}</span>
               </div>
               <div class="cs-foot-row">
-                <span class="cs-pin">PIN <b>${m.order.doorPin}</b></span>
-                <span class="cs-int" style="color:${intColor}">음식 상태 ${m.foodIntegrity}%</span>
+                <span class="cs-pin">현관 <b>${m.order.doorPinLabel}</b> · ${getInstructionMeta(m.order.deliveryInstruction).badge}</span>
+                <span class="cs-int" style="color:${intColor}">${m.foodIntegrity}%</span>
               </div>
             </div>
             <button class="cs-btn unload" data-slot="${i}" ${canUnload ? '' : 'disabled'}>
@@ -533,6 +537,15 @@ export class ModalUi {
     this.closeAll();
     this.activeModal = 'settlement';
     this.settlementPhoto.src = photoDataUrl;
+    const badgeEl = this.settlementBackdrop.querySelector('.st-photo-badge');
+    if (badgeEl) {
+      badgeEl.textContent =
+        result.order.deliveryInstruction === 'MEET_FACE'
+          ? '✓ 고객 직접 대면 전달 완료'
+          : result.order.deliveryInstruction === 'KNOCK_DOOR'
+            ? '✓ 노크 후 문 앞 전달 완료'
+            : '✓ 문 앞 배달 인증 완료';
+    }
     this.settlementRoute.textContent = `[#${result.order.orderNumber}] ${result.order.shop.emoji} ${result.order.shop.name} → ${result.order.customer.name} ${result.order.unitNumber}`;
     const rainRow =
       result.rainBonus > 0
@@ -716,10 +729,11 @@ export class ModalUi {
 
   private handlePinKey(rawKey: string): void {
     if (rawKey === 'Backspace') {
-      this.pinValue = this.pinValue.slice(0, -1);
+      this.pinTokens.pop();
       this.callbacks.onKeypadBeep(true);
     } else if (rawKey === 'Enter') {
-      if (this.pinValue === this.pinExpected) {
+      const entered = this.pinTokens.join('');
+      if (entered === this.pinExpected) {
         const mId = this.pinMissionId;
         this.callbacks.onKeypadBeep(true);
         this.closeAll();
@@ -727,17 +741,32 @@ export class ModalUi {
       } else {
         this.callbacks.onKeypadBeep(false);
         this.pinError.textContent = this.pinHasPhone
-          ? `비밀번호 불일치! (${this.pinExpected} 입력)`
-          : '비밀번호 불일치! 오토바이에서 휴대폰을 챙겨 PIN을 확인하세요';
+          ? `출입 패턴 불일치! (${this.pinExpectedLabel})`
+          : '출입 패턴 불일치! 오토바이에서 휴대폰을 챙겨 패턴을 확인하세요';
         this.pinError.classList.remove('hidden');
-        this.pinValue = '';
+        this.pinTokens = [];
       }
-    } else if (/^[0-9]$/.test(rawKey) && this.pinValue.length < 4) {
-      this.pinValue += rawKey;
-      this.pinError.classList.add('hidden');
-      this.callbacks.onKeypadBeep(true);
+    } else {
+      let token: string | null = null;
+      const up = rawKey.toUpperCase();
+      if (rawKey === '🔔' || up === 'B') token = '🔔';
+      else if (rawKey === '🔑' || up === 'K') token = '🔑';
+      else if (rawKey === '📞' || up === 'C') token = '📞';
+      else if (rawKey === '#' || rawKey === '*' || /^[0-9]$/.test(rawKey)) token = rawKey;
+
+      if (token && this.pinTokens.length < 8) {
+        this.pinTokens.push(token);
+        this.pinError.classList.add('hidden');
+        this.callbacks.onKeypadBeep(true);
+      }
     }
 
-    this.pinDisplay.textContent = this.pinValue.padEnd(4, '-');
+    if (this.pinTokens.length === 0) {
+      this.pinDisplay.textContent = '패턴 입력';
+      this.pinDisplay.classList.add('placeholder');
+    } else {
+      this.pinDisplay.textContent = this.pinTokens.join(' ');
+      this.pinDisplay.classList.remove('placeholder');
+    }
   }
 }

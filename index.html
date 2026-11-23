@@ -81,6 +81,7 @@
                   <span id="phone-earnings" class="earnings-tag">₩0 (0건)</span>
                 </div>
               </div>
+              <div id="phone-pin-tooltip" class="phone-pin-tooltip hidden"></div>
             </div>
 
             <div class="map-controls">
@@ -205,9 +206,16 @@
             <span id="pin-building-title">🏢 아파트 공동현관</span>
             <button class="keypad-close" data-key="close">✕</button>
           </div>
-          <div id="pin-code-hint" class="keypad-hint">고객 메모 PIN: 4829</div>
-          <div id="pin-display" class="keypad-display mono">----</div>
+          <div id="pin-code-hint" class="keypad-hint">고객 메모 PIN: 종모양(🔔) + 1234</div>
+          <div id="pin-display" class="keypad-display mono">입력 대기</div>
           <div id="pin-error" class="keypad-error hidden">비밀번호 불일치</div>
+          <div class="pin-special-row">
+            <button class="kp-btn special" data-key="🔔" title="종모양 (키보드 B)">🔔 종</button>
+            <button class="kp-btn special" data-key="🔑" title="열쇠 (키보드 K)">🔑 열쇠</button>
+            <button class="kp-btn special" data-key="📞" title="통화 (키보드 C)">📞 통화</button>
+            <button class="kp-btn special" data-key="#" title="#">#</button>
+            <button class="kp-btn special" data-key="*" title="*">*</button>
+          </div>
           <div class="keypad-grid">
             <button class="kp-btn" data-key="1">1</button>
             <button class="kp-btn" data-key="2">2</button>
