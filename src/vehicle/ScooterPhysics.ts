@@ -13,7 +13,13 @@ export interface RoadCondition {
   surface: SlipSurfaceType;
 }
 
-export type CrashCause = 'corner' | 'collision' | 'rain_manhole' | 'rain_paint' | 'rain_corner';
+export type CrashCause =
+  | 'corner'
+  | 'collision'
+  | 'rain_manhole'
+  | 'rain_paint'
+  | 'rain_corner'
+  | 'pedestrian_hit';
 
 export interface ScooterState {
   x: number;
@@ -217,9 +223,9 @@ export class ScooterPhysics {
     }
   }
 
-  public triggerExternalCrash(side: number): void {
+  public triggerExternalCrash(side: number, cause: CrashCause = 'collision'): void {
     if (!this.state.mounted || this.state.crashed) return;
-    this.triggerLowside(side, 'collision');
+    this.triggerLowside(side, cause);
   }
 
   private triggerLowside(side: number, cause: CrashCause = 'corner'): void {

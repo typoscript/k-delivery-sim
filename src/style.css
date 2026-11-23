@@ -3173,3 +3173,84 @@ kbd {
 .mb-ok-btn:hover {
   background: #5eead4;
 }
+
+/* Rider Trust Rating Pill & Pedestrian Accident Emergency Banner */
+.rating-pill {
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde047;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+.rating-pill.warn {
+  background: rgba(249, 115, 22, 0.24);
+  color: #fdba74;
+  border-color: rgba(249, 115, 22, 0.55);
+}
+
+.rating-pill.danger {
+  background: rgba(239, 68, 68, 0.28);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.accident-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  min-width: min(460px, 90vw);
+  padding: 13px 22px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(185, 28, 28, 0.96), rgba(127, 29, 29, 0.96));
+  border: 2px solid #fca5a5;
+  box-shadow: 0 14px 36px rgba(153, 27, 27, 0.65), 0 0 24px rgba(239, 68, 68, 0.45);
+  text-align: center;
+  color: #ffffff;
+  pointer-events: none;
+  animation: accidentBannerIn 0.24s cubic-bezier(0.22, 1, 0.36, 1), accidentPulse 1s ease-in-out infinite alternate;
+}
+
+.accident-banner.hidden {
+  display: none;
+}
+
+.accident-banner .acc-title {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.accident-banner .acc-detail {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fee2e2;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes accidentBannerIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -18px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes accidentPulse {
+  from {
+    box-shadow: 0 14px 36px rgba(153, 27, 27, 0.65), 0 0 16px rgba(239, 68, 68, 0.35);
+  }
+  to {
+    box-shadow: 0 14px 36px rgba(153, 27, 27, 0.8), 0 0 32px rgba(248, 113, 113, 0.72);
+  }
+}

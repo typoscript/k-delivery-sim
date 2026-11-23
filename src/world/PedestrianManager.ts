@@ -3,13 +3,36 @@ import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
 import { CrosswalkAxis, PedestrianEdge, PedestrianGraph } from './PedestrianGraph';
 
-export type PedestrianFSMState = 'WALKING' | 'WAITING_CROSSWALK' | 'CROSSING';
+export type PedestrianFSMState =
+  | 'WALKING'
+  | 'WAITING_CROSSWALK'
+  | 'CROSSING'
+  | 'STARTLED'
+  | 'FALLEN';
 export type PedestrianSignalPhase = 'green' | 'blinking' | 'red';
+
+export interface ScooterProximityInfo {
+  x: number;
+  z: number;
+  heading: number;
+  speedMps: number;
+  isRiding: boolean;
+  crashed: boolean;
+}
+
+export interface PedestrianCollisionEvent {
+  pedestrianId: number;
+  pedX: number;
+  pedZ: number;
+  impactSpeedKmh: number;
+  hitSide: number;
+}
 
 export interface PedestrianAgent {
   id: number;
   rig: PedestrianRig;
   fsm: PedestrianFSMState;
+  resumeFsm: 'WALKING' | 'WAITING_CROSSWALK' | 'CROSSING';
   fromNodeId: number;
   toNodeId: number;
   prevNodeId: number;
@@ -21,6 +44,14 @@ export interface PedestrianAgent {
   walkSpeed: number; // 1.0 ~ 1.3 m/s
   currentSpeed: number;
   visible: boolean;
+  // Sidewalk scooter avoidance & fall reaction state
+  reactionTimer: number;
+  reactPhase: number;
+  fallSide: number;
+  evadeRemaining: number;
+  evadeDirX: number;
+  evadeDirZ: number;
+  hitCooldown: number;
 }
 
 const SIDEWALK_Y = 0.16;
@@ -29,6 +60,16 @@ const CULL_DISTANCE = 80;
 const CULL_DISTANCE_SQ = CULL_DISTANCE * CULL_DISTANCE;
 const BLINK_THRESHOLD_SEC = 2.2; // last 2.2s of green = blinking -> 1.5x sprint!
 const BLINK_RUN_MULTIPLIER = 1.5;
+
+// Sidewalk scooter avoidance & pedestrian accident constants
+export const PEDESTRIAN_STARTLE_RADIUS = 3.5; // 3.5m proximity flinch & evasive sidestep!
+export const PEDESTRIAN_COLLISION_MIN_KMH = 5.0; // >= 5 km/h riding required to count as accident!
+const PEDESTRIAN_SPHERE_RADIUS = 0.42;
+const SCOOTER_SPHERE_RADIUS = 0.72;
+const COLLISION_DIST = PEDESTRIAN_SPHERE_RADIUS + SCOOTER_SPHERE_RADIUS; // 1.14m bounding-sphere contact
+const FALL_RECOVERY_SEC = 6.0;
+const STARTLE_HOLD_SEC = 1.15;
+const EVADE_STEP_DIST = 0.62;
 
 /**
  * Evaluates pedestrian crosswalk signal synchronized with TrafficSystem's 3-color cycle.
@@ -92,6 +133,7 @@ export class PedestrianManager {
         id: i + 1,
         rig,
         fsm: 'WALKING',
+        resumeFsm: 'WALKING',
         fromNodeId: startNode.id,
         toNodeId: nextNode.id,
         prevNodeId: startNode.id,
@@ -103,11 +145,20 @@ export class PedestrianManager {
         walkSpeed: 1.0 + Math.random() * 0.3, // 1.0 ~ 1.3 m/s
         currentSpeed: 0,
         visible: true,
+        reactionTimer: 0,
+        reactPhase: 0,
+        fallSide: 1,
+        evadeRemaining: 0,
+        evadeDirX: 0,
+        evadeDirZ: 0,
+        hitCooldown: 0,
       });
     }
 
     parent.add(this.root);
   }
+
+  private startleAudioCooldown = 0;
 
   public get count(): number {
     return this.agents.length;
@@ -120,7 +171,38 @@ export class PedestrianManager {
   }
 
   /**
-   * Advances all pedestrian FSMs, traffic-signal synchronization, and 80m culling.
+   * Checks oriented AABB + BoundingSphere overlap between a pedestrian cylinder (r=0.42m)
+   * and the player's delivery scooter (width=1.04m, length=1.84m, sphere r=0.72m).
+   */
+  private isScooterTouchingPedestrian(
+    pedX: number,
+    pedZ: number,
+    scooter: ScooterProximityInfo
+  ): boolean {
+    const dx = pedX - scooter.x;
+    const dz = pedZ - scooter.z;
+    const distSq = dx * dx + dz * dz;
+    // Fast broad-phase BoundingSphere reject (1.5m)
+    if (distSq > 2.25) return false;
+    // Direct BoundingSphere contact (0.42 + 0.72 = 1.14m)
+    if (distSq <= COLLISION_DIST * COLLISION_DIST) return true;
+
+    // Oriented AABB check in scooter local frame (heading=0 -> +Z forward, +X left)
+    const fwdX = Math.sin(scooter.heading);
+    const fwdZ = Math.cos(scooter.heading);
+    const leftX = Math.cos(scooter.heading);
+    const leftZ = -Math.sin(scooter.heading);
+
+    const localForward = dx * fwdX + dz * fwdZ;
+    const localLeft = dx * leftX + dz * leftZ;
+    const halfLen = 0.92 + PEDESTRIAN_SPHERE_RADIUS;
+    const halfWid = 0.52 + PEDESTRIAN_SPHERE_RADIUS;
+    return Math.abs(localForward) <= halfLen && Math.abs(localLeft) <= halfWid;
+  }
+
+  /**
+   * Advances all pedestrian FSMs, traffic-signal synchronization, 80m culling,
+   * 3.5m sidewalk scooter proximity avoidance reactions, and >= 5 km/h pedestrian collision detection.
    * Completely pauses all tick updates while player is inside underground apartment corridors!
    */
   public update(
@@ -130,7 +212,10 @@ export class PedestrianManager {
     playerZ: number,
     scooterX: number,
     scooterZ: number,
-    inCorridor: boolean
+    inCorridor: boolean,
+    scooterInfo?: ScooterProximityInfo,
+    onPedestrianCollision?: (event: PedestrianCollisionEvent) => void,
+    onPedestrianStartled?: () => void
   ): void {
     if (inCorridor) {
       // Pause AI ticks immediately when inside apartment corridor (y = -500)
@@ -138,8 +223,29 @@ export class PedestrianManager {
     }
 
     const clampedDt = Math.min(dt, 0.05);
+    if (this.startleAudioCooldown > 0) {
+      this.startleAudioCooldown = Math.max(0, this.startleAudioCooldown - clampedDt);
+    }
+
+    const scooter: ScooterProximityInfo = scooterInfo ?? {
+      x: scooterX,
+      z: scooterZ,
+      heading: 0,
+      speedMps: 0,
+      isRiding: false,
+      crashed: false,
+    };
+    const scooterSpeedKmh = Math.abs(scooter.speedMps) * 3.6;
+    // CONSTRAINT: Parked / dismounted scooter or speed < 5 km/h NEVER counts as a pedestrian collision!
+    const canCollideWithPedestrian =
+      scooter.isRiding && !scooter.crashed && scooterSpeedKmh >= PEDESTRIAN_COLLISION_MIN_KMH;
+    let collisionTriggeredThisStep = false;
 
     for (const a of this.agents) {
+      if (a.hitCooldown > 0) {
+        a.hitCooldown = Math.max(0, a.hitCooldown - clampedDt);
+      }
+
       const targetNode = this.graph.getNode(a.toNodeId);
       const dx = targetNode.x - a.x;
       const dz = targetNode.z - a.z;
@@ -151,7 +257,136 @@ export class PedestrianManager {
       a.visible = isVisible;
       a.rig.root.visible = isVisible;
 
-      // Determine desired FSM speed
+      // --- A. Direct Contact Collision Detection (BoundingSphere + AABB, ONLY when riding >= 5 km/h!) ---
+      if (
+        isVisible &&
+        canCollideWithPedestrian &&
+        !collisionTriggeredThisStep &&
+        a.fsm !== 'FALLEN' &&
+        a.hitCooldown <= 0 &&
+        this.isScooterTouchingPedestrian(a.x, a.z, scooter)
+      ) {
+        collisionTriggeredThisStep = true;
+        if (a.fsm === 'WALKING' || a.fsm === 'WAITING_CROSSWALK' || a.fsm === 'CROSSING') {
+          a.resumeFsm = a.fsm;
+        }
+        a.fsm = 'FALLEN';
+        a.currentSpeed = 0;
+        a.reactionTimer = FALL_RECOVERY_SEC;
+        a.hitCooldown = FALL_RECOVERY_SEC + 1.5;
+
+        const relX = a.x - scooter.x;
+        const relZ = a.z - scooter.z;
+        const leftX = Math.cos(scooter.heading);
+        const leftZ = -Math.sin(scooter.heading);
+        const sideDot = relX * leftX + relZ * leftZ;
+        const hitSide = sideDot >= 0 ? 1 : -1;
+        a.fallSide = hitSide;
+
+        // Nudge fallen pedestrian slightly clear of the scooter impact vector
+        const norm = Math.hypot(relX, relZ) || 1;
+        a.x += (relX / norm) * 0.55;
+        a.z += (relZ / norm) * 0.55;
+        a.heading = Math.atan2(scooter.x - a.x, scooter.z - a.z);
+
+        if (onPedestrianCollision) {
+          onPedestrianCollision({
+            pedestrianId: a.id,
+            pedX: a.x,
+            pedZ: a.z,
+            impactSpeedKmh: scooterSpeedKmh,
+            hitSide,
+          });
+        }
+      }
+
+      // --- B. Fallen State Handling ---
+      if (a.fsm === 'FALLEN') {
+        a.currentSpeed = 0;
+        a.reactionTimer -= clampedDt;
+        if (a.reactionTimer <= 0) {
+          a.fsm = a.resumeFsm === 'CROSSING' ? 'WALKING' : a.resumeFsm;
+        }
+        if (isVisible) {
+          a.rig.root.position.set(a.x, a.y, a.z);
+          a.rig.root.rotation.y = a.heading;
+          PedestrianFactory.updateFallenAnimation(a.rig, a.fallSide, clampedDt);
+        }
+        continue;
+      }
+
+      // --- C. Sidewalk Scooter 3.5m Proximity Startle & Evasive Sidestep Reaction ---
+      const sdx = scooter.x - a.x;
+      const sdz = scooter.z - a.z;
+      const distScooter = Math.hypot(sdx, sdz);
+
+      // Trigger startled avoidance when riding scooter approaches within 3.5m (forward or lateral)
+      let scooterThreatNear = false;
+      if (isVisible && scooter.isRiding && !scooter.crashed && distScooter <= PEDESTRIAN_STARTLE_RADIUS) {
+        const pedFx = Math.sin(a.heading);
+        const pedFz = Math.cos(a.heading);
+        const toScooterDot = distScooter > 0.01 ? (sdx * pedFx + sdz * pedFz) / distScooter : 1;
+        // Front or lateral hemisphere (dot >= -0.35), or very close from any direction (<= 2.6m)
+        if (toScooterDot >= -0.35 || distScooter <= 2.6) {
+          scooterThreatNear = true;
+        }
+      }
+
+      if (scooterThreatNear) {
+        if (a.fsm !== 'STARTLED') {
+          if (a.fsm === 'WALKING' || a.fsm === 'WAITING_CROSSWALK' || a.fsm === 'CROSSING') {
+            a.resumeFsm = a.fsm;
+          }
+          a.fsm = 'STARTLED';
+          a.currentSpeed = 0;
+          a.reactPhase = 0;
+          a.evadeRemaining = EVADE_STEP_DIST;
+
+          // Compute evasive sidestep vector away from the scooter's path
+          const awayLen = distScooter > 0.05 ? distScooter : 1;
+          a.evadeDirX = -sdx / awayLen;
+          a.evadeDirZ = -sdz / awayLen;
+
+          if (onPedestrianStartled && this.startleAudioCooldown <= 0) {
+            this.startleAudioCooldown = 1.6;
+            onPedestrianStartled();
+          }
+        }
+        a.reactionTimer = STARTLE_HOLD_SEC;
+      }
+
+      if (a.fsm === 'STARTLED') {
+        a.currentSpeed = 0;
+        a.reactPhase += clampedDt;
+        a.reactionTimer -= clampedDt;
+
+        // Turn quickly to face the approaching scooter
+        if (distScooter > 0.08) {
+          const faceScooter = Math.atan2(sdx, sdz);
+          a.heading = this.lerpAngle(a.heading, faceScooter, Math.min(1, clampedDt * 14));
+        }
+
+        // Quick defensive sidestep back (~0.62m) away from scooter
+        if (a.evadeRemaining > 0.01) {
+          const step = Math.min(a.evadeRemaining, 2.2 * clampedDt);
+          a.x += a.evadeDirX * step;
+          a.z += a.evadeDirZ * step;
+          a.evadeRemaining -= step;
+        }
+
+        if (a.reactionTimer <= 0 && !scooterThreatNear) {
+          a.fsm = a.resumeFsm;
+        }
+
+        if (isVisible) {
+          a.rig.root.position.set(a.x, a.y, a.z);
+          a.rig.root.rotation.y = a.heading;
+          PedestrianFactory.updateStartledAnimation(a.rig, a.reactPhase, clampedDt);
+        }
+        continue;
+      }
+
+      // --- D. Standard FSM Navigation (WALKING / WAITING_CROSSWALK / CROSSING) ---
       let desiredSpeed = a.walkSpeed;
 
       if (a.fsm === 'WAITING_CROSSWALK') {
@@ -184,11 +419,9 @@ export class PedestrianManager {
         }
       } else {
         // WALKING along sidewalk centerlines
-        // Politely pause if rider/scooter is right in front on the sidewalk
+        // Politely pause if on-foot player or parked scooter is right in front
         if (isVisible) {
-          const distScooterSq =
-            (a.x - scooterX) * (a.x - scooterX) + (a.z - scooterZ) * (a.z - scooterZ);
-          if (distPlayerSq < 1.9 * 1.9 || distScooterSq < 2.2 * 2.2) {
+          if (distPlayerSq < 1.9 * 1.9 || distScooter < 2.2) {
             desiredSpeed = 0;
           }
         }

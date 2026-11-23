@@ -1662,7 +1662,7 @@ export class PhoneMap {
       <div class="bc-receipt">
         <div class="bc-receipt-hdr">
           <span class="bc-receipt-brand">🧾 배민커넥트 일일 정산 명세서</span>
-          <span class="bc-receipt-date">${dateStr}</span>
+          <span class="bc-receipt-date">${dateStr} · ★ ${l.riderRating.toFixed(1)}</span>
         </div>
         <div class="bc-rcpt-row inc"><span>기본 배달료 합계</span><span>+${fmt(l.baseFeeTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>거리 할증 합계</span><span>+${fmt(l.distanceBonusTotal)}</span></div>

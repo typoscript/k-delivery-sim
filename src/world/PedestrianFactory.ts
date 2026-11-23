@@ -241,6 +241,12 @@ export class PedestrianFactory {
     const clampedDt = Math.min(dt, 0.05);
     const blend = Math.min(1, clampedDt * 12);
 
+    // Smoothly recover any startled/fallen torso & arm-splay rotations back to upright neutral
+    rig.bodyGroup.rotation.x += (0 - rig.bodyGroup.rotation.x) * blend;
+    rig.bodyGroup.rotation.z += (0 - rig.bodyGroup.rotation.z) * blend;
+    rig.leftArmPivot.rotation.z += (0 - rig.leftArmPivot.rotation.z) * blend;
+    rig.rightArmPivot.rotation.z += (0 - rig.rightArmPivot.rotation.z) * blend;
+
     if (speed > 0.05) {
       rig.walkPhase += speed * clampedDt * 4.4;
       const strideAmp = Math.min(speed / 1.55, 1.0);
@@ -265,5 +271,53 @@ export class PedestrianFactory {
       rig.rightArmPivot.rotation.x += (0 - rig.rightArmPivot.rotation.x) * blend;
       rig.bodyGroup.position.y += (0 - rig.bodyGroup.position.y) * blend;
     }
+  }
+
+  /**
+   * Procedural startled / flinch animation when a scooter approaches within 3.5m on the sidewalk.
+   * Pedestrian hunches defensively, raises both arms to shield themselves, and steps back.
+   */
+  public static updateStartledAnimation(rig: PedestrianRig, reactPhase: number, dt: number): void {
+    const clampedDt = Math.min(dt, 0.05);
+    const blend = Math.min(1, clampedDt * 16);
+    const flinch = Math.sin(reactPhase * 18) * 0.06;
+
+    // Hunch slightly & brace backward
+    rig.bodyGroup.position.y += (-0.12 - rig.bodyGroup.position.y) * blend;
+    rig.bodyGroup.rotation.x += (0.2 + flinch - rig.bodyGroup.rotation.x) * blend;
+    rig.bodyGroup.rotation.z += (flinch * 0.7 - rig.bodyGroup.rotation.z) * blend;
+
+    // Raise both arms defensively in front of chest/face
+    rig.leftArmPivot.rotation.x += (-1.75 + flinch - rig.leftArmPivot.rotation.x) * blend;
+    rig.rightArmPivot.rotation.x += (-1.75 - flinch - rig.rightArmPivot.rotation.x) * blend;
+    rig.leftArmPivot.rotation.z += (0.34 - rig.leftArmPivot.rotation.z) * blend;
+    rig.rightArmPivot.rotation.z += (-0.34 - rig.rightArmPivot.rotation.z) * blend;
+
+    // Wide defensive stance on legs
+    rig.leftLegPivot.rotation.x += (-0.28 - rig.leftLegPivot.rotation.x) * blend;
+    rig.rightLegPivot.rotation.x += (0.26 - rig.rightLegPivot.rotation.x) * blend;
+  }
+
+  /**
+   * Procedural knocked-down / fallen animation when directly struck by a moving scooter (>= 5 km/h).
+   */
+  public static updateFallenAnimation(rig: PedestrianRig, fallSide: number, dt: number): void {
+    const clampedDt = Math.min(dt, 0.05);
+    const blend = Math.min(1, clampedDt * 14);
+    const side = fallSide === 0 ? 1 : Math.sign(fallSide);
+
+    // Topple flat onto the sidewalk pavement
+    rig.bodyGroup.position.y += (0.14 - rig.bodyGroup.position.y) * blend;
+    rig.bodyGroup.rotation.x += (-1.48 - rig.bodyGroup.rotation.x) * blend;
+    rig.bodyGroup.rotation.z += (side * 0.24 - rig.bodyGroup.rotation.z) * blend;
+
+    // Sprawled arms and legs
+    rig.leftArmPivot.rotation.x += (-2.05 - rig.leftArmPivot.rotation.x) * blend;
+    rig.rightArmPivot.rotation.x += (-1.45 - rig.rightArmPivot.rotation.x) * blend;
+    rig.leftArmPivot.rotation.z += (0.58 - rig.leftArmPivot.rotation.z) * blend;
+    rig.rightArmPivot.rotation.z += (-0.52 - rig.rightArmPivot.rotation.z) * blend;
+
+    rig.leftLegPivot.rotation.x += (0.28 - rig.leftLegPivot.rotation.x) * blend;
+    rig.rightLegPivot.rotation.x += (-0.22 - rig.rightLegPivot.rotation.x) * blend;
   }
 }

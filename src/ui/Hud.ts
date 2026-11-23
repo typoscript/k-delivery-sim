@@ -25,12 +25,15 @@ export interface InteractionContext {
 
 export class Hud {
   private readonly modeBadge = document.getElementById('mode-badge')!;
+  private readonly ratingBadge = document.getElementById('rating-badge')!;
   private readonly weatherBadge = document.getElementById('weather-badge')!;
   private readonly helpPanel = document.getElementById('help-panel')!;
   private readonly toggleHelpBtn = document.getElementById('toggle-help-btn')!;
 
   private readonly interactPrompt = document.getElementById('interact-prompt')!;
   private readonly slipWarningEl = document.getElementById('slip-warning')!;
+  private readonly accidentBanner = document.getElementById('accident-banner')!;
+  private readonly accidentBannerDetail = document.getElementById('accident-banner-detail')!;
   private readonly toast = document.getElementById('toast')!;
   private readonly cookingHudBar = document.getElementById('cooking-hud-bar')!;
   private readonly cookingHudTitle = document.getElementById('cooking-hud-title')!;
@@ -53,6 +56,7 @@ export class Hud {
 
   public readonly phoneMap: PhoneMap;
   private toastTimer: number | null = null;
+  private accidentBannerTimer: number | null = null;
 
   constructor(phoneCallbacks: PhoneCallbacks, onToggleWeather?: () => void) {
     this.phoneMap = new PhoneMap(phoneCallbacks);
@@ -93,6 +97,24 @@ export class Hud {
     }, durationMs);
   }
 
+  /** Displays prominent top emergency banner: "보행자 접촉 사고 발생!" */
+  public showAccidentBanner(
+    fine: number,
+    ratingLoss: number,
+    newRating: number,
+    durationMs = 5500
+  ): void {
+    this.accidentBannerDetail.textContent = `과태료·합의금 -₩${fine.toLocaleString()} 즉시 차감 · 기사 신뢰 평점 -${ratingLoss.toFixed(1)}점 (현재 ★ ${newRating.toFixed(1)})`;
+    this.accidentBanner.classList.remove('hidden');
+    if (this.accidentBannerTimer !== null) {
+      window.clearTimeout(this.accidentBannerTimer);
+    }
+    this.accidentBannerTimer = window.setTimeout(() => {
+      this.accidentBanner.classList.add('hidden');
+      this.accidentBannerTimer = null;
+    }, durationMs);
+  }
+
   public update(
     player: PlayerState,
     scooter: ScooterState,
@@ -108,6 +130,12 @@ export class Hud {
     ctx: InteractionContext
   ): void {
     const isRiding = player.mode === 'riding';
+
+    // Update Rider Trust Rating badge (★ 5.0 -> drops -1.0 per pedestrian accident)
+    const rating = delivery.riderRating;
+    this.ratingBadge.textContent = `★ ${rating.toFixed(1)}`;
+    this.ratingBadge.className =
+      rating <= 2.5 ? 'rating-pill danger' : rating < 4.5 ? 'rating-pill warn' : 'rating-pill';
 
     // Update top-left weather pill
     if (weatherMode === 'rain') {

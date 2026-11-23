@@ -364,6 +364,60 @@ export class GameAudio {
     });
   }
 
+  /** Short startled pedestrian gasp when scooter passes within 3.5m on the sidewalk */
+  public playPedestrianStartle(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const filt = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(340, now);
+    osc.frequency.exponentialRampToValueAtTime(590, now + 0.08);
+    osc.frequency.exponentialRampToValueAtTime(420, now + 0.19);
+    filt.type = 'bandpass';
+    filt.frequency.value = 950;
+    filt.Q.value = 2.0;
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.24, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.21);
+    osc.connect(filt);
+    filt.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.23);
+  }
+
+  /** Urgent emergency alert chime for pedestrian contact accident */
+  public playPedestrianAccidentAlert(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const tones = [
+      { t: 0, f: 880, dur: 0.16 },
+      { t: 0.17, f: 622.25, dur: 0.18 },
+      { t: 0.36, f: 880, dur: 0.16 },
+      { t: 0.53, f: 523.25, dur: 0.32 },
+    ];
+    for (const n of tones) {
+      const t = now + n.t;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = n.f;
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 1800;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.26, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+      osc.connect(filt);
+      filt.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + n.dur + 0.02);
+    }
+  }
+
   /** Celebratory fanfare chime for completing the Daily Delivery Mission (+₩5,000 bonus!) */
   public playMissionBonusFanfare(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

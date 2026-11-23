@@ -14,6 +14,9 @@ export const FUEL_PRICE_PER_PERCENT = 40; // full 0->100% fill = ₩4,000
 export const REPAIR_COST_PER_DAMAGE_STAGE = 2500; // stage 1..3 = ₩2,500..₩7,500
 export const DAILY_MISSION_TARGET = 3; // 오늘 3건 배달 완료하기
 export const DAILY_MISSION_BONUS = 5000; // +₩5,000 미션 달성 보너스
+export const PEDESTRIAN_ACCIDENT_FINE = 50000; // 보행자 접촉 사고 과태료 및 합의금 -50,000원
+export const PEDESTRIAN_RATING_PENALTY = 1.0; // 보행자 사고 신뢰 평점 -1.0점 감점
+export const INITIAL_RIDER_RATING = 5.0; // 배달 기사 초기 신뢰 평점 (5.0 만점)
 
 export interface DailyMissionStatus {
   title: string;
@@ -98,6 +101,8 @@ export interface DailyFinanceLedger {
   grossIncome: number;
   totalExpenses: number;
   netProfit: number;
+  riderRating: number;
+  pedestrianAccidentCount: number;
 }
 
 export interface DeliveryOrder {
@@ -223,6 +228,8 @@ export class DeliveryManager {
   public fuelExpense = 0;
   public repairExpense = 0;
   public fineExpense = 0;
+  public riderRating = INITIAL_RIDER_RATING; // 0.0 ~ 5.0 신뢰 평점
+  public pedestrianAccidentCount = 0;
 
   private readonly shops: DeliveryLocation[];
   private readonly residences: DeliveryLocation[];
@@ -827,14 +834,22 @@ export class DeliveryManager {
   }
 
   /** Applies crash impact damage to ALL food bags currently loaded in the 3 cargo box slots */
-  public applyCrashDamage(isRainSlip = false): { damagedCount: number; loss: number } {
-    const loss = isRainSlip ? 32 : 25;
+  public applyCrashDamage(
+    severity: boolean | 'normal' | 'rain_slip' | 'pedestrian_hit' = false
+  ): { damagedCount: number; loss: number } {
+    const loss =
+      severity === 'pedestrian_hit'
+        ? 55
+        : severity === true || severity === 'rain_slip'
+          ? 32
+          : 25;
+    const minIntegrity = severity === 'pedestrian_hit' ? 5 : 15;
     let damagedCount = 0;
     for (const id of this.cargoSlots) {
       if (!id) continue;
       const m = this.getMissionById(id);
       if (m && m.phase === 'cargo_loaded') {
-        m.foodIntegrity = Math.max(15, m.foodIntegrity - loss);
+        m.foodIntegrity = Math.max(minIntegrity, m.foodIntegrity - loss);
         damagedCount++;
       }
     }
@@ -845,6 +860,29 @@ export class DeliveryManager {
     this.fineExpense += amount;
     this.totalEarnings -= amount;
     return amount;
+  }
+
+  /**
+   * Applies pedestrian collision accident penalties:
+   * - Immediately deducts -₩50,000 fine & settlement from player wallet balance (and daily ledger)
+   * - Deducts 1.0 point from Rider Trust Rating (min 0.0)
+   */
+  public applyPedestrianAccidentPenalty(): {
+    fine: number;
+    ratingLoss: number;
+    newRating: number;
+    newBalance: number;
+  } {
+    const fine = this.applyFine(PEDESTRIAN_ACCIDENT_FINE);
+    this.pedestrianAccidentCount += 1;
+    const prevRating = this.riderRating;
+    this.riderRating = Math.max(0, Math.round((this.riderRating - PEDESTRIAN_RATING_PENALTY) * 10) / 10);
+    return {
+      fine,
+      ratingLoss: Math.round((prevRating - this.riderRating) * 10) / 10,
+      newRating: this.riderRating,
+      newBalance: this.totalEarnings,
+    };
   }
 
   public recordFuelExpense(amount: number): void {
@@ -894,6 +932,8 @@ export class DeliveryManager {
       grossIncome,
       totalExpenses,
       netProfit: grossIncome - totalExpenses,
+      riderRating: this.riderRating,
+      pedestrianAccidentCount: this.pedestrianAccidentCount,
     };
   }
 

@@ -14,6 +14,7 @@
         <div class="title-row">
           <span class="badge">K-DELIVERY SIM</span>
           <span id="mode-badge" class="mode-pill foot">🚶 1인칭 도보</span>
+          <span id="rating-badge" class="rating-pill" title="배달 기사 신뢰 평점 (5.0 만점)">★ 5.0</span>
           <button id="weather-badge" class="weather-pill clear" title="날씨 전환: 맑음 / 흐림 / 비 (U)">☀️ 맑음</button>
           <button id="toggle-help-btn" class="mini-btn" title="조작법 열기/닫기 (F1)">조작법</button>
         </div>
@@ -131,6 +132,12 @@
       </div>
 
       <!-- Center Notifications & Prompts -->
+      <div id="accident-banner" class="accident-banner hidden" role="alert">
+        <div class="acc-title">🚨 보행자 접촉 사고 발생!</div>
+        <div id="accident-banner-detail" class="acc-detail">
+          과태료·합의금 -₩50,000 즉시 차감 · 신뢰 평점 -1.0점 (★ 4.0)
+        </div>
+      </div>
       <div id="toast" class="toast hidden"></div>
       <div id="cooking-hud-bar" class="cooking-hud-bar hidden">
         <div class="ck-top">

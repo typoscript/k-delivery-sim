@@ -733,17 +733,24 @@ scooterPhysics.setOnCrash((crashSide, impactSpeed, cause) => {
     hud.stowPhoneToPocket();
   }
   audio.playCrashSound();
-  const isRainSlip = cause === 'rain_manhole' || cause === 'rain_paint' || cause === 'rain_corner';
-  const { damagedCount, loss } = delivery.applyCrashDamage(isRainSlip);
+  const damageSeverity =
+    cause === 'pedestrian_hit'
+      ? 'pedestrian_hit'
+      : cause === 'rain_manhole' || cause === 'rain_paint' || cause === 'rain_corner'
+        ? 'rain_slip'
+        : 'normal';
+  const { damagedCount, loss } = delivery.applyCrashDamage(damageSeverity);
 
   const causePrefix =
-    cause === 'rain_manhole'
-      ? '🌧️💥 빗길 금속 맨홀 뚜껑에서 미끄러져 전도!'
-      : cause === 'rain_paint'
-        ? '🌧️💥 빗길 횡단보도 흰색 페인트선에서 슬립 전도!'
-        : cause === 'rain_corner'
-          ? '🌧️💥 빗길 노면 접지력 상실로 전도!'
-          : '💥 전도 사고!';
+    cause === 'pedestrian_hit'
+      ? '🚨💥 보행자 접촉 사고로 슬립 전도!'
+      : cause === 'rain_manhole'
+        ? '🌧️💥 빗길 금속 맨홀 뚜껑에서 미끄러져 전도!'
+        : cause === 'rain_paint'
+          ? '🌧️💥 빗길 횡단보도 흰색 페인트선에서 슬립 전도!'
+          : cause === 'rain_corner'
+            ? '🌧️💥 빗길 노면 접지력 상실로 전도!'
+            : '💥 전도 사고!';
 
   const dmgStage = scooterPhysics.state.damageLevel;
   const bikeDmgNote = ` (차량 ${dmgStage}단계 파손: 가속력 -${dmgStage * 10}% · 미러 흔들림)`;
@@ -989,7 +996,27 @@ function animate(now: number): void {
       playerCtrl.state.z,
       scooterPhysics.state.x,
       scooterPhysics.state.z,
-      inCorridor
+      inCorridor,
+      {
+        x: scooterPhysics.state.x,
+        z: scooterPhysics.state.z,
+        heading: scooterPhysics.state.heading,
+        speedMps: scooterPhysics.state.speed,
+        isRiding,
+        crashed: scooterPhysics.state.crashed,
+      },
+      (hitEvent) => {
+        // 1. Immediate scooter slip crash (triggers heavy food damage '-55%' + rider ejection!)
+        scooterPhysics.triggerExternalCrash(hitEvent.hitSide, 'pedestrian_hit');
+        // 2. Immediate -₩50,000 fine/settlement & -1.0 Rider Trust Rating deduction
+        const penalty = delivery.applyPedestrianAccidentPenalty();
+        // 3. Emergency audio + prominent top banner ("보행자 접촉 사고 발생!")
+        audio.playPedestrianAccidentAlert();
+        hud.showAccidentBanner(penalty.fine, penalty.ratingLoss, penalty.newRating);
+      },
+      () => {
+        audio.playPedestrianStartle();
+      }
     );
   } else {
     corridorRoom.updateVisual(elapsed, dt);
