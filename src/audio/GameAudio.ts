@@ -364,6 +364,24 @@ export class GameAudio {
     });
   }
 
+  /** Subtle tactile capacitive glass tap click when touching the smartphone screen */
+  public playPhoneScreenTap(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1150, now);
+    osc.frequency.exponentialRampToValueAtTime(380, now + 0.026);
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.14, now + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.034);
+  }
+
   /** Short startled pedestrian gasp when scooter passes within 3.5m on the sidewalk */
   public playPedestrianStartle(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

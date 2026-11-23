@@ -56,8 +56,10 @@ const dispatch = new OrderDispatchManager(world.locations, {
     const label = offer.type === 'SINGLE' ? '🚀 한집배달' : '🛵 알뜰배달 (2건 묶음)';
     const hint =
       hud.phoneMap.placement === 'pocket'
-        ? '[Tab]으로 휴대폰을 꺼낸 뒤 [Tab/V]로 20초 내 수락!'
-        : '20초 내 [Tab] 또는 [V]로 수락하세요!';
+        ? '[Tab]으로 휴대폰을 꺼낸 뒤 화면을 클릭·터치해 20초 내 수락하세요!'
+        : hud.phoneMap.isZoomed
+          ? '스마트폰 화면의 [콜 수락] 버튼을 클릭해 터치하세요!'
+          : '휴대폰을 클릭(또는 [V])해 확대 후 화면을 터치해 수락하세요!';
     hud.showToast(`🔔 신규 콜 도착! ${label} · ₩${offer.totalFee.toLocaleString()} — ${hint}`, 4500);
   },
   onOfferUrgentTick: () => {
@@ -539,12 +541,8 @@ const handleContextInteract = () => {
 
 const tryAcceptIncomingOffer = (): boolean => {
   if (!dispatch.activeOffer) return false;
-  const isRiding = playerCtrl.state.mode === 'riding';
-  // Only accept via Tab/V when player physically sees/has the phone (mounted while riding, or in hand on foot)
-  const phoneVisibleToPlayer =
-    (hud.phoneMap.placement === 'mounted' && isRiding) ||
-    (hud.phoneMap.placement === 'in_hand' && !isRiding);
-  if (!phoneVisibleToPlayer) return false;
+  // Touch-only smartphone interaction: accept ONLY when clicking the smartphone screen button!
+  if (!hud.phoneMap.isZoomed) return false;
 
   const accepted = dispatch.acceptCurrentOffer(delivery);
   if (!accepted) return false;
@@ -576,8 +574,6 @@ const handleRejectIncomingOffer = () => {
 
 const handleTogglePhone = () => {
   if (playerCtrl.state.mode === 'knockdown' || modalUi.activeModal !== 'none') return;
-  // If 20s call popup is currently open on visible phone -> Tab accepts cleanly without key conflict!
-  if (tryAcceptIncomingOffer()) return;
 
   const isRiding = playerCtrl.state.mode === 'riding';
   const nearScooter = !playerCtrl.state.inCorridor && playerCtrl.state.canMountScooter;
@@ -594,8 +590,6 @@ const handleTogglePhone = () => {
 
 const handleTogglePhoneZoom = () => {
   if (playerCtrl.state.mode === 'knockdown' || modalUi.activeModal !== 'none') return;
-  // If 20s call popup is currently open on visible phone -> V accepts cleanly without key conflict!
-  if (tryAcceptIncomingOffer()) return;
 
   const res = hud.togglePhoneZoom(playerCtrl.state.mode === 'riding');
   hud.showToast(res.message, 2400);
@@ -671,6 +665,10 @@ const hud = new Hud(
     onInteractMission: handleContextInteract,
     onTogglePhone: handleTogglePhone,
     onToggleZoom: handleTogglePhoneZoom,
+    onScreenTap: () => {
+      audio.ensureStarted();
+      audio.playPhoneScreenTap();
+    },
   },
   handleCycleWeather
 );

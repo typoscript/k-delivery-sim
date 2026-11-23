@@ -3254,3 +3254,95 @@ kbd {
     box-shadow: 0 14px 36px rgba(153, 27, 27, 0.8), 0 0 32px rgba(248, 113, 113, 0.72);
   }
 }
+
+/* ======================== 1st-Person Smartphone Screen Touch Hand & Ripple ======================== */
+.phone-device.zoomed-center .phone-screen,
+.phone-device.zoomed-center .phone-screen button {
+  cursor: none;
+}
+
+.phone-touch-ripple-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.phone-touch-ripple {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  margin-left: -17px;
+  margin-top: -17px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(45, 212, 191, 0.92);
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.38) 0%, rgba(45, 212, 191, 0) 70%);
+  transform: scale(0.25);
+  opacity: 0.95;
+  pointer-events: none;
+  animation: phoneTouchRipple 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes phoneTouchRipple {
+  0% {
+    transform: scale(0.25);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+
+.phone-touch-hand {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 38;
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, opacity;
+  transition: opacity 0.14s ease;
+}
+
+.phone-touch-hand.active {
+  opacity: 1;
+}
+
+.touch-hand-pose {
+  position: relative;
+  /* Align index fingertip (x=24, y=20 in SVG) directly onto exact cursor/click coordinate (0,0)! */
+  margin-left: -24px;
+  margin-top: -20px;
+  transform-origin: 24px 20px;
+  transform: translate(10px, 14px) scale(1.04) rotate(5deg);
+  filter: drop-shadow(12px 22px 16px rgba(0, 0, 0, 0.48));
+  transition:
+    transform 0.085s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.085s ease;
+}
+
+.phone-touch-hand.tapping .touch-hand-pose {
+  transform: translate(0px, 0px) scale(0.95) rotate(-2deg);
+  filter: drop-shadow(3px 6px 5px rgba(0, 0, 0, 0.58));
+}
+
+.touch-tip-dot {
+  position: absolute;
+  left: 20px;
+  top: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(45, 212, 191, 0.85);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+  opacity: 0.72;
+  transition: transform 0.08s ease, opacity 0.08s ease;
+}
+
+.phone-touch-hand.tapping .touch-tip-dot {
+  transform: scale(1.45);
+  opacity: 1;
+}

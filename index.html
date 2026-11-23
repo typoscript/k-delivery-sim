@@ -121,12 +121,114 @@
                 <div id="dp-stops" class="dp-stops"></div>
                 <div class="dp-actions">
                   <button class="dp-btn reject" data-action="reject_offer">거절</button>
-                  <button class="dp-btn accept" data-action="accept_offer">콜 수락 (V / Tab)</button>
+                  <button class="dp-btn accept" data-action="accept_offer">👆 터치하여 콜 수락</button>
                 </div>
               </div>
             </div>
 
+            <!-- Capacitive Screen Touch Ripple Overlay -->
+            <div id="phone-touch-ripple-layer" class="phone-touch-ripple-layer"></div>
+
             <div class="phone-home-bar"></div>
+          </div>
+        </div>
+
+        <!-- 1st-Person Rider Hand Touching Smartphone Screen (follows cursor & taps on click!) -->
+        <div id="phone-touch-hand" class="phone-touch-hand" aria-hidden="true">
+          <div class="touch-hand-pose">
+            <svg viewBox="0 0 240 310" width="240" height="310" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="thSkin" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#f7cfb0" />
+                  <stop offset="100%" stop-color="#dea67e" />
+                </linearGradient>
+                <linearGradient id="thGlove" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#333c4a" />
+                  <stop offset="55%" stop-color="#1e242e" />
+                  <stop offset="100%" stop-color="#11161d" />
+                </linearGradient>
+                <linearGradient id="thSleeve" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#14b8a6" />
+                  <stop offset="35%" stop-color="#0f766e" />
+                  <stop offset="100%" stop-color="#115e59" />
+                </linearGradient>
+              </defs>
+              <!-- Extended Index Finger (tip centered at x=24, y=20!) -->
+              <path
+                d="M12 24 C10 10 22 4 33 11 L78 86 L47 104 L13 33 C11 29 11 26 12 24 Z"
+                fill="url(#thSkin)"
+                stroke="#b8805a"
+                stroke-width="1.5"
+              />
+              <!-- Fingernail Highlight -->
+              <ellipse cx="22" cy="18" rx="6.5" ry="9" transform="rotate(-29 22 18)" fill="#fde5d2" opacity="0.72" />
+              <!-- Index Finger Glove Segment -->
+              <path
+                d="M36 62 L64 46 L98 104 L65 123 Z"
+                fill="url(#thGlove)"
+                stroke="#0b0f14"
+                stroke-width="1.5"
+              />
+              <!-- Curled Middle, Ring & Pinky Fingers (gloved) -->
+              <path
+                d="M66 64 C78 55 95 62 103 77 L125 118 L89 136 L67 86 C62 77 61 68 66 64 Z"
+                fill="url(#thGlove)"
+                stroke="#0f172a"
+                stroke-width="1.8"
+              />
+              <path
+                d="M97 74 C109 67 125 74 133 88 L153 128 L120 144 L97 96 C93 87 92 78 97 74 Z"
+                fill="url(#thGlove)"
+                stroke="#0f172a"
+                stroke-width="1.8"
+              />
+              <path
+                d="M127 90 C138 84 152 91 159 104 L176 144 L146 158 L126 111 C122 102 122 94 127 90 Z"
+                fill="url(#thGlove)"
+                stroke="#0f172a"
+                stroke-width="1.8"
+              />
+              <!-- Glove Knuckle Pads -->
+              <rect x="69" y="84" width="22" height="10" rx="5" transform="rotate(-28 69 84)" fill="#475569" opacity="0.65" />
+              <rect x="102" y="96" width="22" height="10" rx="5" transform="rotate(-26 102 96)" fill="#475569" opacity="0.65" />
+              <rect x="132" y="112" width="19" height="9" rx="4.5" transform="rotate(-24 132 112)" fill="#475569" opacity="0.6" />
+              <!-- Palm & Back of Hand -->
+              <path
+                d="M52 116 L160 112 L196 186 L124 234 L62 178 C46 160 44 132 52 116 Z"
+                fill="url(#thGlove)"
+                stroke="#0b0f14"
+                stroke-width="2"
+              />
+              <!-- Relaxed Thumb resting on left side -->
+              <path
+                d="M52 134 C34 134 24 148 31 164 L64 202 L94 182 L68 144 C63 136 58 134 52 134 Z"
+                fill="url(#thGlove)"
+                stroke="#0b0f14"
+                stroke-width="1.8"
+              />
+              <ellipse cx="42" cy="147" rx="9" ry="7" transform="rotate(35 42 147)" fill="url(#thSkin)" />
+              <!-- Wrist Cuff Strap -->
+              <path
+                d="M112 222 L194 176 L208 202 L126 248 Z"
+                fill="#0f172a"
+                stroke="#334155"
+                stroke-width="1.5"
+              />
+              <!-- Delivery Rider Teal Jacket Forearm Sleeve -->
+              <path
+                d="M122 242 L206 196 L240 264 L240 310 L164 310 Z"
+                fill="url(#thSleeve)"
+                stroke="#0b3f3c"
+                stroke-width="2"
+              />
+              <!-- Reflective Safety Stripe on Sleeve -->
+              <path
+                d="M136 258 L212 216 L220 230 L144 272 Z"
+                fill="#cbd5e1"
+                opacity="0.72"
+              />
+            </svg>
+            <span class="touch-tip-dot"></span>
           </div>
         </div>
       </div>

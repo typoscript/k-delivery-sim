@@ -30,6 +30,7 @@ export interface PhoneCallbacks {
   onInteractMission: () => void;
   onTogglePhone: () => void;
   onToggleZoom: () => void;
+  onScreenTap?: () => void;
 }
 
 export class PhoneMap {
@@ -41,6 +42,10 @@ export class PhoneMap {
   // Interactive Zoomed-In Focus Overlay elements
   private readonly zoomBackdropEl = document.getElementById('phone-zoom-backdrop')!;
   private readonly phoneEl = document.getElementById('rider-phone')!;
+  private readonly phoneScreenEl = document.querySelector('#rider-phone .phone-screen') as HTMLElement;
+  private readonly touchHandEl = document.getElementById('phone-touch-hand')!;
+  private readonly touchRippleLayerEl = document.getElementById('phone-touch-ripple-layer')!;
+  private touchTapTimer: number | null = null;
   private readonly pocketPillEl = document.getElementById('phone-pocket-pill')!;
   private readonly pocketKeyEl = document.getElementById('pocket-pill-key')!;
   private readonly pocketPillTextEl = document.getElementById('pocket-pill-text')!;
@@ -203,7 +208,64 @@ export class PhoneMap {
     });
 
     this.followBtn.classList.add('active');
+    this.setupTouchHandInteraction();
     this.setPlacement('pocket');
+  }
+
+  /** Wires realistic 1st-person touching hand & glass tap ripples across the zoomed smartphone screen */
+  private setupTouchHandInteraction(): void {
+    const positionHand = (clientX: number, clientY: number) => {
+      this.touchHandEl.style.transform = `translate3d(${clientX}px, ${clientY}px, 0)`;
+    };
+
+    this.phoneScreenEl.addEventListener('pointerenter', (e) => {
+      if (!this.isZoomed) return;
+      positionHand(e.clientX, e.clientY);
+      this.touchHandEl.classList.add('active');
+    });
+
+    this.phoneScreenEl.addEventListener('pointermove', (e) => {
+      if (!this.isZoomed) return;
+      positionHand(e.clientX, e.clientY);
+      if (!this.touchHandEl.classList.contains('active')) {
+        this.touchHandEl.classList.add('active');
+      }
+    });
+
+    this.phoneScreenEl.addEventListener('pointerleave', () => {
+      this.touchHandEl.classList.remove('active', 'tapping');
+    });
+
+    this.phoneScreenEl.addEventListener('pointerdown', (e) => {
+      if (!this.isZoomed) return;
+      positionHand(e.clientX, e.clientY);
+      this.touchHandEl.classList.add('active', 'tapping');
+
+      if (this.touchTapTimer !== null) {
+        window.clearTimeout(this.touchTapTimer);
+      }
+      this.touchTapTimer = window.setTimeout(() => {
+        this.touchHandEl.classList.remove('tapping');
+        this.touchTapTimer = null;
+      }, 170);
+
+      // Spawn capacitive glass touch ripple at exact fingertip location on screen
+      const rect = this.phoneScreenEl.getBoundingClientRect();
+      const rx = e.clientX - rect.left;
+      const ry = e.clientY - rect.top;
+      const ripple = document.createElement('span');
+      ripple.className = 'phone-touch-ripple';
+      ripple.style.left = `${rx}px`;
+      ripple.style.top = `${ry}px`;
+      this.touchRippleLayerEl.appendChild(ripple);
+      window.setTimeout(() => ripple.remove(), 420);
+
+      this.callbacks.onScreenTap?.();
+    });
+
+    window.addEventListener('pointerup', () => {
+      this.touchHandEl.classList.remove('tapping');
+    });
   }
 
   private setTopNav(next: PhoneTopNav): void {
@@ -249,6 +311,7 @@ export class PhoneMap {
       this.lastSheetFingerprint = '';
       requestAnimationFrame(() => this.syncZoomCanvasSize());
     } else {
+      this.touchHandEl.classList.remove('active', 'tapping');
       this.last3DRenderTime = -1;
     }
     return this.isZoomed;
@@ -760,16 +823,16 @@ export class PhoneMap {
       ctx.fillText(`→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}`, cardX + 28, oy + 23);
     });
 
-    // Bottom Accept CTA Button ([Tab] / [V])
+    // Bottom Accept CTA Button (Mouse Click / Touch ONLY!)
     ctx.fillStyle = isSingle ? '#0d9488' : '#7c3aed';
     ctx.beginPath();
     ctx.roundRect(cardX + 16, cardY + 276, cardW - 32, 50, 14);
     ctx.fill();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '900 17px sans-serif';
+    ctx.font = '900 16.5px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('✓ [Tab] 또는 [V] 눌러 콜 수락', cardX + cardW / 2, cardY + 301);
+    ctx.fillText('👆 폰 클릭 후 터치하여 콜 수락', cardX + cardW / 2, cardY + 301);
 
     ctx.restore();
   }
@@ -1219,7 +1282,7 @@ export class PhoneMap {
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('🔍 [V] 확대 · 최대 3건 묶음 콜 수락', w / 2, sheetY + 150);
+      ctx.fillText('👆 폰 클릭하여 터치 조작 (배달앱)', w / 2, sheetY + 150);
     } else {
       const p = m.phase;
       const badgeColor =
