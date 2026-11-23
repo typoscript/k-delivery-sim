@@ -5,6 +5,7 @@ import { TrafficSystem } from './world/TrafficSystem';
 import { CORRIDOR_ORIGIN_Y, CorridorRoom } from './world/CorridorRoom';
 import { RoadNavigator } from './world/RoadNavigator';
 import { RoadNavLine3D } from './world/RoadNavLine3D';
+import { WeatherManager } from './world/WeatherManager';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import { OnFootInput, PlayerController } from './player/PlayerController';
@@ -41,6 +42,7 @@ const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const roadNavigator = new RoadNavigator();
 const roadNavLine3D = new RoadNavLine3D(world.root); // Parented to world.root -> auto-occluded indoors!
+const weather = new WeatherManager(scene);
 const delivery = new DeliveryManager(world.locations);
 const scooterPhysics = new ScooterPhysics();
 const playerCtrl = new PlayerController();
@@ -76,10 +78,12 @@ const enterElevatorToCorridor = (missionId: string) => {
   modalUi.playElevatorTransition(
     `🛗 [#${m.order.orderNumber}] ${m.order.customer.name} ${m.order.unitNumber} 이동 중...`,
     () => {
-      // Midpoint while screen is completely black: occlude entire outdoor world + nav line!
+      // Midpoint while screen is completely black: occlude entire outdoor world + nav line + rain & audio!
       world.setOutdoorVisible(false);
       traffic.root.visible = false;
       scooterMesh.root.visible = false;
+      weather.update(0, 0, 0, 0, true, world.isNight);
+      audio.updateWeatherAudio(0, true);
 
       corridorRoom.configureForUnit(m.order.unitNumber);
       corridorRoom.root.visible = true;
@@ -356,46 +360,70 @@ const handleTogglePhoneZoom = () => {
   hud.showToast(res.message, 2400);
 };
 
-const hud = new Hud({
-  onAcceptOrder: (orderId) => {
-    audio.ensureStarted();
-    const order = delivery.acceptOrder(orderId);
-    if (order) {
-      audio.playChime('accept');
-      hud.showToast(
-        `${order.shop.emoji} ${order.shop.name} [#${order.orderNumber}] 수락! (${delivery.activeMissions.length}/${MAX_CONCURRENT_ORDERS}건 묶음)`,
-        3200
-      );
-    } else if (!delivery.canAcceptMoreOrders()) {
-      hud.showToast(`최대 ${MAX_CONCURRENT_ORDERS}건까지 동시 묶음 배달이 가능합니다!`, 2600);
-    }
-  },
-  onRefreshOrders: () => {
-    delivery.refreshAvailableOrders();
-    hud.showToast('신규 배달 콜을 새로고침했습니다');
-  },
-  onCancelMission: (orderId) => {
-    const removed = delivery.cancelMission(orderId);
-    if (removed) {
-      world.setLobbyDoorOpen(null);
-      hud.showToast(`[#${removed.order.orderNumber}] 배달 주문을 취소했습니다`);
-    }
-  },
-  onSelectMission: (missionId) => {
-    delivery.setSelectedMission(missionId);
-    if (missionId === null) {
-      hud.showToast('🧭 자동 최적 추천 동선 안내로 전환했습니다', 2400);
-    } else {
-      const m = delivery.getMissionById(missionId);
-      if (m) {
-        hud.showToast(`🧭 [#${m.order.orderNumber}] 경로를 우선 안내합니다`, 2400);
+const handleCycleWeather = () => {
+  const next = weather.cycleMode();
+  world.setWeather(next);
+  delivery.setWeatherRaining(next === 'rain');
+  if (next === 'rain' && !scooterPhysics.state.headlights) {
+    scooterPhysics.state.headlights = true;
+  }
+  const msg =
+    next === 'rain'
+      ? '🌧️ 비(우천) 모드! 빗길 맨홀·횡단보도 슬립 주의 · 신규 콜 우천 할증 +₩1,500!'
+      : next === 'cloudy'
+        ? '☁️ 흐림 모드 (조명 톤 다운)'
+        : '☀️ 맑음 모드 (건조 노면)';
+  hud.showToast(msg, 3800);
+};
+
+const hud = new Hud(
+  {
+    onAcceptOrder: (orderId) => {
+      audio.ensureStarted();
+      const order = delivery.acceptOrder(orderId);
+      if (order) {
+        audio.playChime('accept');
+        const rainNote = order.rainBonus > 0 ? ` · 🌧️ 우천할증 +₩${order.rainBonus.toLocaleString()}` : '';
+        hud.showToast(
+          `${order.shop.emoji} ${order.shop.name} [#${order.orderNumber}] 수락! (${delivery.activeMissions.length}/${MAX_CONCURRENT_ORDERS}건${rainNote})`,
+          3400
+        );
+      } else if (!delivery.canAcceptMoreOrders()) {
+        hud.showToast(`최대 ${MAX_CONCURRENT_ORDERS}건까지 동시 묶음 배달이 가능합니다!`, 2600);
       }
-    }
+    },
+    onRefreshOrders: () => {
+      delivery.refreshAvailableOrders();
+      hud.showToast(
+        delivery.isWeatherRaining
+          ? '🌧️ 우천 할증(+₩1,500) 신규 배달 콜을 새로고침했습니다'
+          : '신규 배달 콜을 새로고침했습니다'
+      );
+    },
+    onCancelMission: (orderId) => {
+      const removed = delivery.cancelMission(orderId);
+      if (removed) {
+        world.setLobbyDoorOpen(null);
+        hud.showToast(`[#${removed.order.orderNumber}] 배달 주문을 취소했습니다`);
+      }
+    },
+    onSelectMission: (missionId) => {
+      delivery.setSelectedMission(missionId);
+      if (missionId === null) {
+        hud.showToast('🧭 자동 최적 추천 동선 안내로 전환했습니다', 2400);
+      } else {
+        const m = delivery.getMissionById(missionId);
+        if (m) {
+          hud.showToast(`🧭 [#${m.order.orderNumber}] 경로를 우선 안내합니다`, 2400);
+        }
+      }
+    },
+    onInteractMission: handleContextInteract,
+    onTogglePhone: handleTogglePhone,
+    onToggleZoom: handleTogglePhoneZoom,
   },
-  onInteractMission: handleContextInteract,
-  onTogglePhone: handleTogglePhone,
-  onToggleZoom: handleTogglePhoneZoom,
-});
+  handleCycleWeather
+);
 
 // 3D Scooter, 3D Right-Hand Smartphone, 3D Left-Hand Takeout Food Bag!
 const scooterMesh = new ScooterMesh(scene, hud.phoneMap.screenTexture);
@@ -443,8 +471,8 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   }
 });
 
-// Wire lowside / car crash -> rider ejection + crash sound + food damage across all loaded slots!
-scooterPhysics.setOnCrash((crashSide, impactSpeed) => {
+// Wire lowside / wet slip / car crash -> rider ejection + crash sound + food damage across all loaded slots!
+scooterPhysics.setOnCrash((crashSide, impactSpeed, cause) => {
   playerCtrl.ejectFromScooter(scooterPhysics.state, crashSide, impactSpeed);
   handheldPhone3D.cancelMountAnimation();
   hud.phoneMap.setZoomed(false);
@@ -452,14 +480,25 @@ scooterPhysics.setOnCrash((crashSide, impactSpeed) => {
     hud.stowPhoneToPocket();
   }
   audio.playCrashSound();
-  const { damagedCount, loss } = delivery.applyCrashDamage();
+  const isRainSlip = cause === 'rain_manhole' || cause === 'rain_paint' || cause === 'rain_corner';
+  const { damagedCount, loss } = delivery.applyCrashDamage(isRainSlip);
+
+  const causePrefix =
+    cause === 'rain_manhole'
+      ? '🌧️💥 빗길 금속 맨홀 뚜껑에서 미끄러져 전도!'
+      : cause === 'rain_paint'
+        ? '🌧️💥 빗길 횡단보도 흰색 페인트선에서 슬립 전도!'
+        : cause === 'rain_corner'
+          ? '🌧️💥 빗길 노면 접지력 상실로 전도!'
+          : '💥 전도 사고!';
+
   if (damagedCount > 0) {
     hud.showToast(
-      `💥 전도 사고! 배달통 음식 ${damagedCount}건이 흔들려 파손되었습니다 (-${loss}%)`,
-      3800
+      `${causePrefix} 배달통 음식 ${damagedCount}건 파손 (-${loss}% · 배달팁 감액)`,
+      4200
     );
   } else {
-    hud.showToast('💥 너무 기울어 오토바이가 미끄러졌습니다! 일으켜 세우세요', 3400);
+    hud.showToast(`${causePrefix} 오토바이를 일으켜 세우세요`, 3600);
   }
 });
 
@@ -561,6 +600,10 @@ window.addEventListener('keydown', (e) => {
       }
       lastRenderedRouteRef = null;
       hud.showToast(night ? '야간 모드 (라이트 자동 ON)' : '주간 모드');
+      break;
+    }
+    case 'KeyU': {
+      handleCycleWeather();
       break;
     }
     case 'KeyM': {
@@ -688,6 +731,13 @@ function animate(now: number): void {
     ? []
     : [...world.obstacles, ...traffic.getCarObstacleBoxes()];
 
+  const roadCondition = inCorridor
+    ? { isRaining: false, surface: 'none' as const }
+    : {
+        isRaining: weather.isRaining,
+        surface: world.getSlipSurfaceAt(scooterPhysics.state.x, scooterPhysics.state.z),
+      };
+
   if (isRiding && !movementBlocked) {
     const scooterInput: ScooterInput = {
       throttle: pressed.has('KeyW') || pressed.has('ArrowUp'),
@@ -696,7 +746,7 @@ function animate(now: number): void {
       steerRight: pressed.has('KeyD') || pressed.has('ArrowRight'),
       handbrake: pressed.has('Space'),
     };
-    scooterPhysics.step(dt, scooterInput, allObstacles);
+    scooterPhysics.step(dt, scooterInput, allObstacles, roadCondition);
     playerCtrl.step(
       dt,
       { forward: 0, strafe: 0, sprint: false, jump: false },
@@ -706,7 +756,7 @@ function animate(now: number): void {
     );
   } else {
     if (!inCorridor) {
-      scooterPhysics.step(dt, null, allObstacles);
+      scooterPhysics.step(dt, null, allObstacles, roadCondition);
     }
 
     if (playerCtrl.state.mode === 'on_foot' && !movementBlocked) {
@@ -793,6 +843,13 @@ function animate(now: number): void {
   );
 
   camController.update(camera, playerCtrl.state, scooterPhysics.state, scooterMesh, dt);
+
+  // Weather local rain particles (InstancedMesh), wet asphalt shader, & rain audio (instantly muted indoors!)
+  weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
+  if (!inCorridor) {
+    world.updateWeatherVisuals(weather.rainIntensity, elapsed);
+  }
+  audio.updateWeatherAudio(weather.rainIntensity, inCorridor);
   audio.update(scooterPhysics.state, elapsed);
 
   hud.update(
@@ -802,6 +859,7 @@ function animate(now: number): void {
     navPlan,
     traffic.signalState,
     world.isNight,
+    weather.mode,
     audio.muted,
     elapsed,
     world.mapInfo,

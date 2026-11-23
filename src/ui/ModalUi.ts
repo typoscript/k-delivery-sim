@@ -315,15 +315,22 @@ export class ModalUi {
     this.activeModal = 'settlement';
     this.settlementPhoto.src = photoDataUrl;
     this.settlementRoute.textContent = `[#${result.order.orderNumber}] ${result.order.shop.emoji} ${result.order.shop.name} → ${result.order.customer.name} ${result.order.unitNumber}`;
+    const rainRow =
+      result.rainBonus > 0
+        ? `<div class="st-row rain-bonus"><span>🌧️ 우천 할증 보너스</span><span>+₩${result.rainBonus.toLocaleString()}</span></div>`
+        : '';
+
     const tipRow =
-      result.tip > 0
-        ? `<div class="st-row tip"><span>안전 배달 팁 (상태 ${result.foodIntegrity}%)</span><span>+₩${result.tip.toLocaleString()}</span></div>`
-        : `<div class="st-row warn"><span>음식 상태 반영 (${result.foodIntegrity}%)</span><span>${Math.round(
-            (result.foodIntegrity / 100 - 1) * result.baseFee
-          ).toLocaleString()}원</span></div>`;
+      result.tipPenalty === 0
+        ? `<div class="st-row tip"><span>안전 배달 팁 (음식 상태 ${result.foodIntegrity}%)</span><span>+₩${result.tip.toLocaleString()}</span></div>`
+        : `<div class="st-row warn"><span>파손 배달팁 감액 (상태 ${result.foodIntegrity}%)</span><span>팁 ₩${result.tip.toLocaleString()} (-₩${result.tipPenalty.toLocaleString()})</span></div>
+           <div class="st-row warn"><span>음식 파손 배상 차감</span><span>${Math.round(
+             (result.foodIntegrity / 100 - 1) * result.baseFee
+           ).toLocaleString()}원</span></div>`;
 
     this.settlementBreakdown.innerHTML = `
       <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
+      ${rainRow}
       ${tipRow}
     `;
     this.settlementTotal.textContent = `+₩${result.earned.toLocaleString()}`;

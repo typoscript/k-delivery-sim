@@ -778,12 +778,22 @@ export class PhoneMap {
 
         ctx.fillStyle = isNight ? '#34d399' : '#059669';
         ctx.textAlign = 'right';
-        ctx.fillText(`₩${first.baseFee.toLocaleString()}`, w - 36, sheetY + 80);
+        ctx.fillText(
+          `₩${(first.baseFee + first.rainBonus).toLocaleString()}`,
+          w - 36,
+          sheetY + 80
+        );
 
-        ctx.fillStyle = isNight ? '#94a3b8' : '#475569';
+        ctx.fillStyle = first.rainBonus > 0 ? '#38bdf8' : isNight ? '#94a3b8' : '#475569';
         ctx.font = '600 13px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(`→ ${first.customer.name} ${first.unitNumber} (${first.distanceMeters}m)`, 36, sheetY + 104);
+        ctx.fillText(
+          first.rainBonus > 0
+            ? `🌧️ 우천 할증 +₩${first.rainBonus.toLocaleString()} · ${first.customer.name}`
+            : `→ ${first.customer.name} ${first.unitNumber} (${first.distanceMeters}m)`,
+          36,
+          sheetY + 104
+        );
       }
 
       ctx.fillStyle = '#0d9488';
@@ -889,9 +899,9 @@ export class PhoneMap {
     const activeFp = delivery.activeMissions
       .map((m) => `${m.order.id}:${m.phase}:${m.cargoSlot}:${m.foodIntegrity}`)
       .join(',');
-    const availFp = delivery.availableOrders.map((o) => o.id).join(',');
+    const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}`).join(',');
     const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
-    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|${player.inCorridor}`;
+    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|${player.inCorridor}`;
 
     if (fingerprint === this.lastSheetFingerprint) return;
     this.lastSheetFingerprint = fingerprint;
@@ -938,12 +948,15 @@ export class PhoneMap {
     const cardsHtml = delivery.availableOrders
       .map(
         (o) => `
-        <div class="order-card">
+        <div class="order-card ${o.rainBonus > 0 ? 'rain-order' : ''}">
           <div class="order-top">
             <span class="order-shop">${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span></span>
-            <span class="order-fee">₩${o.baseFee.toLocaleString()}</span>
+            <span class="order-fee">₩${(o.baseFee + o.rainBonus).toLocaleString()}</span>
           </div>
-          <div class="order-menu">${o.menuName}</div>
+          <div class="order-menu">
+            ${o.menuName}
+            ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 할증 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
+          </div>
           <div class="order-bottom">
             <span class="order-dest">→ ${o.customer.name} ${o.unitNumber} (${o.distanceMeters}m)</span>
             <button class="order-accept-btn" data-action="accept" data-id="${o.id}" ${canAccept ? '' : 'disabled'}>
@@ -956,7 +969,7 @@ export class PhoneMap {
 
     return `
       <div class="sheet-header-row">
-        <span class="sheet-title">🔔 신규 배달 콜</span>
+        <span class="sheet-title">${delivery.isWeatherRaining ? '🌧️ 우천 할증 콜' : '🔔 신규 배달 콜'}</span>
         <span class="bundle-cap-pill ${full ? 'full' : ''}">배차 ${delivery.activeMissions.length}/${MAX_CONCURRENT_ORDERS}건</span>
         <button class="sheet-refresh-btn" data-action="refresh" title="콜 새로고침">↻</button>
       </div>
@@ -1006,10 +1019,10 @@ export class PhoneMap {
             <div class="accepted-top">
               <span class="step-badge ${isPickupStage ? 'pickup' : 'dropoff'}">${this.getPhaseShortLabel(m.phase, m.cargoSlot)}</span>
               ${slotPill}
-              <span class="order-fee">₩${m.order.baseFee.toLocaleString()}</span>
+              <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus).toLocaleString()}</span>
             </div>
             <div class="order-top">
-              <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span></span>
+              <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span>${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}</span>
             </div>
             <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b></div>
             <div class="order-codes-row">

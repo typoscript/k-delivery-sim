@@ -7,6 +7,8 @@ import {
   CityZoneMarker,
   DeliveryLocation,
   ObstacleBox,
+  SlipSurfaceType,
+  WeatherMode,
 } from '../types';
 
 export interface MapBuildingFootprint {
@@ -54,6 +56,24 @@ export class CityWorld {
   private readonly beaconRing: THREE.Mesh;
 
   public isNight = false;
+  public weatherMode: WeatherMode = 'clear';
+
+  // Wet-road shader & slip-surface materials
+  private asphaltHMat!: THREE.MeshStandardMaterial;
+  private asphaltVMat!: THREE.MeshStandardMaterial;
+  private crosswalkPaintMat!: THREE.MeshStandardMaterial;
+  private manholeMat!: THREE.MeshStandardMaterial;
+  private readonly roadShaderUniforms = {
+    uRainWetness: { value: 0 },
+    uTime: { value: 0 },
+  };
+  // Manhole local offsets relative to each 6x6 intersection center (rx, rz)
+  private readonly manholeOffsets: ReadonlyArray<readonly [number, number]> = [
+    [3.4, 3.4],
+    [-3.4, -3.4],
+    [3.2, -3.6],
+  ];
+  private readonly manholeRadius = 1.05; // visual 0.72m + scooter tire contact radius margin
 
   private readonly roadCoords = CITY_ROAD_LINES;
   private readonly roadWidth = 14;
@@ -238,27 +258,149 @@ export class CityWorld {
     }
   }
 
+  private createPuddleRoughnessTexture(rx: number, ry: number): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext('2d')!;
+    // Base damp asphalt roughness (~0.68 in texture channel)
+    ctx.fillStyle = '#adadad';
+    ctx.fillRect(0, 0, 256, 256);
+
+    // Organic dark puddle patches (very low roughness = mirror-like wet reflections!)
+    const puddles: Array<[number, number, number, number]> = [
+      [56, 64, 42, 26],
+      [184, 72, 36, 24],
+      [124, 152, 54, 32],
+      [48, 206, 38, 22],
+      [208, 198, 44, 28],
+    ];
+    for (const [px, py, radX, radY] of puddles) {
+      const grad = ctx.createRadialGradient(px, py, 3, px, py, Math.max(radX, radY));
+      grad.addColorStop(0, '#0e0e0e');
+      grad.addColorStop(0.6, '#222222');
+      grad.addColorStop(1, 'rgba(173,173,173,0)');
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.scale(1, radY / radX);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, radX, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(rx, ry);
+    return tex;
+  }
+
+  private createManholeTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#3b424c';
+    ctx.fillRect(0, 0, 128, 128);
+
+    // Cast-iron rim & concentric ribs + waffle grid
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(64, 64, 58, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#1f2937';
+    ctx.lineWidth = 3;
+    for (const r of [46, 30, 14]) {
+      ctx.beginPath();
+      ctx.arc(64, 64, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (let a = 0; a < Math.PI; a += Math.PI / 6) {
+      ctx.beginPath();
+      ctx.moveTo(64 - Math.cos(a) * 52, 64 - Math.sin(a) * 52);
+      ctx.lineTo(64 + Math.cos(a) * 52, 64 + Math.sin(a) * 52);
+      ctx.stroke();
+    }
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private enhanceWetAsphaltMaterial(mat: THREE.MeshStandardMaterial): void {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uRainWetness = this.roadShaderUniforms.uRainWetness;
+      shader.uniforms.uTime = this.roadShaderUniforms.uTime;
+
+      shader.fragmentShader =
+        'uniform float uRainWetness;\nuniform float uTime;\n' +
+        shader.fragmentShader.replace(
+          '#include <roughnessmap_fragment>',
+          `#include <roughnessmap_fragment>
+          // Smoothly blend dry uniform asphalt into reflective wet puddle surface!
+          float puddleMask = 1.0 - smoothstep(0.08, 0.55, roughnessFactor);
+          roughnessFactor = mix(0.90, mix(0.32, 0.055, puddleMask), uRainWetness);`
+        ).replace(
+          '#include <dithering_fragment>',
+          `if (uRainWetness > 0.02) {
+            float pMask = 1.0 - smoothstep(0.10, 0.55, roughnessFactor);
+            #ifdef USE_ROUGHNESSMAP
+            float ripple = sin((vRoughnessMapUv.x * 90.0 + vRoughnessMapUv.y * 90.0) + uTime * 8.5) * 0.5 + 0.5;
+            #else
+            float ripple = 0.5;
+            #endif
+            float fresnelSheen = (0.055 + 0.14 * pMask) * uRainWetness;
+            vec3 skyReflect = vec3(0.56, 0.72, 0.88) * fresnelSheen * (0.85 + 0.15 * ripple);
+            gl_FragColor.rgb += skyReflect;
+          }
+          #include <dithering_fragment>`
+        );
+    };
+  }
+
   private buildRoadGrid(): void {
     const span = 468; // covers -234 to +234
-    const asphaltH = new THREE.MeshStandardMaterial({
+    this.asphaltHMat = new THREE.MeshStandardMaterial({
       map: this.createAsphaltTexture(32, 2),
+      roughnessMap: this.createPuddleRoughnessTexture(26, 2),
       roughness: 0.9,
+      metalness: 0.04,
     });
-    const asphaltV = new THREE.MeshStandardMaterial({
+    this.enhanceWetAsphaltMaterial(this.asphaltHMat);
+
+    this.asphaltVMat = new THREE.MeshStandardMaterial({
       map: this.createAsphaltTexture(2, 32),
+      roughnessMap: this.createPuddleRoughnessTexture(2, 26),
       roughness: 0.9,
+      metalness: 0.04,
     });
+    this.enhanceWetAsphaltMaterial(this.asphaltVMat);
+
     const yellowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-    const whiteMat = new THREE.MeshBasicMaterial({ color: 0xf1f5f9 });
+    this.crosswalkPaintMat = new THREE.MeshStandardMaterial({
+      color: 0xf1f5f9,
+      roughness: 0.78,
+      metalness: 0.05,
+    });
+    this.manholeMat = new THREE.MeshStandardMaterial({
+      map: this.createManholeTexture(),
+      color: 0x6b7280,
+      roughness: 0.55,
+      metalness: 0.78,
+    });
 
     for (const coord of this.roadCoords) {
-      const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(span, this.roadWidth), asphaltH);
+      const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(span, this.roadWidth), this.asphaltHMat);
       hRoad.rotation.x = -Math.PI / 2;
       hRoad.position.set(0, 0.025, coord);
       hRoad.receiveShadow = true;
       this.root.add(hRoad);
 
-      const vRoad = new THREE.Mesh(new THREE.PlaneGeometry(this.roadWidth, span), asphaltV);
+      const vRoad = new THREE.Mesh(new THREE.PlaneGeometry(this.roadWidth, span), this.asphaltVMat);
       vRoad.rotation.x = -Math.PI / 2;
       vRoad.position.set(coord, 0.028, 0);
       vRoad.receiveShadow = true;
@@ -286,8 +428,10 @@ export class CityWorld {
     stripeGeoV.rotateX(-Math.PI / 2);
 
     const totalCross = this.roadCoords.length * this.roadCoords.length * 2 * 6;
-    const instH = new THREE.InstancedMesh(stripeGeoH, whiteMat, totalCross);
-    const instV = new THREE.InstancedMesh(stripeGeoV, whiteMat, totalCross);
+    const instH = new THREE.InstancedMesh(stripeGeoH, this.crosswalkPaintMat, totalCross);
+    const instV = new THREE.InstancedMesh(stripeGeoV, this.crosswalkPaintMat, totalCross);
+    instH.receiveShadow = true;
+    instV.receiveShadow = true;
     const dummy = new THREE.Object3D();
     let idx = 0;
 
@@ -308,6 +452,60 @@ export class CityWorld {
       }
     }
     this.root.add(instH, instV);
+
+    // Metallic Manhole Covers at all 36 intersections (1 single InstancedMesh = 1 DrawCall!)
+    const manholeGeo = new THREE.CylinderGeometry(0.74, 0.78, 0.032, 16);
+    const totalManholes = this.roadCoords.length * this.roadCoords.length * this.manholeOffsets.length;
+    const manholeInst = new THREE.InstancedMesh(manholeGeo, this.manholeMat, totalManholes);
+    manholeInst.receiveShadow = true;
+    let mIdx = 0;
+    for (const rx of this.roadCoords) {
+      for (const rz of this.roadCoords) {
+        for (const [ox, oz] of this.manholeOffsets) {
+          dummy.position.set(rx + ox, 0.036, rz + oz);
+          dummy.rotation.set(0, 0, 0);
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          manholeInst.setMatrixAt(mIdx++, dummy.matrix);
+        }
+      }
+    }
+    this.root.add(manholeInst);
+  }
+
+  /**
+   * Fast O(1) slip-surface collision query against metallic manhole covers and crosswalk white paint.
+   * Snaps directly to the nearest 6x6 intersection so there is zero per-frame iteration overhead.
+   */
+  public getSlipSurfaceAt(x: number, z: number): SlipSurfaceType {
+    // Find nearest intersection coordinate on X and Z (grid step = 80, lines at -200..200)
+    const ix = Math.max(0, Math.min(this.roadCoords.length - 1, Math.round((x + 200) / 80)));
+    const iz = Math.max(0, Math.min(this.roadCoords.length - 1, Math.round((z + 200) / 80)));
+    const rx = this.roadCoords[ix];
+    const rz = this.roadCoords[iz];
+
+    const dx = x - rx;
+    const dz = z - rz;
+    if (Math.abs(dx) > 12 || Math.abs(dz) > 12) return 'none';
+
+    // 1. Check metallic manhole covers inside the intersection
+    const rSq = this.manholeRadius * this.manholeRadius;
+    for (const [ox, oz] of this.manholeOffsets) {
+      const mdx = dx - ox;
+      const mdz = dz - oz;
+      if (mdx * mdx + mdz * mdz <= rSq) {
+        return 'manhole';
+      }
+    }
+
+    // 2. Check crosswalk white paint strips surrounding the intersection (±8.8m)
+    const onHCrosswalk = Math.abs(Math.abs(dx) - 8.8) <= 1.45 && Math.abs(dz) <= 5.2;
+    const onVCrosswalk = Math.abs(Math.abs(dz) - 8.8) <= 1.45 && Math.abs(dx) <= 5.2;
+    if (onHCrosswalk || onVCrosswalk) {
+      return 'crosswalk_paint';
+    }
+
+    return 'none';
   }
 
   private addBuilding(
@@ -1101,15 +1299,63 @@ export class CityWorld {
     }
   }
 
+  public setWeather(mode: WeatherMode): void {
+    this.weatherMode = mode;
+    if (this.root.visible) {
+      this.applySkyTheme();
+    }
+  }
+
+  /** Smoothly updates wet asphalt shader parameters, roughness, and puddle sheen */
+  public updateWeatherVisuals(rainIntensity: number, elapsedTime: number): void {
+    this.roadShaderUniforms.uRainWetness.value = rainIntensity;
+    this.roadShaderUniforms.uTime.value = elapsedTime;
+
+    const wetMetal = 0.04 + rainIntensity * 0.34;
+    const wetTint = 1.0 - rainIntensity * 0.32;
+    this.asphaltHMat.metalness = wetMetal;
+    this.asphaltVMat.metalness = wetMetal;
+    this.asphaltHMat.color.setRGB(wetTint * 0.95, wetTint * 0.98, wetTint * 1.05);
+    this.asphaltVMat.color.setRGB(wetTint * 0.95, wetTint * 0.98, wetTint * 1.05);
+
+    this.crosswalkPaintMat.roughness = 0.78 - rainIntensity * 0.62;
+    this.crosswalkPaintMat.metalness = 0.05 + rainIntensity * 0.25;
+
+    this.manholeMat.roughness = 0.55 - rainIntensity * 0.43;
+    this.manholeMat.metalness = 0.78 + rainIntensity * 0.16;
+  }
+
   private applySkyTheme(): void {
+    const isRain = this.weatherMode === 'rain';
+    const isCloudy = this.weatherMode === 'cloudy';
+
     if (this.isNight) {
-      this.scene.background = new THREE.Color(0x0b1220);
-      this.scene.fog = new THREE.FogExp2(0x0b1220, 0.0034);
-      this.dirLight.intensity = 0.25;
-      this.dirLight.color.setHex(0x8aa8d6);
-      this.hemiLight.intensity = 0.28;
-      this.lampGlowMat.emissiveIntensity = 3.2;
-      this.windowGlowMat.emissiveIntensity = 1.1;
+      const bgHex = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
+      const fogDensity = isRain ? 0.0052 : isCloudy ? 0.004 : 0.0034;
+      this.scene.background = new THREE.Color(bgHex);
+      this.scene.fog = new THREE.FogExp2(bgHex, fogDensity);
+      this.dirLight.intensity = isRain ? 0.15 : isCloudy ? 0.2 : 0.25;
+      this.dirLight.color.setHex(isRain ? 0x6b88b0 : 0x8aa8d6);
+      this.hemiLight.intensity = isRain ? 0.22 : 0.28;
+      this.lampGlowMat.emissiveIntensity = isRain ? 3.8 : 3.2;
+      this.windowGlowMat.emissiveIntensity = isRain ? 1.3 : 1.1;
+    } else if (isRain) {
+      // Rainy daytime: overcast stormy slate sky, toned-down lighting & thick mist fog!
+      this.scene.background = new THREE.Color(0x5b6d80);
+      this.scene.fog = new THREE.FogExp2(0x5b6d80, 0.0048);
+      this.dirLight.intensity = 0.52;
+      this.dirLight.color.setHex(0xb8cde0);
+      this.hemiLight.intensity = 0.58;
+      this.lampGlowMat.emissiveIntensity = 1.45;
+      this.windowGlowMat.emissiveIntensity = 0.42;
+    } else if (isCloudy) {
+      this.scene.background = new THREE.Color(0x889cb0);
+      this.scene.fog = new THREE.FogExp2(0x889cb0, 0.0028);
+      this.dirLight.intensity = 0.92;
+      this.dirLight.color.setHex(0xdce6f2);
+      this.hemiLight.intensity = 0.74;
+      this.lampGlowMat.emissiveIntensity = 0.45;
+      this.windowGlowMat.emissiveIntensity = 0.2;
     } else {
       this.scene.background = new THREE.Color(0x93c5fd);
       this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0018);

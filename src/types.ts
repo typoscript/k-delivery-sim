@@ -2,6 +2,9 @@ export const CITY_ROAD_LINES = [-200, -120, -40, 40, 120, 200] as const;
 export const CITY_BLOCK_CENTERS = [-160, -80, 0, 80, 160] as const;
 export const CITY_WORLD_LIMIT = 285;
 
+export type WeatherMode = 'clear' | 'cloudy' | 'rain';
+export type SlipSurfaceType = 'none' | 'manhole' | 'crosswalk_paint';
+
 export interface ObstacleBox {
   minX: number;
   maxX: number;

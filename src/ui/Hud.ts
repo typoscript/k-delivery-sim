@@ -9,6 +9,7 @@ import {
 } from '../delivery/DeliveryManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { PhoneCallbacks, PhoneMap, PhonePlacement } from './PhoneMap';
+import { WeatherMode } from '../types';
 
 export interface InteractionContext {
   nearCargoBox: boolean;
@@ -19,6 +20,7 @@ export interface InteractionContext {
 
 export class Hud {
   private readonly modeBadge = document.getElementById('mode-badge')!;
+  private readonly weatherBadge = document.getElementById('weather-badge')!;
   private readonly helpPanel = document.getElementById('help-panel')!;
   private readonly toggleHelpBtn = document.getElementById('toggle-help-btn')!;
 
@@ -40,9 +42,12 @@ export class Hud {
   public readonly phoneMap: PhoneMap;
   private toastTimer: number | null = null;
 
-  constructor(phoneCallbacks: PhoneCallbacks) {
+  constructor(phoneCallbacks: PhoneCallbacks, onToggleWeather?: () => void) {
     this.phoneMap = new PhoneMap(phoneCallbacks);
     this.toggleHelpBtn.addEventListener('click', () => this.toggleHelp());
+    if (onToggleWeather) {
+      this.weatherBadge.addEventListener('click', () => onToggleWeather());
+    }
   }
 
   public toggleHelp(): void {
@@ -83,12 +88,25 @@ export class Hud {
     navPlan: NavigationPlan,
     signalState: SignalStateSnapshot,
     isNight: boolean,
+    weatherMode: WeatherMode,
     isMuted: boolean,
     elapsedTime: number,
     mapInfo: CityMapInfo,
     ctx: InteractionContext
   ): void {
     const isRiding = player.mode === 'riding';
+
+    // Update top-left weather pill
+    if (weatherMode === 'rain') {
+      this.weatherBadge.textContent = '🌧️ 비 · 할증+₩1,500';
+      this.weatherBadge.className = 'weather-pill rain';
+    } else if (weatherMode === 'cloudy') {
+      this.weatherBadge.textContent = '☁️ 흐림';
+      this.weatherBadge.className = 'weather-pill cloudy';
+    } else {
+      this.weatherBadge.textContent = '☀️ 맑음';
+      this.weatherBadge.className = 'weather-pill clear';
+    }
     const carrying = delivery.getCarryingMission();
     const corridorM = delivery.getCorridorMission();
     const loadedCount = delivery.getLoadedCargoCount();
@@ -122,7 +140,19 @@ export class Hud {
     }
 
     this.ridingCluster.classList.toggle('hidden', !isRiding);
-    this.slipWarningEl.classList.toggle('hidden', !(isRiding && scooter.slipWarning));
+    const showSlip = isRiding && (scooter.slipWarning || scooter.wetSlipWarning !== 'none');
+    if (showSlip) {
+      if (scooter.wetSlipWarning === 'manhole') {
+        this.slipWarningEl.textContent =
+          '⚠ 빗길 금속 맨홀 뚜껑! 브레이크·급회전 시 접지력 상실로 전도됩니다!';
+      } else if (scooter.wetSlipWarning === 'crosswalk_paint') {
+        this.slipWarningEl.textContent =
+          '⚠ 빗길 횡단보도 페인트선! 감속·직진 통과하지 않으면 미끄러집니다!';
+      } else {
+        this.slipWarningEl.textContent = '⚠ 코너 기울기 과다! 감속하지 않으면 넘어집니다!';
+      }
+    }
+    this.slipWarningEl.classList.toggle('hidden', !showSlip);
 
     const promptHtml = this.computePrompt(player, scooter, delivery, navPlan, ctx);
     if (promptHtml && !ctx.modalOpen) {

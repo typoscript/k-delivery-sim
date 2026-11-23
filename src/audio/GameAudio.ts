@@ -15,6 +15,9 @@ export class GameAudio {
   private hornOsc: OscillatorNode | null = null;
   private hornGain: GainNode | null = null;
 
+  private rainGain: GainNode | null = null;
+  private rainFilter: BiquadFilterNode | null = null;
+
   public muted = false;
   private started = false;
   private lastBlinkPhase = false;
@@ -89,6 +92,37 @@ export class GameAudio {
       hornFilter.connect(this.hornGain);
       this.hornGain.connect(this.masterGain);
       this.hornOsc.start();
+
+      // Continuous procedural rainfall ambience (looping filtered pink-ish noise buffer)
+      const rainLen = Math.floor(this.ctx.sampleRate * 2.5);
+      const rainBuf = this.ctx.createBuffer(1, rainLen, this.ctx.sampleRate);
+      const rData = rainBuf.getChannelData(0);
+      let b0 = 0;
+      let b1 = 0;
+      let b2 = 0;
+      for (let i = 0; i < rainLen; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.997 * b0 + white * 0.029;
+        b1 = 0.985 * b1 + white * 0.032;
+        b2 = 0.95 * b2 + white * 0.048;
+        rData[i] = (b0 + b1 + b2 + white * 0.18) * 0.65;
+      }
+      const rainSrc = this.ctx.createBufferSource();
+      rainSrc.buffer = rainBuf;
+      rainSrc.loop = true;
+
+      this.rainFilter = this.ctx.createBiquadFilter();
+      this.rainFilter.type = 'bandpass';
+      this.rainFilter.frequency.value = 1150;
+      this.rainFilter.Q.value = 0.65;
+
+      this.rainGain = this.ctx.createGain();
+      this.rainGain.gain.value = 0;
+
+      rainSrc.connect(this.rainFilter);
+      this.rainFilter.connect(this.rainGain);
+      this.rainGain.connect(this.masterGain);
+      rainSrc.start();
 
       this.started = true;
     } catch {
@@ -301,6 +335,22 @@ export class GameAudio {
     gain.connect(this.masterGain);
     osc.start(now);
     osc.stop(now + 0.03);
+  }
+
+  /**
+   * Controls continuous rain ambience volume.
+   * Immediately silences rain audio with zero fade tail when inside underground corridors (y = -500)!
+   */
+  public updateWeatherAudio(rainIntensity: number, inCorridor: boolean): void {
+    if (!this.started || !this.ctx || !this.rainGain) return;
+    const now = this.ctx.currentTime;
+    if (inCorridor || this.muted || rainIntensity <= 0.01) {
+      this.rainGain.gain.cancelScheduledValues(now);
+      this.rainGain.gain.setValueAtTime(0, now);
+      return;
+    }
+    const targetVol = 0.34 * rainIntensity;
+    this.rainGain.gain.setTargetAtTime(targetVol, now, 0.14);
   }
 
   public update(scooter: ScooterState, elapsedTime: number): void {

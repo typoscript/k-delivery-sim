@@ -2023,3 +2023,71 @@ kbd {
   font-size: 11.5px;
   color: #94a3b8;
 }
+
+/* ======================== Phase 2: Weather Pill & Rain Surcharge Styles ======================== */
+.weather-pill {
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 2px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.weather-pill:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.weather-pill.clear {
+  background: rgba(250, 204, 21, 0.18);
+  border-color: rgba(250, 204, 21, 0.45);
+  color: #fef08a;
+}
+
+.weather-pill.cloudy {
+  background: rgba(148, 163, 184, 0.22);
+  border-color: rgba(148, 163, 184, 0.48);
+  color: #e2e8f0;
+}
+
+.weather-pill.rain {
+  background: rgba(14, 165, 233, 0.26);
+  border-color: rgba(56, 189, 248, 0.65);
+  color: #7dd3fc;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.order-card.rain-order {
+  border-color: rgba(14, 165, 233, 0.45);
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+}
+
+.phone-device.night .order-card.rain-order {
+  background: linear-gradient(135deg, #172554 0%, #1e293b 100%);
+  border-color: rgba(56, 189, 248, 0.42);
+}
+
+.rain-bonus-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+  background: rgba(14, 165, 233, 0.2);
+  color: #0284c7;
+}
+
+.phone-device.night .rain-bonus-tag {
+  background: rgba(56, 189, 248, 0.25);
+  color: #7dd3fc;
+}
+
+.st-row.rain-bonus {
+  color: #38bdf8;
+  font-weight: 800;
+}

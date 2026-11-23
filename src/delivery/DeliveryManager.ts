@@ -4,6 +4,7 @@ import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator'
 export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
 export const INTERACT_ZONE_RADIUS = 3.6;
+export const RAIN_SURCHARGE_BONUS = 1500;
 
 export interface DeliveryOrder {
   id: string;
@@ -14,6 +15,7 @@ export interface DeliveryOrder {
   doorPin: string; // 4-digit apartment entrance PIN, e.g., "4829"
   menuName: string;
   baseFee: number;
+  rainBonus: number; // +1500 when generated in Rain mode!
   distanceMeters: number;
 }
 
@@ -46,8 +48,10 @@ export interface CompletedMissionRecord {
 export interface SettlementResult {
   order: DeliveryOrder;
   baseFee: number;
+  rainBonus: number;
   foodIntegrity: number;
   tip: number;
+  tipPenalty: number;
   earned: number;
   totalEarnings: number;
   completedCount: number;
@@ -92,6 +96,7 @@ export class DeliveryManager {
 
   public totalEarnings = 0;
   public completedCount = 0;
+  public isWeatherRaining = false;
 
   private readonly shops: DeliveryLocation[];
   private readonly residences: DeliveryLocation[];
@@ -227,6 +232,13 @@ export class DeliveryManager {
     return pin;
   }
 
+  public setWeatherRaining(raining: boolean): void {
+    if (this.isWeatherRaining === raining) return;
+    this.isWeatherRaining = raining;
+    // Immediately refresh unaccepted calls so players see "+₩1,500 우천 할증" calls right away!
+    this.refreshAvailableOrders();
+  }
+
   public refreshAvailableOrders(): void {
     const orders: DeliveryOrder[] = [];
     const usedPairs = new Set<string>(
@@ -258,6 +270,7 @@ export class DeliveryManager {
         doorPin: this.generateDoorPin(),
         menuName,
         baseFee,
+        rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
         distanceMeters,
       });
     }
@@ -322,6 +335,7 @@ export class DeliveryManager {
         doorPin: this.generateDoorPin(),
         menuName,
         baseFee,
+        rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
         distanceMeters,
       });
     }
@@ -422,8 +436,11 @@ export class DeliveryManager {
     if (!m || m.phase !== 'photo_mode') return null;
 
     const integrityFactor = m.foodIntegrity / 100;
-    const tip = m.foodIntegrity >= 95 ? 500 : 0;
-    const earned = Math.round((m.order.baseFee * integrityFactor + tip) / 100) * 100;
+    const maxTip = 500;
+    const tip = m.foodIntegrity >= 95 ? maxTip : m.foodIntegrity >= 70 ? 200 : 0;
+    const tipPenalty = maxTip - tip;
+    const rainBonus = m.order.rainBonus;
+    const earned = Math.round((m.order.baseFee * integrityFactor + tip + rainBonus) / 100) * 100;
 
     this.totalEarnings += earned;
     this.completedCount += 1;
@@ -446,8 +463,10 @@ export class DeliveryManager {
     const result: SettlementResult = {
       order: m.order,
       baseFee: m.order.baseFee,
+      rainBonus,
       foodIntegrity: m.foodIntegrity,
       tip,
+      tipPenalty,
       earned,
       totalEarnings: this.totalEarnings,
       completedCount: this.completedCount,
@@ -509,9 +528,9 @@ export class DeliveryManager {
     return best;
   }
 
-  /** Applies crash damage to ALL food bags currently loaded in the 3 cargo box slots */
-  public applyCrashDamage(): { damagedCount: number; loss: number } {
-    const loss = 25;
+  /** Applies crash impact damage to ALL food bags currently loaded in the 3 cargo box slots */
+  public applyCrashDamage(isRainSlip = false): { damagedCount: number; loss: number } {
+    const loss = isRainSlip ? 32 : 25;
     let damagedCount = 0;
     for (const id of this.cargoSlots) {
       if (!id) continue;
