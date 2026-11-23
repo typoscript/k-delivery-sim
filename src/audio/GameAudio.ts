@@ -21,6 +21,7 @@ export class GameAudio {
   public muted = false;
   private started = false;
   private lastBlinkPhase = false;
+  private lastLowFuelBeepTime = -10;
 
   public ensureStarted(): void {
     if (this.started) {
@@ -337,6 +338,84 @@ export class GameAudio {
     osc.stop(now + 0.03);
   }
 
+  /** Synthesizes low-fuel dashboard warning double-beep */
+  public playLowFuelWarningBeep(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    [1318.5, 987.77].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = now + i * 0.13;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.18, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.11);
+    });
+  }
+
+  /** Soft rhythmic pump click while refueling */
+  public playFuelPumpTick(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(340, now);
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.04);
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.055);
+  }
+
+  /** Korean self-service POS / card terminal payment complete chime ("결제가 완료되었습니다" tone) */
+  public playPaymentCompleteSound(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const notes = [1046.5, 1318.5, 1567.98, 2093.0];
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const t = now + idx * 0.075;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.24, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.24);
+    });
+  }
+
+  /** Mechanic air-wrench whir & confirmation chime for scooter repair */
+  public playRepairSound(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      const t = now + i * 0.14;
+      osc.frequency.setValueAtTime(220, t);
+      osc.frequency.exponentialRampToValueAtTime(640, t + 0.09);
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+      osc.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.12);
+    }
+  }
+
   /**
    * Controls continuous rain ambience volume.
    * Immediately silences rain audio with zero fade tail when inside underground corridors (y = -500)!
@@ -368,6 +447,13 @@ export class GameAudio {
     }
 
     const now = this.ctx.currentTime;
+
+    // Periodic low-fuel warning beep while mounted with <= 10% fuel (even when completely empty!)
+    if (scooter.mounted && scooter.lowFuelWarning && elapsedTime - this.lastLowFuelBeepTime >= 4.2) {
+      this.lastLowFuelBeepTime = elapsedTime;
+      this.playLowFuelWarningBeep();
+    }
+
     if (!scooter.engineOn) {
       this.engineGain.gain.setTargetAtTime(0, now, 0.08);
       this.screechGain.gain.setTargetAtTime(0, now, 0.05);

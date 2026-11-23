@@ -41,6 +41,13 @@ export interface ScooterState {
   rpmNorm: number; // 0..1 for audio
   throttleAmount: number;
 
+  // Phase 3: Fuel & Damage Systems
+  fuel: number; // 0..100%
+  lowFuelWarning: boolean; // <= 10%
+  outOfFuel: boolean; // <= 0% (cannot accelerate!)
+  damageLevel: number; // 0..3 (each crash reduces acceleration by 10% & shakes side mirrors)
+  crashCount: number;
+
   mounted: boolean;
   engineOn: boolean;
   headlights: boolean;
@@ -106,6 +113,11 @@ export class ScooterPhysics {
       slideVz: 0,
       rpmNorm: 0,
       throttleAmount: 0,
+      fuel: 100,
+      lowFuelWarning: false,
+      outOfFuel: false,
+      damageLevel: 0,
+      crashCount: 0,
       mounted: false,
       engineOn: false,
       headlights: false,
@@ -118,12 +130,39 @@ export class ScooterPhysics {
 
   public reset(): void {
     const keepLights = this.state.headlights;
+    const keepFuel = this.state.fuel;
+    const keepDamage = this.state.damageLevel;
+    const keepCrashes = this.state.crashCount;
     this.state = this.createInitialState();
     this.state.headlights = keepLights;
+    this.state.fuel = keepFuel;
+    this.state.lowFuelWarning = keepFuel <= 10;
+    this.state.outOfFuel = keepFuel <= 0.01;
+    this.state.damageLevel = keepDamage;
+    this.state.crashCount = keepCrashes;
     this.prevSpeed = 0;
     this.reverseHoldTimer = 0;
     this.overLeanTimer = 0;
     this.blinkerTurnAccum = 0;
+  }
+
+  public addFuel(percent: number): number {
+    this.state.fuel = clamp(this.state.fuel + percent, 0, 100);
+    this.state.lowFuelWarning = this.state.fuel <= 10;
+    this.state.outOfFuel = this.state.fuel <= 0.01;
+    if (!this.state.outOfFuel && this.state.mounted) {
+      this.state.engineOn = true;
+    }
+    return this.state.fuel;
+  }
+
+  public repairVehicle(): void {
+    this.state.damageLevel = 0;
+  }
+
+  public getAccelMultiplier(): number {
+    // Each crash damage stage lowers acceleration by 10% (min 70% at max stage 3)
+    return Math.max(0.7, 1 - this.state.damageLevel * 0.1);
   }
 
   public toggleLeftBlinker(): boolean {
@@ -188,6 +227,8 @@ export class ScooterPhysics {
     const impactSpeed = Math.abs(s.speed);
     s.crashed = true;
     s.crashSide = side === 0 ? -1 : Math.sign(side);
+    s.crashCount += 1;
+    s.damageLevel = Math.min(3, s.damageLevel + 1);
     s.mounted = false;
     s.engineOn = false;
     s.throttleAmount = 0;
@@ -326,8 +367,9 @@ export class ScooterPhysics {
       else s.steerAngle -= Math.sign(s.steerAngle) * delta;
     }
 
-    // Longitudinal acceleration / braking (reduced traction on rain / wet manhole & paint!)
-    const maxAccel = 7.6 * (1 - 0.6 * speedRatio);
+    // Longitudinal acceleration / braking (affected by damageLevel -10%/stage, rain grip, & out-of-fuel!)
+    const damageAccelMul = this.getAccelMultiplier();
+    const maxAccel = 7.6 * (1 - 0.6 * speedRatio) * damageAccelMul;
     let brakeGripMul = road.isRaining ? 0.86 : 1.0;
     if (road.isRaining && road.surface === 'manhole') brakeGripMul = 0.55;
     else if (road.isRaining && road.surface === 'crosswalk_paint') brakeGripMul = 0.68;
@@ -339,6 +381,10 @@ export class ScooterPhysics {
     let isBraking = false;
     let throttleAmt = 0;
 
+    s.outOfFuel = s.fuel <= 0.01;
+    s.lowFuelWarning = s.fuel <= 10;
+    s.engineOn = s.mounted && !s.outOfFuel;
+
     if (input.handbrake) {
       isBraking = absSpeed > 0.05;
       if (absSpeed > 0.05) accel = -Math.sign(s.speed) * brakeDecel;
@@ -349,7 +395,7 @@ export class ScooterPhysics {
       if (s.speed < -0.1) {
         accel = brakeDecel;
         isBraking = true;
-      } else {
+      } else if (!s.outOfFuel) {
         accel = maxAccel;
         throttleAmt = 1;
       }
@@ -369,6 +415,20 @@ export class ScooterPhysics {
       }
     } else {
       this.reverseHoldTimer = 0;
+    }
+
+    // Real-time fuel burn while engine is running (idle + throttle/speed load)
+    if (s.engineOn) {
+      const burnRate = 0.025 + throttleAmt * (0.28 + speedRatio * 0.44);
+      s.fuel = Math.max(0, s.fuel - burnRate * dt);
+      s.lowFuelWarning = s.fuel <= 10;
+      if (s.fuel <= 0.01) {
+        s.fuel = 0;
+        s.outOfFuel = true;
+        s.engineOn = false;
+        throttleAmt = 0;
+        if (accel > 0) accel = 0;
+      }
     }
 
     if (absSpeed > 0.02) {

@@ -40,6 +40,18 @@ export interface BusStopPoint {
   roadIndex: number; // index into CITY_ROAD_LINES
 }
 
+export interface ServiceStationInfo {
+  name: string;
+  kind: 'gas' | 'repair';
+  padMinX: number;
+  padMaxX: number;
+  padMinZ: number;
+  padMaxZ: number;
+  interactX: number;
+  interactZ: number;
+  interactRadius: number;
+}
+
 export function wrapAngle(angle: number): number {
   let a = angle;
   while (a > Math.PI) a -= Math.PI * 2;

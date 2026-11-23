@@ -121,7 +121,14 @@
             <div class="lean-track">
               <div id="lean-bar" class="lean-fill safe"></div>
             </div>
-            <div class="ride-sub">정차 후 <kbd>F</kbd> 하차 · 과속 코너 주의</div>
+            <div class="fuel-hud-row">
+              <span>⛽ 연료 <b id="fuel-val">100%</b></span>
+              <span id="damage-badge" class="damage-chip hidden">🔧 파손 -10%</span>
+            </div>
+            <div class="lean-track">
+              <div id="fuel-bar" class="lean-fill safe" style="width: 100%"></div>
+            </div>
+            <div class="ride-sub">정차 후 <kbd>F</kbd> 하차 · 주유소/정비소 <kbd>E</kbd></div>
           </div>
         </div>
 
@@ -253,6 +260,63 @@
           <div class="cargo-footer-hint">
             <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> 키 또는 클릭으로 슬롯 적재/꺼내기 · <kbd>Esc</kbd> 닫기
           </div>
+        </div>
+      </div>
+
+      <!-- 7. Self-Service Gas Station Refueling Modal -->
+      <div id="fuel-modal" class="modal-backdrop hidden">
+        <div class="service-card fuel-card">
+          <div class="keypad-header">
+            <span>⛽ K-오일 셀프주유소</span>
+            <button class="keypad-close" data-action="close">✕</button>
+          </div>
+          <div class="svc-meter-box">
+            <div class="svc-meter-row">
+              <span>현재 연료 잔량</span>
+              <strong id="fuel-modal-pct">42%</strong>
+            </div>
+            <div class="svc-progress-track">
+              <div id="fuel-modal-bar" class="svc-progress-fill" style="width: 42%"></div>
+            </div>
+            <div id="fuel-modal-status" class="svc-status-text">가득 주유 시 58% 보충 (₩40 / 1%)</div>
+          </div>
+          <div class="svc-cost-row">
+            <span>예상 결제 금액</span>
+            <strong id="fuel-modal-cost">₩2,300</strong>
+          </div>
+          <button id="fuel-start-btn" class="svc-action-btn fuel" data-action="start_fuel">
+            ⛽ 가득 주유 시작 (E / Enter)
+          </button>
+        </div>
+      </div>
+
+      <!-- 8. Neighborhood Motorcycle Repair Center Modal -->
+      <div id="repair-modal" class="modal-backdrop hidden">
+        <div class="service-card repair-card">
+          <div class="keypad-header">
+            <span>🔧 번개 오토바이 센터</span>
+            <button class="keypad-close" data-action="close">✕</button>
+          </div>
+          <div id="repair-diag-box" class="svc-meter-box"></div>
+          <div class="svc-cost-row">
+            <span>정비 수리비</span>
+            <strong id="repair-modal-cost">₩2,500</strong>
+          </div>
+          <button id="repair-confirm-btn" class="svc-action-btn repair" data-action="confirm_repair">
+            🔧 수리 및 결제 완료 (E / Enter)
+          </button>
+        </div>
+      </div>
+
+      <!-- 9. Daily Comprehensive Earnings & Expenses Settlement Dashboard Modal -->
+      <div id="daily-report-modal" class="modal-backdrop hidden">
+        <div class="report-card">
+          <div class="keypad-header">
+            <span>📊 오늘의 일일 종합 정산 대시보드</span>
+            <button class="keypad-close" data-action="close">✕</button>
+          </div>
+          <div id="daily-report-body" class="report-body"></div>
+          <button id="daily-report-ok-btn" class="st-ok-btn" data-action="close">확인 (Esc)</button>
         </div>
       </div>
     </div>

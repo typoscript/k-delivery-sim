@@ -7,6 +7,7 @@ import {
   CityZoneMarker,
   DeliveryLocation,
   ObstacleBox,
+  ServiceStationInfo,
   SlipSurfaceType,
   WeatherMode,
 } from '../types';
@@ -26,6 +27,7 @@ export interface CityMapInfo {
   roadWidth: number;
   zones: CityZoneMarker[];
   busStops: BusStopPoint[];
+  serviceStations: ServiceStationInfo[];
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
 }
@@ -37,6 +39,7 @@ export class CityWorld {
   public readonly buildings: MapBuildingFootprint[] = [];
   public readonly locations: DeliveryLocation[] = [];
   public readonly busStops: BusStopPoint[] = [];
+  public readonly serviceStations: ServiceStationInfo[] = [];
   public readonly mapInfo: CityMapInfo;
 
   private readonly scene: THREE.Scene;
@@ -148,6 +151,7 @@ export class CityWorld {
       roadWidth: this.roadWidth,
       zones: this.zones,
       busStops: this.busStops,
+      serviceStations: this.serviceStations,
       obstacles: this.obstacles,
       buildings: this.buildings,
     };
@@ -155,6 +159,7 @@ export class CityWorld {
     this.buildBaseGround();
     this.buildRoadGrid();
     this.buildSidewalksAndBlocks();
+    this.buildServiceStations();
     this.buildBusStops();
     this.buildStreetFurniture();
     this.initDeliveryLocations();
@@ -906,6 +911,231 @@ export class CityWorld {
       signColor: '#059669',
       signFace: 'N',
     });
+  }
+
+  /**
+   * Builds Phase 3 road-facing Service Stations along main boulevard z = -40:
+   * 1. K-Oil Self Gas Station (주유소) at Block (-80, -80) north frontage (x=-80, z=-56)
+   * 2. Neighborhood Motorcycle Repair Center (동네 오토바이 센터) at Block (+80, -80) north frontage (x=78, z=-57)
+   */
+  private buildServiceStations(): void {
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 });
+    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.45 });
+    const yellowMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      emissive: 0xeab308,
+      emissiveIntensity: 0.4,
+    });
+    const redMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 });
+    const tealMat = new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.4 });
+    const orangeMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.45 });
+    const screenMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0ea5e9,
+      emissiveIntensity: 0.85,
+    });
+
+    // ================= 1. ⛽ K-OIL SELF GAS STATION (x = -80, z = -56) =================
+    const gas = new THREE.Group();
+    gas.position.set(-80, 0.16, -56);
+
+    // Concrete forecourt pad + yellow safety border marking (주유 패드 구역!)
+    const gasPad = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 12),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.78 })
+    );
+    gasPad.rotation.x = -Math.PI / 2;
+    gasPad.position.y = 0.025;
+    gasPad.receiveShadow = true;
+    gas.add(gasPad);
+
+    const padEdgeH = new THREE.BoxGeometry(18, 0.04, 0.28);
+    const padEdgeV = new THREE.BoxGeometry(0.28, 0.04, 12);
+    for (const s of [-1, 1]) {
+      const eh = new THREE.Mesh(padEdgeH, yellowMat);
+      eh.position.set(0, 0.03, s * 5.86);
+      const ev = new THREE.Mesh(padEdgeV, yellowMat);
+      ev.position.set(s * 8.86, 0.03, 0);
+      gas.add(eh, ev);
+    }
+
+    // Overhead illuminated canopy & 4 columns
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(17.5, 0.9, 9.2), whiteMat);
+    canopy.position.set(0, 4.7, -0.4);
+    canopy.castShadow = true;
+    const fascia = new THREE.Mesh(new THREE.BoxGeometry(17.7, 0.55, 9.4), tealMat);
+    fascia.position.set(0, 4.95, -0.4);
+    gas.add(canopy, fascia);
+
+    const gasSignTex = this.createSignTexture('⛽ K-오일 셀프주유소', '#0f766e', '#fef08a');
+    const gasSignMat = new THREE.MeshStandardMaterial({
+      map: gasSignTex,
+      emissive: 0x14b8a6,
+      emissiveIntensity: 0.45,
+    });
+    const gasSignN = new THREE.Mesh(new THREE.PlaneGeometry(11.5, 1.3), gasSignMat);
+    gasSignN.position.set(0, 4.95, 4.35);
+    const gasSignS = new THREE.Mesh(new THREE.PlaneGeometry(11.5, 1.3), gasSignMat);
+    gasSignS.position.set(0, 4.95, -5.15);
+    gasSignS.rotation.y = Math.PI;
+    gas.add(gasSignN, gasSignS);
+
+    for (const px of [-6.5, 6.5]) {
+      for (const pz of [-3.2, 2.4]) {
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 4.5, 0.55), whiteMat);
+        pillar.position.set(px, 2.25, pz);
+        pillar.castShadow = true;
+        gas.add(pillar);
+        this.obstacles.push({
+          minX: -80 + px - 0.35,
+          maxX: -80 + px + 0.35,
+          minZ: -56 + pz - 0.35,
+          maxZ: -56 + pz + 0.35,
+        });
+      }
+    }
+
+    // Central Self-Service Fuel Pump Island (x = -80, z = -56)
+    const island = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.22, 1.4), whiteMat);
+    island.position.set(0, 0.11, 0);
+    gas.add(island);
+    for (const dx of [-1.2, 1.2]) {
+      const pumpBody = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.75, 0.65), redMat);
+      pumpBody.position.set(dx, 1.0, 0);
+      pumpBody.castShadow = true;
+      const pumpTop = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.28, 0.72), yellowMat);
+      pumpTop.position.set(dx, 1.98, 0);
+      const pumpScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.44), screenMat);
+      pumpScreen.position.set(dx, 1.38, 0.34);
+      const pumpScreenBack = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.44), screenMat);
+      pumpScreenBack.position.set(dx, 1.38, -0.34);
+      pumpScreenBack.rotation.y = Math.PI;
+      gas.add(pumpBody, pumpTop, pumpScreen, pumpScreenBack);
+    }
+    this.obstacles.push({ minX: -82.2, maxX: -77.8, minZ: -56.7, maxZ: -55.3 });
+
+    // Price Totem Sign at roadside corner
+    const totem = new THREE.Mesh(new THREE.BoxGeometry(1.5, 4.6, 0.55), darkMat);
+    totem.position.set(-8.6, 2.3, 4.4);
+    const priceTex = this.createSignTexture('휘발유 ₩40/1%', '#1e293b', '#4ade80');
+    const priceFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.38, 1.2),
+      new THREE.MeshBasicMaterial({ map: priceTex })
+    );
+    priceFace.position.set(-8.6, 3.4, 4.7);
+    gas.add(totem, priceFace);
+    this.obstacles.push({ minX: -89.4, maxX: -87.8, minZ: -52.0, maxZ: -51.1 });
+
+    this.root.add(gas);
+    this.serviceStations.push({
+      name: 'K-오일 셀프주유소',
+      kind: 'gas',
+      padMinX: -89,
+      padMaxX: -71,
+      padMinZ: -62.5,
+      padMaxZ: -48.5,
+      interactX: -80,
+      interactZ: -56,
+      interactRadius: 4.0,
+    });
+    this.zones.push({ name: 'K-오일 주유소', x: -80, z: -50, type: 'shop' });
+
+    // ================= 2. 🔧 NEIGHBORHOOD MOTORCYCLE REPAIR CENTER (x = 78, z = -57) =================
+    const rep = new THREE.Group();
+    rep.position.set(78, 0.16, -57);
+
+    // Orange-bordered service bay pad in front of garage (z = -57..-49)
+    const repPad = new THREE.Mesh(
+      new THREE.PlaneGeometry(15, 9),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 })
+    );
+    repPad.rotation.x = -Math.PI / 2;
+    repPad.position.set(0, 0.025, 2.2);
+    repPad.receiveShadow = true;
+    rep.add(repPad);
+
+    const rEdgeH = new THREE.BoxGeometry(15, 0.04, 0.25);
+    const rEdgeV = new THREE.BoxGeometry(0.25, 0.04, 9);
+    for (const s of [-1, 1]) {
+      const eh = new THREE.Mesh(rEdgeH, orangeMat);
+      eh.position.set(0, 0.03, 2.2 + s * 4.38);
+      const ev = new THREE.Mesh(rEdgeV, orangeMat);
+      ev.position.set(s * 7.38, 0.03, 2.2);
+      rep.add(eh, ev);
+    }
+
+    // Garage Structure (back half of lot, leaving spacious pad facing road z = -40!)
+    const garageBody = new THREE.Mesh(new THREE.BoxGeometry(14, 4.6, 5.2), darkMat);
+    garageBody.position.set(0, 2.3, -4.8);
+    garageBody.castShadow = true;
+    garageBody.receiveShadow = true;
+    const garageTrim = new THREE.Mesh(new THREE.BoxGeometry(14.3, 0.45, 5.5), orangeMat);
+    garageTrim.position.set(0, 4.65, -4.8);
+    const garageAwning = new THREE.Mesh(new THREE.BoxGeometry(13.6, 0.24, 3.2), orangeMat);
+    garageAwning.position.set(0, 3.4, -1.1);
+
+    const repSignTex = this.createSignTexture('🔧 번개 오토바이 센터', '#ea580c', '#ffffff');
+    const repSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(11.2, 1.35),
+      new THREE.MeshStandardMaterial({
+        map: repSignTex,
+        emissive: 0xf97316,
+        emissiveIntensity: 0.4,
+      })
+    );
+    repSign.position.set(0, 4.15, -2.14);
+
+    // Open service bay interior & red tool chest
+    const bayDoor = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.2, 2.9),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
+    );
+    bayDoor.position.set(-1.5, 1.48, -2.18);
+    const toolChest = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.15, 0.7), redMat);
+    toolChest.position.set(4.5, 0.58, -1.7);
+    const counterDesk = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.05, 0.8), whiteMat);
+    counterDesk.position.set(2.4, 0.52, -1.7);
+
+    rep.add(garageBody, garageTrim, garageAwning, repSign, bayDoor, toolChest, counterDesk);
+    this.obstacles.push({ minX: 71, maxX: 85, minZ: -64.6, maxZ: -59.0 });
+
+    this.root.add(rep);
+    this.serviceStations.push({
+      name: '번개 오토바이 센터',
+      kind: 'repair',
+      padMinX: 70,
+      padMaxX: 86,
+      padMinZ: -60.5,
+      padMaxZ: -49.5,
+      interactX: 79.5,
+      interactZ: -57.2,
+      interactRadius: 4.4,
+    });
+    this.zones.push({ name: '오토바이 정비센터', x: 78, z: -50, type: 'shop' });
+  }
+
+  public isScooterOnGasPad(x: number, z: number): boolean {
+    const s = this.serviceStations.find((st) => st.kind === 'gas');
+    if (!s) return false;
+    return x >= s.padMinX && x <= s.padMaxX && z >= s.padMinZ && z <= s.padMaxZ;
+  }
+
+  public isPlayerNearGasPump(x: number, z: number): boolean {
+    const s = this.serviceStations.find((st) => st.kind === 'gas');
+    if (!s) return false;
+    return Math.hypot(x - s.interactX, z - s.interactZ) <= s.interactRadius;
+  }
+
+  public isScooterOnRepairPad(x: number, z: number): boolean {
+    const s = this.serviceStations.find((st) => st.kind === 'repair');
+    if (!s) return false;
+    return x >= s.padMinX && x <= s.padMaxX && z >= s.padMinZ && z <= s.padMaxZ;
+  }
+
+  public isPlayerNearRepairShop(x: number, z: number): boolean {
+    const s = this.serviceStations.find((st) => st.kind === 'repair');
+    if (!s) return false;
+    return Math.hypot(x - s.interactX, z - s.interactZ) <= s.interactRadius;
   }
 
   /**

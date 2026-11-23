@@ -5,6 +5,24 @@ export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
 export const INTERACT_ZONE_RADIUS = 3.6;
 export const RAIN_SURCHARGE_BONUS = 1500;
+export const BASE_FLAT_FEE = 3200;
+export const FUEL_PRICE_PER_PERCENT = 40; // full 0->100% fill = ₩4,000
+export const REPAIR_COST_PER_DAMAGE_STAGE = 2500; // stage 1..3 = ₩2,500..₩7,500
+
+export interface DailyFinanceLedger {
+  completedCount: number;
+  baseFeeTotal: number;
+  distanceBonusTotal: number;
+  rainBonusTotal: number;
+  tipTotal: number;
+  damageDeductionTotal: number;
+  fuelExpense: number;
+  repairExpense: number;
+  fineExpense: number;
+  grossIncome: number;
+  totalExpenses: number;
+  netProfit: number;
+}
 
 export interface DeliveryOrder {
   id: string;
@@ -94,9 +112,19 @@ export class DeliveryManager {
   public completedMissions: CompletedMissionRecord[] = [];
   public selectedMissionId: string | null = null; // null = Auto Recommended Route
 
-  public totalEarnings = 0;
+  public totalEarnings = 0; // Net daily profit (income - fuel - repair - fines)
   public completedCount = 0;
   public isWeatherRaining = false;
+
+  // Daily comprehensive finance ledger
+  public baseFeeTotal = 0;
+  public distanceBonusTotal = 0;
+  public rainBonusTotal = 0;
+  public tipTotal = 0;
+  public damageDeductionTotal = 0;
+  public fuelExpense = 0;
+  public repairExpense = 0;
+  public fineExpense = 0;
 
   private readonly shops: DeliveryLocation[];
   private readonly residences: DeliveryLocation[];
@@ -442,6 +470,16 @@ export class DeliveryManager {
     const rainBonus = m.order.rainBonus;
     const earned = Math.round((m.order.baseFee * integrityFactor + tip + rainBonus) / 100) * 100;
 
+    // Record itemized income breakdown into daily ledger
+    const basePart = Math.min(m.order.baseFee, BASE_FLAT_FEE);
+    const distPart = Math.max(0, m.order.baseFee - basePart);
+    const damageDed = Math.max(0, Math.round(m.order.baseFee * (1 - integrityFactor) / 100) * 100);
+    this.baseFeeTotal += basePart;
+    this.distanceBonusTotal += distPart;
+    this.rainBonusTotal += rainBonus;
+    this.tipTotal += tip;
+    this.damageDeductionTotal += damageDed;
+
     this.totalEarnings += earned;
     this.completedCount += 1;
 
@@ -544,9 +582,45 @@ export class DeliveryManager {
   }
 
   public applyFine(amount: number): number {
-    const deducted = Math.min(this.totalEarnings, amount);
-    this.totalEarnings -= deducted;
-    return deducted;
+    this.fineExpense += amount;
+    this.totalEarnings -= amount;
+    return amount;
+  }
+
+  public recordFuelExpense(amount: number): void {
+    const rounded = Math.max(0, Math.round(amount / 100) * 100);
+    this.fuelExpense += rounded;
+    this.totalEarnings -= rounded;
+  }
+
+  public recordRepairExpense(amount: number): void {
+    const rounded = Math.max(0, Math.round(amount / 100) * 100);
+    this.repairExpense += rounded;
+    this.totalEarnings -= rounded;
+  }
+
+  public getDailyLedger(): DailyFinanceLedger {
+    const grossIncome =
+      this.baseFeeTotal +
+      this.distanceBonusTotal +
+      this.rainBonusTotal +
+      this.tipTotal -
+      this.damageDeductionTotal;
+    const totalExpenses = this.fuelExpense + this.repairExpense + this.fineExpense;
+    return {
+      completedCount: this.completedCount,
+      baseFeeTotal: this.baseFeeTotal,
+      distanceBonusTotal: this.distanceBonusTotal,
+      rainBonusTotal: this.rainBonusTotal,
+      tipTotal: this.tipTotal,
+      damageDeductionTotal: this.damageDeductionTotal,
+      fuelExpense: this.fuelExpense,
+      repairExpense: this.repairExpense,
+      fineExpense: this.fineExpense,
+      grossIncome,
+      totalExpenses,
+      netProfit: grossIncome - totalExpenses,
+    };
   }
 
   /**

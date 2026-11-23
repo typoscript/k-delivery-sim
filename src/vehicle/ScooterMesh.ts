@@ -25,8 +25,16 @@ export class ScooterMesh {
   private readonly leftMirrorAnchor = new THREE.Object3D();
   private readonly rightMirrorAnchor = new THREE.Object3D();
   private readonly mirrorGlassMeshes: THREE.Mesh[] = [];
+  private readonly mirrorHeads: Array<{ group: THREE.Group; side: number }> = [];
   private readonly tmpMirrorPos = new THREE.Vector3();
   private readonly tmpMirrorTarget = new THREE.Vector3();
+
+  // 3D Handlebar Instrument Cluster (Fuel Gauge & Low-Fuel Warning LED)
+  private readonly dashCanvas: HTMLCanvasElement;
+  private readonly dashCtx: CanvasRenderingContext2D;
+  private readonly dashTex: THREE.CanvasTexture;
+  private readonly dashFuelWarnLedMat: THREE.MeshStandardMaterial;
+  private lastDashDrawTime = -1;
 
   private readonly headlightSpot: THREE.SpotLight;
   private readonly headlightMat: THREE.MeshStandardMaterial;
@@ -69,6 +77,20 @@ export class ScooterMesh {
       emissive: 0x22c55e,
       emissiveIntensity: 0.08,
     });
+    this.dashFuelWarnLedMat = new THREE.MeshStandardMaterial({
+      color: 0x450a0a,
+      emissive: 0xef4444,
+      emissiveIntensity: 0.05,
+    });
+
+    this.dashCanvas = document.createElement('canvas');
+    this.dashCanvas.width = 256;
+    this.dashCanvas.height = 96;
+    this.dashCtx = this.dashCanvas.getContext('2d')!;
+    this.dashTex = new THREE.CanvasTexture(this.dashCanvas);
+    this.dashTex.colorSpace = THREE.SRGBColorSpace;
+    this.dashTex.minFilter = THREE.LinearFilter;
+    this.dashTex.magFilter = THREE.LinearFilter;
     for (let i = 0; i < 3; i++) {
       this.cargoSlotLedMats.push(
         new THREE.MeshStandardMaterial({
@@ -272,15 +294,31 @@ export class ScooterMesh {
     barCenter.position.set(0, 1.12, -0.21);
     this.handlebarGroup.add(barCenter);
 
-    // 1st-Person Dashboard Blinker Indicator LEDs (◀ Left / ▶ Right)
+    // 1st-Person Dashboard Blinker Indicator LEDs (◀ Left / ▶ Right) + Digital Fuel Gauge LCD + Low-Fuel LED!
     const ledGeo = new THREE.BoxGeometry(0.055, 0.024, 0.014);
     const leftDashLed = new THREE.Mesh(ledGeo, this.dashLeftLedMat);
-    leftDashLed.position.set(0.1, 1.165, -0.295);
+    leftDashLed.position.set(0.115, 1.168, -0.295);
     leftDashLed.rotation.x = -0.35;
     const rightDashLed = new THREE.Mesh(ledGeo, this.dashRightLedMat);
-    rightDashLed.position.set(-0.1, 1.165, -0.295);
+    rightDashLed.position.set(-0.115, 1.168, -0.295);
     rightDashLed.rotation.x = -0.35;
-    this.handlebarGroup.add(leftDashLed, rightDashLed);
+
+    const dashScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.205, 0.076),
+      new THREE.MeshBasicMaterial({ map: this.dashTex, toneMapped: false })
+    );
+    dashScreen.position.set(0, 1.165, -0.299);
+    dashScreen.rotation.y = Math.PI;
+    dashScreen.rotation.x = 0.35;
+
+    const fuelWarnLed = new THREE.Mesh(
+      new THREE.BoxGeometry(0.032, 0.018, 0.014),
+      this.dashFuelWarnLedMat
+    );
+    fuelWarnLed.position.set(0, 1.19, -0.29);
+    fuelWarnLed.rotation.x = -0.35;
+
+    this.handlebarGroup.add(leftDashLed, rightDashLed, dashScreen, fuelWarnLed);
 
     const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.78, 8), chromeMat);
     handleBar.rotation.z = Math.PI / 2;
@@ -345,6 +383,7 @@ export class ScooterMesh {
       anchor.position.set(side * 0.04, 0, -0.08);
       mirrorHead.add(anchor);
 
+      this.mirrorHeads.push({ group: mirrorHead, side });
       this.handlebarGroup.add(mirrorHead);
     }
 
@@ -501,6 +540,100 @@ export class ScooterMesh {
     this.dashRightLedMat.emissiveIntensity = rightActive ? 3.4 : 0.06;
     this.leftBlinkerGlow.intensity = leftActive ? 2.2 : 0;
     this.rightBlinkerGlow.intensity = rightActive ? 2.2 : 0;
+
+    // Low-fuel flashing red warning LED on 3D dashboard (<= 10% fuel)
+    const fuelWarnBlink = state.lowFuelWarning && Math.floor(elapsedTime * 4.0) % 2 === 0;
+    this.dashFuelWarnLedMat.emissiveIntensity = fuelWarnBlink ? 3.8 : state.lowFuelWarning ? 0.6 : 0.04;
+
+    // Exterior crash damage visual: crooked & vibrating side mirrors!
+    const speedVib = 0.35 + Math.min(Math.abs(state.speed) / 14, 1) * 0.9;
+    for (const mh of this.mirrorHeads) {
+      if (state.damageLevel > 0) {
+        const rattle = Math.sin(elapsedTime * (22 + mh.side * 5)) * 0.045 * state.damageLevel * speedVib;
+        const crook = mh.side * 0.065 * state.damageLevel;
+        mh.group.rotation.y = mh.side * 0.22 + crook + rattle * 0.65;
+        mh.group.rotation.x = 0.12 - 0.04 * state.damageLevel + rattle;
+        mh.group.rotation.z = mh.side * 0.08 * state.damageLevel + rattle * 0.5;
+      } else {
+        mh.group.rotation.y = mh.side * 0.22;
+        mh.group.rotation.x = 0.12;
+        mh.group.rotation.z = 0;
+      }
+    }
+
+    // Update 3D Digital Dashboard Fuel Gauge LCD (~12Hz throttle)
+    if (elapsedTime - this.lastDashDrawTime >= 0.08 || this.lastDashDrawTime < 0) {
+      this.lastDashDrawTime = elapsedTime;
+      this.renderDashboardCluster(state, elapsedTime);
+    }
+  }
+
+  private renderDashboardCluster(state: ScooterState, elapsedTime: number): void {
+    const ctx = this.dashCtx;
+    const w = this.dashCanvas.width;
+    const h = this.dashCanvas.height;
+
+    ctx.fillStyle = '#090f1a';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = state.lowFuelWarning ? '#ef4444' : '#1e3a5f';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, w - 4, h - 4);
+
+    // Top row: Speed + Fuel % + Damage warning
+    const kmh = Math.round(Math.abs(state.speed) * 3.6);
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 28px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${String(kmh).padStart(2, '0')}`, 14, 28);
+
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('km/h', 56, 33);
+
+    if (state.damageLevel > 0) {
+      ctx.fillStyle = '#fb923c';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`🔧 -${state.damageLevel * 10}%`, w * 0.56, 28);
+    }
+
+    const fuelPct = Math.round(state.fuel);
+    const lowBlink = state.lowFuelWarning && Math.floor(elapsedTime * 4) % 2 === 0;
+    ctx.fillStyle = state.outOfFuel || lowBlink ? '#ef4444' : state.lowFuelWarning ? '#fca5a5' : '#34d399';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(state.outOfFuel ? 'EMPTY!' : `⛽${fuelPct}%`, w - 12, 28);
+
+    // Bottom row: 10-segment 3D Fuel Bar Gauge (E [||||||||..] F)
+    ctx.fillStyle = '#ef4444';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('E', 14, 68);
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'right';
+    ctx.fillText('F', w - 14, 68);
+
+    const segs = 10;
+    const barX = 34;
+    const barW = w - 68;
+    const segW = (barW - (segs - 1) * 4) / segs;
+    const filled = Math.ceil((state.fuel / 100) * segs);
+
+    for (let i = 0; i < segs; i++) {
+      const sx = barX + i * (segW + 4);
+      const active = i < filled && state.fuel > 0.01;
+      if (active) {
+        ctx.fillStyle =
+          state.lowFuelWarning ? (lowBlink ? '#ef4444' : '#7f1d1d') : i < 2 ? '#f59e0b' : '#22c55e';
+      } else {
+        ctx.fillStyle = '#1e293b';
+      }
+      ctx.fillRect(sx, 54, segW, 24);
+    }
+
+    this.dashTex.needsUpdate = true;
   }
 
   /**

@@ -14,13 +14,14 @@ import { TurnDirection } from '../world/RoadNavigator';
 import { clamp } from '../types';
 
 export type PhonePlacement = 'pocket' | 'in_hand' | 'mounted';
-export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route';
+export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance';
 
 export interface PhoneCallbacks {
   onAcceptOrder: (orderId: string) => void;
   onRefreshOrders: () => void;
   onCancelMission: (orderId: string) => void;
   onSelectMission: (missionId: string | null) => void;
+  onOpenDailyReport: () => void;
   onInteractMission: () => void;
   onTogglePhone: () => void;
   onToggleZoom: () => void;
@@ -147,6 +148,8 @@ export class PhoneMap {
       } else if (action === 'auto_route') {
         this.callbacks.onSelectMission(null);
         this.lastSheetFingerprint = '';
+      } else if (action === 'open_report') {
+        this.callbacks.onOpenDailyReport();
       } else if (action === 'interact') {
         this.callbacks.onInteractMission();
       }
@@ -901,7 +904,8 @@ export class PhoneMap {
       .join(',');
     const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}`).join(',');
     const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
-    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|${player.inCorridor}`;
+    const finFp = `${delivery.totalEarnings}:${delivery.fuelExpense}:${delivery.repairExpense}:${delivery.fineExpense}`;
+    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|${player.inCorridor}`;
 
     if (fingerprint === this.lastSheetFingerprint) return;
     this.lastSheetFingerprint = fingerprint;
@@ -913,16 +917,19 @@ export class PhoneMap {
     const tabsHtml = `
       <div class="phone-tabs">
         <button class="phone-tab-btn ${this.activeTab === 'calls' ? 'active' : ''}" data-action="tab" data-tab="calls">
-          콜 대기<span class="phone-tab-badge">${delivery.availableOrders.length}</span>
+          콜<span class="phone-tab-badge">${delivery.availableOrders.length}</span>
         </button>
         <button class="phone-tab-btn ${this.activeTab === 'accepted' ? 'active' : ''}" data-action="tab" data-tab="accepted">
-          수락 목록<span class="phone-tab-badge">${activeCnt}/${MAX_CONCURRENT_ORDERS}</span>
+          수락<span class="phone-tab-badge">${activeCnt}</span>
         </button>
         <button class="phone-tab-btn ${this.activeTab === 'checklist' ? 'active' : ''}" data-action="tab" data-tab="checklist">
-          완료 체크<span class="phone-tab-badge">${doneCnt}</span>
+          체크<span class="phone-tab-badge">${doneCnt}</span>
         </button>
         <button class="phone-tab-btn ${this.activeTab === 'route' ? 'active' : ''}" data-action="tab" data-tab="route">
-          추천 동선<span class="phone-tab-badge">${stopsCnt}</span>
+          동선<span class="phone-tab-badge">${stopsCnt}</span>
+        </button>
+        <button class="phone-tab-btn ${this.activeTab === 'finance' ? 'active' : ''}" data-action="tab" data-tab="finance">
+          수익/지출
         </button>
       </div>
     `;
@@ -934,8 +941,10 @@ export class PhoneMap {
       bodyHtml = this.renderAcceptedTab(player, delivery, navPlan);
     } else if (this.activeTab === 'checklist') {
       bodyHtml = this.renderChecklistTab(delivery);
-    } else {
+    } else if (this.activeTab === 'route') {
       bodyHtml = this.renderRouteTab(delivery, navPlan);
+    } else {
+      bodyHtml = this.renderFinanceTab(delivery);
     }
 
     this.sheetBodyEl.innerHTML = tabsHtml + bodyHtml;
@@ -1155,6 +1164,32 @@ export class PhoneMap {
     `;
   }
 
+  private renderFinanceTab(delivery: DeliveryManager): string {
+    const l = delivery.getDailyLedger();
+    const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
+    const netSign = l.netProfit < 0 ? '-' : '+';
+
+    return `
+      <div class="fin-kpi-grid">
+        <div class="fin-kpi">
+          <div class="fin-kpi-label">오늘 순수익 (${l.completedCount}건)</div>
+          <div class="fin-kpi-val ${l.netProfit < 0 ? 'neg' : 'pos'}">${netSign}${fmt(l.netProfit)}</div>
+        </div>
+        <div class="fin-kpi">
+          <div class="fin-kpi-label">총 지출 (유류·정비·과태료)</div>
+          <div class="fin-kpi-val neg">-${fmt(l.totalExpenses)}</div>
+        </div>
+      </div>
+      <div class="fin-mini-list">
+        <div class="fin-row inc"><span>기본 배달료 + 거리할증</span><span>+${fmt(l.baseFeeTotal + l.distanceBonusTotal)}</span></div>
+        <div class="fin-row inc"><span>🌧️ 우천할증 + 안전팁</span><span>+${fmt(l.rainBonusTotal + l.tipTotal)}</span></div>
+        <div class="fin-row exp"><span>⛽ 유류비 / 🔧 수리비</span><span>-${fmt(l.fuelExpense + l.repairExpense)}</span></div>
+        <div class="fin-row exp"><span>🚨 신호위반 과태료</span><span>-${fmt(l.fineExpense)}</span></div>
+      </div>
+      <button class="fin-open-btn" data-action="open_report">📊 일일 종합 정산 대시보드 크게 보기</button>
+    `;
+  }
+
   private resolveAreaName(px: number, pz: number, mapInfo: CityMapInfo): string {
     if (Math.abs(px) < 33 && Math.abs(pz) < 33) return '중앙 공원 광장';
     let nearest = '시내 도로';
@@ -1311,7 +1346,7 @@ export class PhoneMap {
       }
     }
 
-    // 3.5. Bus stop icons & Intersection signal status dots
+    // 3.5. Bus stop icons, Service Station pins (⛽ Gas / 🔧 Repair), & Intersection signal status dots
     for (const bs of mapInfo.busStops) {
       const bx = toX(bs.shelterX);
       const by = toY(bs.shelterZ);
@@ -1319,6 +1354,28 @@ export class PhoneMap {
       ctx.beginPath();
       ctx.roundRect(bx - 4, by - 4, 8, 8, 2);
       ctx.fill();
+    }
+
+    for (const st of mapInfo.serviceStations) {
+      const stx = toX(st.interactX);
+      const sty = toY(st.interactZ);
+      ctx.fillStyle = st.kind === 'gas' ? '#eab308' : '#ea580c';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.roundRect(stx - 8, sty - 8, 16, 16, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.save();
+      ctx.translate(stx, sty);
+      if (rotateHeadingUp) ctx.rotate(-player.heading);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(st.kind === 'gas' ? '⛽' : '🔧', 0, 0.5);
+      ctx.restore();
     }
 
     const sigHex = (c: 'green' | 'yellow' | 'red') =>

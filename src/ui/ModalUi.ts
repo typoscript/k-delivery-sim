@@ -1,17 +1,33 @@
 import {
   ActiveMission,
   CARGO_SLOT_COUNT,
+  DailyFinanceLedger,
   DeliveryManager,
   DeliveryOrder,
+  FUEL_PRICE_PER_PERCENT,
+  REPAIR_COST_PER_DAMAGE_STAGE,
   SettlementResult,
 } from '../delivery/DeliveryManager';
 
-export type ActiveModalType = 'none' | 'pos' | 'pin' | 'cargo' | 'camera' | 'settlement' | 'transition';
+export type ActiveModalType =
+  | 'none'
+  | 'pos'
+  | 'pin'
+  | 'cargo'
+  | 'fuel'
+  | 'repair'
+  | 'daily_report'
+  | 'camera'
+  | 'settlement'
+  | 'transition';
 
 export interface ModalCallbacks {
   onPosSuccess: (missionId: string) => void;
   onPinSuccess: (missionId: string) => void;
   onCargoSlotAction: (slotIndex: number) => void;
+  onFuelTick: () => void;
+  onFuelComplete: (addedPercent: number, cost: number) => void;
+  onRepairConfirm: (cost: number) => void;
   onTakePhoto: () => void;
   onSettlementClose: () => void;
   onKeypadBeep: (ok: boolean) => void;
@@ -56,6 +72,28 @@ export class ModalUi {
   private readonly cargoTitle = document.getElementById('cargo-modal-title')!;
   private readonly cargoHandBanner = document.getElementById('cargo-hand-banner')!;
   private readonly cargoSlotsList = document.getElementById('cargo-slots-list')!;
+
+  // Gas Station Refuel Modal
+  private readonly fuelBackdrop = document.getElementById('fuel-modal')!;
+  private readonly fuelPctEl = document.getElementById('fuel-modal-pct')!;
+  private readonly fuelBarEl = document.getElementById('fuel-modal-bar')!;
+  private readonly fuelStatusEl = document.getElementById('fuel-modal-status')!;
+  private readonly fuelCostEl = document.getElementById('fuel-modal-cost')!;
+  private readonly fuelStartBtn = document.getElementById('fuel-start-btn') as HTMLButtonElement;
+  private fuelStartPct = 100;
+  private fuelCost = 0;
+  private fuelTimer: number | null = null;
+  private isFueling = false;
+
+  // Motorcycle Repair Center Modal
+  private readonly repairBackdrop = document.getElementById('repair-modal')!;
+  private readonly repairDiagBox = document.getElementById('repair-diag-box')!;
+  private readonly repairCostEl = document.getElementById('repair-modal-cost')!;
+  private repairCost = 0;
+
+  // Daily Comprehensive Settlement Dashboard Modal
+  private readonly reportBackdrop = document.getElementById('daily-report-modal')!;
+  private readonly reportBody = document.getElementById('daily-report-body')!;
 
   // Camera Viewfinder
   private readonly cameraOverlay = document.getElementById('camera-viewfinder')!;
@@ -146,6 +184,53 @@ export class ModalUi {
       this.closeAll();
       this.callbacks.onSettlementClose();
     });
+
+    // Gas Station modal actions
+    this.fuelBackdrop.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target === this.fuelBackdrop && !this.isFueling) {
+        this.closeAll();
+        return;
+      }
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (!btn) return;
+      if (btn.dataset.action === 'close' && !this.isFueling) {
+        this.closeAll();
+      } else if (btn.dataset.action === 'start_fuel' && !this.isFueling) {
+        this.beginRefuelSequence();
+      }
+    });
+
+    // Repair Center modal actions
+    this.repairBackdrop.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target === this.repairBackdrop) {
+        this.closeAll();
+        return;
+      }
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (!btn) return;
+      if (btn.dataset.action === 'close') {
+        this.closeAll();
+      } else if (btn.dataset.action === 'confirm_repair') {
+        const cost = this.repairCost;
+        this.closeAll();
+        this.callbacks.onRepairConfirm(cost);
+      }
+    });
+
+    // Daily Comprehensive Report modal actions
+    this.reportBackdrop.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target === this.reportBackdrop) {
+        this.closeAll();
+        return;
+      }
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (btn?.dataset.action === 'close') {
+        this.closeAll();
+      }
+    });
   }
 
   public isBlockingMovement(): boolean {
@@ -153,6 +238,9 @@ export class ModalUi {
       this.activeModal === 'pos' ||
       this.activeModal === 'pin' ||
       this.activeModal === 'cargo' ||
+      this.activeModal === 'fuel' ||
+      this.activeModal === 'repair' ||
+      this.activeModal === 'daily_report' ||
       this.activeModal === 'settlement' ||
       this.activeModal === 'transition'
     );
@@ -160,10 +248,18 @@ export class ModalUi {
 
   public closeAll(): void {
     if (this.activeModal === 'transition') return;
+    if (this.fuelTimer !== null) {
+      window.clearInterval(this.fuelTimer);
+      this.fuelTimer = null;
+    }
+    this.isFueling = false;
     this.activeModal = 'none';
     this.posBackdrop.classList.add('hidden');
     this.pinBackdrop.classList.add('hidden');
     this.cargoBackdrop.classList.add('hidden');
+    this.fuelBackdrop.classList.add('hidden');
+    this.repairBackdrop.classList.add('hidden');
+    this.reportBackdrop.classList.add('hidden');
     this.cameraOverlay.classList.add('hidden');
     this.settlementBackdrop.classList.add('hidden');
   }
@@ -292,6 +388,129 @@ export class ModalUi {
     this.cargoSlotsList.innerHTML = cards.join('');
   }
 
+  public openFuelModal(currentFuel: number): void {
+    this.closeAll();
+    this.activeModal = 'fuel';
+    this.isFueling = false;
+    this.fuelStartPct = Math.round(currentFuel);
+    const needed = Math.max(1, 100 - this.fuelStartPct);
+    this.fuelCost = Math.max(100, Math.round((needed * FUEL_PRICE_PER_PERCENT) / 100) * 100);
+
+    this.fuelPctEl.textContent = `${this.fuelStartPct}%`;
+    this.fuelBarEl.style.width = `${this.fuelStartPct}%`;
+    this.fuelStatusEl.textContent = `가득 주유 시 +${needed}% 보충 (₩${FUEL_PRICE_PER_PERCENT} / 1%)`;
+    this.fuelCostEl.textContent = `₩${this.fuelCost.toLocaleString()}`;
+    this.fuelStartBtn.disabled = false;
+    this.fuelStartBtn.textContent = '⛽ 가득 주유 시작 (E / Enter)';
+    this.fuelBackdrop.classList.remove('hidden');
+  }
+
+  private beginRefuelSequence(): void {
+    if (this.isFueling) return;
+    this.isFueling = true;
+    this.fuelStartBtn.disabled = true;
+    this.fuelStartBtn.textContent = '⛽ 주유 중...';
+    this.fuelStatusEl.textContent = '연료를 주입하고 있습니다...';
+
+    const startPct = this.fuelStartPct;
+    const totalNeeded = Math.max(1, 100 - startPct);
+    const totalCost = this.fuelCost;
+    const steps = 16;
+    let curStep = 0;
+
+    this.fuelTimer = window.setInterval(() => {
+      curStep++;
+      const frac = Math.min(1, curStep / steps);
+      const pct = Math.round(startPct + totalNeeded * frac);
+      this.fuelPctEl.textContent = `${pct}%`;
+      this.fuelBarEl.style.width = `${pct}%`;
+      if (curStep % 3 === 1 && curStep < steps) {
+        this.callbacks.onFuelTick();
+      }
+
+      if (curStep >= steps) {
+        if (this.fuelTimer !== null) {
+          window.clearInterval(this.fuelTimer);
+          this.fuelTimer = null;
+        }
+        this.fuelStatusEl.textContent = '💳 결제가 완료되었습니다! (100% 가득 주유 완료)';
+        this.fuelStartBtn.textContent = '✓ 결제 완료';
+        this.callbacks.onFuelComplete(totalNeeded, totalCost);
+        window.setTimeout(() => {
+          this.isFueling = false;
+          if (this.activeModal === 'fuel') {
+            this.closeAll();
+          }
+        }, 720);
+      }
+    }, 95);
+  }
+
+  public openRepairModal(damageLevel: number, crashCount: number): void {
+    this.closeAll();
+    this.activeModal = 'repair';
+    this.repairCost = damageLevel * REPAIR_COST_PER_DAMAGE_STAGE;
+    const accelPenalty = damageLevel * 10;
+
+    this.repairDiagBox.innerHTML = `
+      <div class="svc-meter-row">
+        <span>차량 파손 단계</span>
+        <strong style="color:#fb923c">${damageLevel}단계 / 3 (누적 전도 ${crashCount}회)</strong>
+      </div>
+      <div class="svc-status-text">• 사이드미러 축 틀어짐 및 주행 흔들림 발생</div>
+      <div class="svc-status-text">• 구동계 충격으로 가속력 <b>-${accelPenalty}%</b> 저하 중</div>
+      <div class="svc-status-text" style="color:#34d399">→ 수리 완료 시 외관·사이드미러·가속력 100% 즉시 복구</div>
+    `;
+    this.repairCostEl.textContent = `₩${this.repairCost.toLocaleString()}`;
+    this.repairBackdrop.classList.remove('hidden');
+  }
+
+  public openDailyReportModal(ledger: DailyFinanceLedger): void {
+    this.closeAll();
+    this.activeModal = 'daily_report';
+
+    const netNeg = ledger.netProfit < 0;
+    const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
+    const netText = `${ledger.netProfit < 0 ? '-' : '+'}${fmt(ledger.netProfit)}`;
+
+    this.reportBody.innerHTML = `
+      <div class="rep-hero">
+        <div>
+          <div class="rep-hero-label">오늘 최종 순수익 (${ledger.completedCount}건 완료)</div>
+          <div class="rep-hero-val ${netNeg ? 'neg' : ''}">${netText}</div>
+        </div>
+        <div style="text-align:right;font-size:11.5px;color:#cbd5e1">
+          <div>총 수입 <b style="color:#4ade80">+${fmt(ledger.grossIncome)}</b></div>
+          <div>총 지출 <b style="color:#f87171">-${fmt(ledger.totalExpenses)}</b></div>
+        </div>
+      </div>
+
+      <div class="rep-section">
+        <div class="rep-sec-title">💰 배달 수입 내역</div>
+        <div class="rep-line inc"><span>기본 배달료 (${ledger.completedCount}건)</span><span>+${fmt(ledger.baseFeeTotal)}</span></div>
+        <div class="rep-line inc"><span>거리 할증</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
+        <div class="rep-line inc"><span>🌧️ 우천 할증 보너스</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
+        <div class="rep-line inc"><span>안전 배달 팁</span><span>+${fmt(ledger.tipTotal)}</span></div>
+        ${
+          ledger.damageDeductionTotal > 0
+            ? `<div class="rep-line exp"><span>음식 파손 차감</span><span>-${fmt(ledger.damageDeductionTotal)}</span></div>`
+            : ''
+        }
+        <div class="rep-line sub inc"><span>수입 소계</span><span>+${fmt(ledger.grossIncome)}</span></div>
+      </div>
+
+      <div class="rep-section">
+        <div class="rep-sec-title">🧾 운영 지출 내역</div>
+        <div class="rep-line exp"><span>⛽ 유류비 지출</span><span>-${fmt(ledger.fuelExpense)}</span></div>
+        <div class="rep-line exp"><span>🔧 오토바이 수리비</span><span>-${fmt(ledger.repairExpense)}</span></div>
+        <div class="rep-line exp"><span>🚨 신호위반 과태료</span><span>-${fmt(ledger.fineExpense)}</span></div>
+        <div class="rep-line sub exp"><span>지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
+      </div>
+    `;
+
+    this.reportBackdrop.classList.remove('hidden');
+  }
+
   public openCameraViewfinder(order: DeliveryOrder): void {
     this.closeAll();
     this.activeModal = 'camera';
@@ -382,6 +601,37 @@ export class ModalUi {
         this.closeAll();
       } else if (e.key === '1' || e.key === '2' || e.key === '3') {
         this.callbacks.onCargoSlotAction(Number(e.key) - 1);
+      }
+      return true;
+    }
+
+    if (this.activeModal === 'fuel') {
+      e.preventDefault();
+      if (this.isFueling) return true;
+      if (e.key === 'Escape') {
+        this.closeAll();
+      } else if (e.key === 'Enter' || e.code === 'KeyE' || e.code === 'Space') {
+        this.beginRefuelSequence();
+      }
+      return true;
+    }
+
+    if (this.activeModal === 'repair') {
+      e.preventDefault();
+      if (e.key === 'Escape') {
+        this.closeAll();
+      } else if (e.key === 'Enter' || e.code === 'KeyE' || e.code === 'Space') {
+        const cost = this.repairCost;
+        this.closeAll();
+        this.callbacks.onRepairConfirm(cost);
+      }
+      return true;
+    }
+
+    if (this.activeModal === 'daily_report') {
+      if (e.key === 'Escape' || e.key === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        this.closeAll();
       }
       return true;
     }

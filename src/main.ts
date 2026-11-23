@@ -231,6 +231,26 @@ const modalUi = new ModalUi({
     }
   },
   onCargoSlotAction: handleCargoSlotAction,
+  onFuelTick: () => audio.playFuelPumpTick(),
+  onFuelComplete: (addedPercent, cost) => {
+    scooterPhysics.addFuel(addedPercent);
+    delivery.recordFuelExpense(cost);
+    audio.playPaymentCompleteSound();
+    hud.showToast(
+      `💳 결제가 완료되었습니다! 주유 완료 (+${addedPercent}% · -₩${cost.toLocaleString()})`,
+      3800
+    );
+  },
+  onRepairConfirm: (cost) => {
+    scooterPhysics.repairVehicle();
+    delivery.recordRepairExpense(cost);
+    audio.playRepairSound();
+    window.setTimeout(() => audio.playPaymentCompleteSound(), 420);
+    hud.showToast(
+      `🔧 정비 완료! 사이드미러·가속력 100% 복구 (수리비 -₩${cost.toLocaleString()})`,
+      3800
+    );
+  },
   onTakePhoto: handleTakeDeliveryPhoto,
   onSettlementClose: () => {
     hud.showToast('배달 완료! 복도 엘리베이터 앞에서 [E]를 눌러 1층으로 내려가세요', 3600);
@@ -239,6 +259,39 @@ const modalUi = new ModalUi({
 });
 
 const handleContextInteract = () => {
+  // Encapsulated outdoor service station interactions (work even with 0 active deliveries!)
+  if (!playerCtrl.state.inCorridor && playerCtrl.state.mode === 'on_foot') {
+    if (world.isPlayerNearGasPump(playerCtrl.state.x, playerCtrl.state.z)) {
+      if (!world.isScooterOnGasPad(scooterPhysics.state.x, scooterPhysics.state.z)) {
+        hud.showToast('⛽ 먼저 오토바이를 주유소 노란 주유 패드 위에 주차하세요!', 3200);
+        return;
+      }
+      if (scooterPhysics.state.fuel >= 99.5) {
+        hud.showToast('⛽ 연료가 이미 가득 차 있습니다 (100%)', 2600);
+        return;
+      }
+      if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+      else hud.phoneMap.setZoomed(false);
+      modalUi.openFuelModal(scooterPhysics.state.fuel);
+      return;
+    }
+
+    if (world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z)) {
+      if (!world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z)) {
+        hud.showToast('🔧 먼저 오토바이를 정비소 주황 패드 위에 주차하세요!', 3200);
+        return;
+      }
+      if (scooterPhysics.state.damageLevel === 0) {
+        hud.showToast('🔧 오토바이 상태가 양호합니다! 수리가 필요 없습니다', 2600);
+        return;
+      }
+      if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+      else hud.phoneMap.setZoomed(false);
+      modalUi.openRepairModal(scooterPhysics.state.damageLevel, scooterPhysics.state.crashCount);
+      return;
+    }
+  }
+
   if (delivery.activeMissions.length === 0) {
     hud.showToast('진행 중인 배달이 없습니다 ([Tab] → [V]로 최대 3건 콜 수락)');
     return;
@@ -418,6 +471,10 @@ const hud = new Hud(
         }
       }
     },
+    onOpenDailyReport: () => {
+      hud.phoneMap.setZoomed(false);
+      modalUi.openDailyReportModal(delivery.getDailyLedger());
+    },
     onInteractMission: handleContextInteract,
     onTogglePhone: handleTogglePhone,
     onToggleZoom: handleTogglePhoneZoom,
@@ -492,13 +549,15 @@ scooterPhysics.setOnCrash((crashSide, impactSpeed, cause) => {
           ? '🌧️💥 빗길 노면 접지력 상실로 전도!'
           : '💥 전도 사고!';
 
+  const dmgStage = scooterPhysics.state.damageLevel;
+  const bikeDmgNote = ` (차량 ${dmgStage}단계 파손: 가속력 -${dmgStage * 10}% · 미러 흔들림)`;
   if (damagedCount > 0) {
     hud.showToast(
-      `${causePrefix} 배달통 음식 ${damagedCount}건 파손 (-${loss}% · 배달팁 감액)`,
-      4200
+      `${causePrefix} 배달통 음식 ${damagedCount}건 파손 (-${loss}%)${bikeDmgNote}`,
+      4600
     );
   } else {
-    hud.showToast(`${causePrefix} 오토바이를 일으켜 세우세요`, 3600);
+    hud.showToast(`${causePrefix}${bikeDmgNote}`, 4000);
   }
 });
 
@@ -865,6 +924,13 @@ function animate(now: number): void {
     world.mapInfo,
     {
       nearCargoBox: isPlayerNearCargoBox(),
+      nearGasPump: !inCorridor && world.isPlayerNearGasPump(playerCtrl.state.x, playerCtrl.state.z),
+      scooterOnGasPad:
+        !inCorridor && world.isScooterOnGasPad(scooterPhysics.state.x, scooterPhysics.state.z),
+      nearRepairShop:
+        !inCorridor && world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z),
+      scooterOnRepairPad:
+        !inCorridor && world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z),
       nearCorridorTargetDoor:
         inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z),
       nearCorridorElevator:

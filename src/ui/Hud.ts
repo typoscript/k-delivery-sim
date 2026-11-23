@@ -13,6 +13,10 @@ import { WeatherMode } from '../types';
 
 export interface InteractionContext {
   nearCargoBox: boolean;
+  nearGasPump: boolean;
+  scooterOnGasPad: boolean;
+  nearRepairShop: boolean;
+  scooterOnRepairPad: boolean;
   nearCorridorTargetDoor: boolean;
   nearCorridorElevator: boolean;
   modalOpen: boolean;
@@ -32,6 +36,9 @@ export class Hud {
   private readonly speedVal = document.getElementById('speed-val')!;
   private readonly leanVal = document.getElementById('lean-val')!;
   private readonly leanBar = document.getElementById('lean-bar')!;
+  private readonly fuelVal = document.getElementById('fuel-val')!;
+  private readonly fuelBar = document.getElementById('fuel-bar')!;
+  private readonly damageBadge = document.getElementById('damage-badge')!;
 
   private readonly indLeft = document.getElementById('ind-left')!;
   private readonly indRight = document.getElementById('ind-right')!;
@@ -140,9 +147,13 @@ export class Hud {
     }
 
     this.ridingCluster.classList.toggle('hidden', !isRiding);
-    const showSlip = isRiding && (scooter.slipWarning || scooter.wetSlipWarning !== 'none');
+    const showSlip =
+      isRiding && (scooter.outOfFuel || scooter.slipWarning || scooter.wetSlipWarning !== 'none');
     if (showSlip) {
-      if (scooter.wetSlipWarning === 'manhole') {
+      if (scooter.outOfFuel) {
+        this.slipWarningEl.textContent =
+          '⛽ 연료 고갈! 가속 불가 — 하차(F) 후 K-오일 주유소에서 주유하세요!';
+      } else if (scooter.wetSlipWarning === 'manhole') {
         this.slipWarningEl.textContent =
           '⚠ 빗길 금속 맨홀 뚜껑! 브레이크·급회전 시 접지력 상실로 전도됩니다!';
       } else if (scooter.wetSlipWarning === 'crosswalk_paint') {
@@ -172,6 +183,19 @@ export class Hud {
       this.leanBar.style.width = `${riskPct}%`;
       this.leanBar.className =
         riskPct >= 75 ? 'lean-fill danger' : riskPct >= 45 ? 'lean-fill warn' : 'lean-fill safe';
+
+      const fuelPct = Math.round(scooter.fuel);
+      this.fuelVal.textContent = scooter.outOfFuel ? '고갈 (0%)' : `${fuelPct}%`;
+      this.fuelBar.style.width = `${fuelPct}%`;
+      this.fuelBar.className =
+        scooter.lowFuelWarning ? 'lean-fill danger' : fuelPct <= 30 ? 'lean-fill warn' : 'lean-fill safe';
+
+      if (scooter.damageLevel > 0) {
+        this.damageBadge.textContent = `🔧 파손 -${scooter.damageLevel * 10}%`;
+        this.damageBadge.classList.remove('hidden');
+      } else {
+        this.damageBadge.classList.add('hidden');
+      }
 
       const blinkOn = Math.floor(elapsedTime * 2.5) % 2 === 0;
       this.indLeft.className =
@@ -229,6 +253,21 @@ export class Hud {
 
     // --- Outdoor On-Foot Interactions ---
     if (!isRiding) {
+      // 0. Service Stations (Gas Station & Motorcycle Repair Center — encapsulated away from delivery E zones)
+      if (ctx.nearGasPump) {
+        return ctx.scooterOnGasPad
+          ? `<kbd>E</kbd> ⛽ 셀프 주유기 열기 (현재 연료 ${Math.round(scooter.fuel)}%)`
+          : '⛽ 오토바이를 주유소 노란 주유 패드 위에 세운 뒤 주유하세요';
+      }
+      if (ctx.nearRepairShop) {
+        if (!ctx.scooterOnRepairPad) {
+          return '🔧 오토바이를 정비소 주황 패드 위에 세운 뒤 수리하세요';
+        }
+        return scooter.damageLevel > 0
+          ? `<kbd>E</kbd> 🔧 오토바이 센터 정비 (${scooter.damageLevel}단계 파손 복구)`
+          : '🔧 오토바이 상태 양호 (수리 불필요)';
+      }
+
       // 1. Outdoor Shop Pickup POS
       const shopM = delivery.getMissionNearShopPickup(player.x, player.z);
       if (shopM) {
