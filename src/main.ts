@@ -4,7 +4,6 @@ import { CityWorld } from './world/CityWorld';
 import { TrafficSystem } from './world/TrafficSystem';
 import { CORRIDOR_ORIGIN_Y, CorridorRoom } from './world/CorridorRoom';
 import { RoadNavigator } from './world/RoadNavigator';
-import { RoadNavLine3D } from './world/RoadNavLine3D';
 import { WeatherManager } from './world/WeatherManager';
 import { PedestrianManager } from './world/PedestrianManager';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
@@ -19,7 +18,6 @@ import { GameAudio } from './audio/GameAudio';
 import {
   DeliveryManager,
   MAX_CONCURRENT_ORDERS,
-  RoutePoint,
   getInstructionMeta,
 } from './delivery/DeliveryManager';
 import { OrderDispatchManager } from './delivery/OrderDispatchManager';
@@ -49,7 +47,6 @@ const world = new CityWorld(scene);
 const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const roadNavigator = new RoadNavigator();
-const roadNavLine3D = new RoadNavLine3D(world.root); // Parented to world.root -> auto-occluded indoors!
 const pedestrians = new PedestrianManager(world.root); // Independent 25-block crosswalk AI (paused indoors!)
 const weather = new WeatherManager(scene);
 const delivery = new DeliveryManager(world.locations);
@@ -171,7 +168,7 @@ const exitCorridorToStreet = () => {
       const rem = delivery.activeMissions.length;
       hud.showToast(
         rem > 0
-          ? `1층 복귀 완료! 남은 묶음 배달 ${rem}건의 다음 경로가 도로에 안내됩니다`
+          ? `1층 복귀 완료! 남은 묶음 배달 ${rem}건의 다음 경로를 휴대폰 내비에서 확인하세요`
           : '1층 복귀 완료! [Tab]으로 휴대폰을 꺼내 다음 묶음 콜을 확인하세요',
         3800
       );
@@ -860,7 +857,6 @@ window.addEventListener('keydown', (e) => {
       if (night && !scooterPhysics.state.headlights) {
         scooterPhysics.state.headlights = true;
       }
-      lastRenderedRouteRef = null;
       hud.showToast(night ? '야간 모드 (라이트 자동 ON)' : '주간 모드');
       break;
     }
@@ -937,14 +933,12 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  roadNavLine3D.setResolution(window.innerWidth, window.innerHeight);
 });
 
-hud.showToast('[Tab] 휴대폰 꺼내기 → [V] 확대에서 최대 3건 묶음 콜 수락 & A* 내비 안내 시작!', 5200);
+hud.showToast('[Tab] 휴대폰 꺼내기 → [V] 확대에서 콜 수락 후 스마트폰 내비로 이동하세요!', 5200);
 
 let lastTime = performance.now();
 let elapsed = 0;
-let lastRenderedRouteRef: RoutePoint[] | null = null;
 
 function animate(now: number): void {
   requestAnimationFrame(animate);
@@ -1104,7 +1098,8 @@ function animate(now: number): void {
     roadNavigator
   );
 
-  // Outdoor 3D Beacon + Shop Pickup Trays + Fluorescent Neon-Green A* Road Nav Line + 3-Slot Scooter Visuals
+  // Outdoor Entrance Ground Marker + Shop Pickup Trays + 3-Slot Scooter Visuals
+  // (Navigation path is shown ONLY on the smartphone GPS screen, never on the 3D road!)
   if (!inCorridor) {
     world.updateBeacon(navPlan.target, navPlan.isPickupTarget, elapsed);
 
@@ -1115,13 +1110,6 @@ function animate(now: number): void {
       else if (m.phase === 'pickup_ready') readyShopIds.add(m.order.shop.id);
     }
     world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
-
-    const routeFor3D = navPlan.isCargoBoxTarget ? [] : navPlan.route;
-    if (routeFor3D !== lastRenderedRouteRef) {
-      lastRenderedRouteRef = routeFor3D;
-      roadNavLine3D.setPath(routeFor3D, world.isNight);
-    }
-    roadNavLine3D.updateAnimation(dt, elapsed);
 
     scooterMesh.sync(scooterPhysics.state, elapsed, dt);
     scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());

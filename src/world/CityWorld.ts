@@ -57,10 +57,9 @@ export class CityWorld {
     { bag: THREE.Group; ledMat: THREE.MeshStandardMaterial }
   >();
 
-  // 3D glowing waypoint beacon for active pickup / dropoff
+  // Ground-only entrance ring marker for active pickup / dropoff (no tall sky beam so player navigates via phone!)
   private readonly beaconGroup = new THREE.Group();
   private readonly beaconRingMat: THREE.MeshBasicMaterial;
-  private readonly beaconBeamMat: THREE.MeshBasicMaterial;
   private readonly beaconRing: THREE.Mesh;
 
   public isNight = false;
@@ -128,25 +127,13 @@ export class CityWorld {
       opacity: 0.88,
       side: THREE.DoubleSide,
     });
-    this.beaconBeamMat = new THREE.MeshBasicMaterial({
-      color: 0xf97316,
-      transparent: true,
-      opacity: 0.22,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
     this.beaconRing = new THREE.Mesh(
       new THREE.RingGeometry(2.1, 2.7, 28),
       this.beaconRingMat
     );
     this.beaconRing.rotation.x = -Math.PI / 2;
     this.beaconRing.position.y = 0.22;
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.15, 2.2, 22, 18, 1, true),
-      this.beaconBeamMat
-    );
-    beam.position.y = 11.1;
-    this.beaconGroup.add(this.beaconRing, beam);
+    this.beaconGroup.add(this.beaconRing);
     this.beaconGroup.visible = false;
     this.root.add(this.beaconGroup);
 
@@ -1558,11 +1545,9 @@ export class CityWorld {
     this.beaconGroup.position.set(target.x, 0, target.z);
     const hex = isPickup ? 0xf97316 : 0x10b981;
     this.beaconRingMat.color.setHex(hex);
-    this.beaconBeamMat.color.setHex(hex);
 
     const pulse = 1 + Math.sin(elapsedTime * 4.2) * 0.1;
     this.beaconRing.scale.set(pulse, pulse, 1);
-    this.beaconBeamMat.opacity = 0.18 + Math.sin(elapsedTime * 3.0) * 0.06;
   }
 
   public setOutdoorVisible(visible: boolean): void {
