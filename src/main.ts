@@ -15,6 +15,7 @@ import { HandheldFoodBag3D } from './player/HandheldFoodBag3D';
 import { CameraController } from './camera/CameraController';
 import { GameAudio } from './audio/GameAudio';
 import { DeliveryManager, MAX_CONCURRENT_ORDERS, RoutePoint } from './delivery/DeliveryManager';
+import { OrderDispatchManager } from './delivery/OrderDispatchManager';
 import { Hud } from './ui/Hud';
 import { ModalUi } from './ui/ModalUi';
 import { collidesWithWorld } from './types';
@@ -44,6 +45,25 @@ const roadNavigator = new RoadNavigator();
 const roadNavLine3D = new RoadNavLine3D(world.root); // Parented to world.root -> auto-occluded indoors!
 const weather = new WeatherManager(scene);
 const delivery = new DeliveryManager(world.locations);
+const dispatch = new OrderDispatchManager(world.locations, {
+  onOfferArrived: (offer) => {
+    audio.playDispatchCallAlert();
+    const label = offer.type === 'SINGLE' ? '🚀 한집배달' : '🛵 알뜰배달 (2건 묶음)';
+    const hint =
+      hud.phoneMap.placement === 'pocket'
+        ? '[Tab]으로 휴대폰을 꺼낸 뒤 [Tab/V]로 20초 내 수락!'
+        : '20초 내 [Tab] 또는 [V]로 수락하세요!';
+    hud.showToast(`🔔 신규 콜 도착! ${label} · ₩${offer.totalFee.toLocaleString()} — ${hint}`, 4500);
+  },
+  onOfferUrgentTick: () => {
+    audio.playDispatchCallAlert();
+  },
+  onOfferExpired: (offer) => {
+    audio.playDispatchExpiredSound();
+    const label = offer.type === 'SINGLE' ? '한집배달' : '알뜰배달';
+    hud.showToast(`⏱ ${label} 콜 응답 시간 초과 (자동 거절 · 10초 후 새 콜 배정)`, 3200);
+  },
+});
 const scooterPhysics = new ScooterPhysics();
 const playerCtrl = new PlayerController();
 const playerMesh = new PlayerMesh(scene);
@@ -392,8 +412,48 @@ const handleContextInteract = () => {
   }
 };
 
+const tryAcceptIncomingOffer = (): boolean => {
+  if (!dispatch.activeOffer) return false;
+  const isRiding = playerCtrl.state.mode === 'riding';
+  // Only accept via Tab/V when player physically sees/has the phone (mounted while riding, or in hand on foot)
+  const phoneVisibleToPlayer =
+    (hud.phoneMap.placement === 'mounted' && isRiding) ||
+    (hud.phoneMap.placement === 'in_hand' && !isRiding);
+  if (!phoneVisibleToPlayer) return false;
+
+  const accepted = dispatch.acceptCurrentOffer(delivery);
+  if (!accepted) return false;
+
+  audio.playChime('accept');
+  if (accepted.type === 'SINGLE') {
+    const o = accepted.orders[0];
+    hud.showToast(
+      `🚀 한집배달 수락! ${o.shop.emoji} ${o.shop.name} [#${o.orderNumber}] · ₩${accepted.totalFee.toLocaleString()} (제한 300초)`,
+      4200
+    );
+  } else {
+    const codes = accepted.orders.map((o) => `#${o.orderNumber}`).join(', ');
+    hud.showToast(
+      `🛵 알뜰배달 2건 수락! [${codes}] · ₩${accepted.totalFee.toLocaleString()} (탑박스 2슬롯 분할 · 500초)`,
+      4400
+    );
+  }
+  return true;
+};
+
+const handleRejectIncomingOffer = () => {
+  const rejected = dispatch.rejectCurrentOffer();
+  if (rejected) {
+    audio.playDispatchExpiredSound();
+    hud.showToast('신규 콜을 거절했습니다 (10초 쿨다운 후 새 콜 배정)', 3000);
+  }
+};
+
 const handleTogglePhone = () => {
   if (playerCtrl.state.mode === 'knockdown' || modalUi.activeModal !== 'none') return;
+  // If 20s call popup is currently open on visible phone -> Tab accepts cleanly without key conflict!
+  if (tryAcceptIncomingOffer()) return;
+
   const isRiding = playerCtrl.state.mode === 'riding';
   const nearScooter = !playerCtrl.state.inCorridor && playerCtrl.state.canMountScooter;
   const res = hud.togglePhonePlacement(isRiding, nearScooter);
@@ -409,6 +469,9 @@ const handleTogglePhone = () => {
 
 const handleTogglePhoneZoom = () => {
   if (playerCtrl.state.mode === 'knockdown' || modalUi.activeModal !== 'none') return;
+  // If 20s call popup is currently open on visible phone -> V accepts cleanly without key conflict!
+  if (tryAcceptIncomingOffer()) return;
+
   const res = hud.togglePhoneZoom(playerCtrl.state.mode === 'riding');
   hud.showToast(res.message, 2400);
 };
@@ -445,6 +508,11 @@ const hud = new Hud(
         hud.showToast(`최대 ${MAX_CONCURRENT_ORDERS}건까지 동시 묶음 배달이 가능합니다!`, 2600);
       }
     },
+    onAcceptDispatchOffer: () => {
+      audio.ensureStarted();
+      tryAcceptIncomingOffer();
+    },
+    onRejectDispatchOffer: handleRejectIncomingOffer,
     onRefreshOrders: () => {
       delivery.refreshAvailableOrders();
       hud.showToast(
@@ -846,6 +914,10 @@ function animate(now: number): void {
     );
   }
 
+  // Step active mission delivery countdowns & 20s incoming dispatch offer state machine
+  delivery.stepTimers(dt);
+  dispatch.step(dt, delivery, inCorridor, modalUi.isBlockingMovement());
+
   // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
   const navPlan = delivery.getNavigationPlan(
     playerCtrl.state.x,
@@ -915,6 +987,7 @@ function animate(now: number): void {
     playerCtrl.state,
     scooterPhysics.state,
     delivery,
+    dispatch.activeOffer,
     navPlan,
     traffic.signalState,
     world.isNight,

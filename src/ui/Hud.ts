@@ -7,6 +7,7 @@ import {
   MAX_CONCURRENT_ORDERS,
   NavigationPlan,
 } from '../delivery/DeliveryManager';
+import { DispatchOffer } from '../delivery/OrderDispatchManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { PhoneCallbacks, PhoneMap, PhonePlacement } from './PhoneMap';
 import { WeatherMode } from '../types';
@@ -92,6 +93,7 @@ export class Hud {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    activeOffer: DispatchOffer | null,
     navPlan: NavigationPlan,
     signalState: SignalStateSnapshot,
     isNight: boolean,
@@ -217,6 +219,7 @@ export class Hud {
       player,
       scooter,
       delivery,
+      activeOffer,
       navPlan,
       signalState,
       isNight,

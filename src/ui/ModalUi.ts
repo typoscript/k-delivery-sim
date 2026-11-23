@@ -698,7 +698,7 @@ export class ModalUi {
       return;
     } else {
       const ch = rawKey.toUpperCase();
-      if (/^[A-D0-9-]$/.test(ch) && this.posValue.length < 6) {
+      if (/^[A-Z0-9-]$/.test(ch) && this.posValue.length < 6) {
         this.posValue += ch;
         this.posError.classList.add('hidden');
         this.callbacks.onKeypadBeep(true);

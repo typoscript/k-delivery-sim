@@ -338,6 +338,67 @@ export class GameAudio {
     osc.stop(now + 0.03);
   }
 
+  /** Baemin Connect style crisp double-arpeggio dispatch notification + haptic vibrate pulse */
+  public playDispatchCallAlert(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+
+    // Signature bright "띠리링~ 띠리링~" ascending electronic chime (E6 - G#6 - B6 - E7)
+    const melody = [1318.5, 1661.2, 1975.5, 2637.0];
+    for (let rep = 0; rep < 2; rep++) {
+      const baseT = now + rep * 0.34;
+      melody.forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const g = this.ctx!.createGain();
+        osc.type = idx === melody.length - 1 ? 'triangle' : 'sine';
+        osc.frequency.value = freq;
+        const t = baseT + idx * 0.062;
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.24, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.18);
+      });
+
+      // Subtle low haptic smartphone vibration hum on handlebar mount
+      const vib = this.ctx.createOscillator();
+      const vg = this.ctx.createGain();
+      vib.type = 'sawtooth';
+      vib.frequency.value = 92;
+      const vFilter = this.ctx.createBiquadFilter();
+      vFilter.type = 'lowpass';
+      vFilter.frequency.value = 180;
+      vg.gain.setValueAtTime(0.14, baseT);
+      vg.gain.exponentialRampToValueAtTime(0.001, baseT + 0.2);
+      vib.connect(vFilter);
+      vFilter.connect(vg);
+      vg.connect(this.masterGain);
+      vib.start(baseT);
+      vib.stop(baseT + 0.22);
+    }
+  }
+
+  /** Soft descending two-tone sound when a 20s call offer expires or is declined */
+  public playDispatchExpiredSound(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    [440, 311.13].forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = now + i * 0.12;
+      g.gain.setValueAtTime(0.16, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.16);
+    });
+  }
+
   /** Synthesizes low-fuel dashboard warning double-beep */
   public playLowFuelWarningBeep(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

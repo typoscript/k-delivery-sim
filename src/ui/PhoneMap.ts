@@ -9,6 +9,7 @@ import {
   MAX_CONCURRENT_ORDERS,
   NavigationPlan,
 } from '../delivery/DeliveryManager';
+import { DispatchOffer } from '../delivery/OrderDispatchManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { TurnDirection } from '../world/RoadNavigator';
 import { clamp } from '../types';
@@ -18,6 +19,8 @@ export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance';
 
 export interface PhoneCallbacks {
   onAcceptOrder: (orderId: string) => void;
+  onAcceptDispatchOffer: () => void;
+  onRejectDispatchOffer: () => void;
   onRefreshOrders: () => void;
   onCancelMission: (orderId: string) => void;
   onSelectMission: (missionId: string | null) => void;
@@ -55,6 +58,18 @@ export class PhoneMap {
   private readonly followBtn = document.getElementById('map-follow-btn')!;
   private readonly unzoomBtn = document.getElementById('phone-unzoom-btn')!;
   private readonly stowBtn = document.getElementById('phone-stow-btn')!;
+
+  // 20-Second Incoming Call Popup DOM elements inside Zoomed Smartphone
+  private readonly dispatchPopupEl = document.getElementById('phone-dispatch-popup')!;
+  private readonly dispatchCardEl = document.getElementById('dispatch-popup-card')!;
+  private readonly dpTypeBadgeEl = document.getElementById('dp-type-badge')!;
+  private readonly dpRingFgEl = document.getElementById('dp-ring-fg')!;
+  private readonly dpTimerTextEl = document.getElementById('dp-timer-text')!;
+  private readonly dpFeeEl = document.getElementById('dp-fee')!;
+  private readonly dpSubMetaEl = document.getElementById('dp-sub-meta')!;
+  private readonly dpStopsEl = document.getElementById('dp-stops')!;
+  private lastOfferPopupId = '';
+  private lastOfferPulseTick = 0;
 
   private readonly callbacks: PhoneCallbacks;
   public placement: PhonePlacement = 'pocket';
@@ -152,6 +167,18 @@ export class PhoneMap {
         this.callbacks.onOpenDailyReport();
       } else if (action === 'interact') {
         this.callbacks.onInteractMission();
+      }
+    });
+
+    this.dispatchPopupEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = e.target as HTMLElement;
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (!btn) return;
+      if (btn.dataset.action === 'accept_offer') {
+        this.callbacks.onAcceptDispatchOffer();
+      } else if (btn.dataset.action === 'reject_offer') {
+        this.callbacks.onRejectDispatchOffer();
       }
     });
 
@@ -296,6 +323,7 @@ export class PhoneMap {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    activeOffer: DispatchOffer | null,
     navPlan: NavigationPlan,
     signalState: SignalStateSnapshot,
     isNight: boolean,
@@ -307,12 +335,23 @@ export class PhoneMap {
     if (!this.isZoomed) {
       const leftOnBike = this.placement === 'mounted' && !isRiding;
       this.pocketPillEl.classList.toggle('away', leftOnBike);
+      this.pocketPillEl.classList.toggle('incoming', !leftOnBike && activeOffer !== null);
 
       if (leftOnBike) {
         this.pocketKeyEl.textContent = 'Tab';
         this.pocketPillTextEl.textContent = player.canMountScooter
           ? '오토바이 거치대에서 휴대폰 챙기기'
           : `휴대폰이 오토바이에 있음 (${player.inCorridor ? '1층' : `${player.distanceToScooter.toFixed(0)}m`})`;
+      } else if (activeOffer !== null) {
+        const typeLabel = activeOffer.type === 'SINGLE' ? '한집배달' : '알뜰 2건';
+        const sec = Math.max(0, Math.ceil(activeOffer.remainingOfferSec));
+        if (this.placement === 'pocket') {
+          this.pocketKeyEl.textContent = 'Tab';
+          this.pocketPillTextEl.textContent = `🔔 ${typeLabel} ₩${activeOffer.totalFee.toLocaleString()} (${sec}초) · 폰 꺼내기`;
+        } else {
+          this.pocketKeyEl.textContent = 'Tab/V';
+          this.pocketPillTextEl.textContent = `🔔 ${typeLabel} ₩${activeOffer.totalFee.toLocaleString()} (${sec}초) · 즉시 수락!`;
+        }
       } else if (this.placement === 'pocket') {
         this.pocketKeyEl.textContent = 'Tab';
         this.pocketPillTextEl.textContent = isRiding
@@ -325,7 +364,10 @@ export class PhoneMap {
             ? '거치대 폰 확대 (Tab: 주머니로)'
             : '손에 든 폰 확대 (Tab: 주머니로)';
       }
-      this.pocketBadgeEl.classList.toggle('hidden', delivery.activeMissions.length === 0);
+      this.pocketBadgeEl.classList.toggle(
+        'hidden',
+        delivery.activeMissions.length === 0 && activeOffer === null
+      );
     }
 
     if (this.placement === 'pocket') {
@@ -368,6 +410,7 @@ export class PhoneMap {
       }
 
       this.syncDeliverySheet(player, delivery, navPlan);
+      this.syncDispatchPopup(activeOffer);
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       this.renderMapToContext(
@@ -395,6 +438,7 @@ export class PhoneMap {
         player,
         scooter,
         delivery,
+        activeOffer,
         navPlan,
         signalState,
         isNight,
@@ -407,15 +451,68 @@ export class PhoneMap {
     }
   }
 
+  /** Syncs the interactive 20s circular progress call popup inside the zoomed smartphone UI */
+  private syncDispatchPopup(offer: DispatchOffer | null): void {
+    if (!offer) {
+      this.dispatchPopupEl.classList.add('hidden');
+      this.lastOfferPopupId = '';
+      return;
+    }
+
+    this.dispatchPopupEl.classList.remove('hidden');
+    const isSingle = offer.type === 'SINGLE';
+
+    if (offer.id !== this.lastOfferPopupId || offer.pulseTick !== this.lastOfferPulseTick) {
+      this.lastOfferPopupId = offer.id;
+      this.lastOfferPulseTick = offer.pulseTick;
+
+      this.dispatchCardEl.classList.toggle('alttle', !isSingle);
+      this.dispatchCardEl.classList.remove('vibrate');
+      void this.dispatchCardEl.offsetWidth;
+      this.dispatchCardEl.classList.add('vibrate');
+
+      this.dpTypeBadgeEl.className = `dp-type-badge ${isSingle ? 'single' : 'alttle'}`;
+      this.dpTypeBadgeEl.textContent = isSingle
+        ? '🚀 한집배달 · 단건 직행'
+        : '🛵 알뜰배달 · 2건 묶음';
+
+      const rainTag = offer.totalRainBonus > 0 ? ` (🌧️우천+₩${offer.totalRainBonus.toLocaleString()})` : '';
+      this.dpFeeEl.textContent = `₩${offer.totalFee.toLocaleString()}`;
+      this.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}`;
+
+      this.dpStopsEl.innerHTML = offer.orders
+        .map(
+          (o, idx) => `
+          <div class="dp-stop-item">
+            <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span></div>
+            <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber} (${o.menuName})</div>
+          </div>`
+        )
+        .join('');
+    }
+
+    // Smooth circular SVG ring countdown (r=18 -> circumference = 113.097)
+    const frac = clamp(offer.remainingOfferSec / offer.durationOfferSec, 0, 1);
+    const circ = 113.1;
+    this.dpRingFgEl.style.strokeDashoffset = String((1 - frac) * circ);
+    this.dpRingFgEl.setAttribute(
+      'class',
+      `dp-ring-fg ${offer.remainingOfferSec <= 5 ? 'urgent' : offer.remainingOfferSec <= 10 ? 'warn' : ''}`
+    );
+    this.dpTimerTextEl.textContent = String(Math.max(0, Math.ceil(offer.remainingOfferSec)));
+  }
+
   /**
    * Renders the 3D Smartphone CanvasTexture:
    * - While Riding + Mounted: Live Turn-by-Turn Navigation Mode (heading-up rotating minimap + turn arrow + remaining m!)
    * - While On Foot + In Hand: North-up GPS map + bundled delivery summary & cargo slot pips
+   * - Whenever a 20s Call Offer is active: overlays the centered vibrating Circular Progress Call Card!
    */
   private render3DPhoneScreen(
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    activeOffer: DispatchOffer | null,
     navPlan: NavigationPlan,
     signalState: SignalStateSnapshot,
     isNight: boolean,
@@ -462,6 +559,127 @@ export class PhoneMap {
     } else {
       this.renderOnFootPhoneOverlay(ctx, w, h, player, delivery, navPlan, isNight, areaName);
     }
+
+    // Centered 20-Second Incoming Call Popup Card on the 3D Mounted / Handheld Phone Screen!
+    if (activeOffer) {
+      this.render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
+    }
+
+    ctx.restore();
+  }
+
+  /** Draws the vibrating 20-second circular-progress Baemin Connect style call card on the 3D phone screen */
+  private render3DDispatchCallCard(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    offer: DispatchOffer,
+    elapsedTime: number
+  ): void {
+    const isSingle = offer.type === 'SINGLE';
+    const frac = clamp(offer.remainingOfferSec / offer.durationOfferSec, 0, 1);
+    const secLeft = Math.max(0, Math.ceil(offer.remainingOfferSec));
+
+    // Dim backdrop over map so call card pops clearly while riding
+    ctx.fillStyle = 'rgba(7, 12, 24, 0.72)';
+    ctx.fillRect(0, 34, w, h - 34);
+
+    // Subtle phone vibration jitter during first 0.7s of arrival or final 5s urgency!
+    const age = offer.durationOfferSec - offer.remainingOfferSec;
+    const isVibrating = age < 0.7 || offer.remainingOfferSec <= 5.0;
+    const shakeX = isVibrating ? Math.sin(elapsedTime * 55) * 4.2 : 0;
+
+    const cardX = 18 + shakeX;
+    const cardW = w - 36;
+    const cardH = 344;
+    const cardY = (h - cardH) * 0.5 + 8;
+
+    ctx.save();
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = isSingle ? '#2dd4bf' : '#a78bfa';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(cardX, cardY, cardW, cardH, 24);
+    ctx.fill();
+    ctx.stroke();
+
+    // Header delivery type badge
+    ctx.fillStyle = isSingle ? '#0d9488' : '#7c3aed';
+    ctx.beginPath();
+    ctx.roundRect(cardX + 16, cardY + 18, 178, 32, 16);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14.5px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isSingle ? '🚀 한집배달 (직행)' : '🛵 알뜰배달 (2건)', cardX + 105, cardY + 34);
+
+    // 20-Second Circular Progress Ring Timer (top right of card)
+    const ringCx = cardX + cardW - 44;
+    const ringCy = cardY + 46;
+    const ringR = 26;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(ringCx, ringCy, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle =
+      offer.remainingOfferSec <= 5 ? '#ef4444' : offer.remainingOfferSec <= 10 ? '#f59e0b' : '#2dd4bf';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(ringCx, ringCy, ringR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(secLeft), ringCx, ringCy + 1);
+
+    // Total Payout Fee
+    ctx.fillStyle = '#34d399';
+    ctx.font = '900 36px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`₩${offer.totalFee.toLocaleString()}`, cardX + 18, cardY + 86);
+
+    // Time limit & total distance subline
+    ctx.fillStyle = offer.totalRainBonus > 0 ? '#38bdf8' : '#94a3b8';
+    ctx.font = 'bold 13.5px sans-serif';
+    const metaLine =
+      offer.totalRainBonus > 0
+        ? `제한 ${offer.timeLimitSec}초 · ${offer.totalDistanceMeters}m · 🌧️할증포함`
+        : `제한시간 ${offer.timeLimitSec}초 · 총 거리 ${offer.totalDistanceMeters}m`;
+    ctx.fillText(metaLine, cardX + 18, cardY + 116);
+
+    // Orders breakdown box
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+    ctx.beginPath();
+    ctx.roundRect(cardX + 16, cardY + 134, cardW - 32, 128, 14);
+    ctx.fill();
+
+    offer.orders.forEach((o, i) => {
+      const oy = cardY + 158 + i * 56;
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'left';
+      const prefix = offer.orders.length > 1 ? `${i + 1}. ` : '';
+      ctx.fillText(`${prefix}${o.shop.emoji} ${o.shop.name} [#${o.orderNumber}]`, cardX + 28, oy);
+
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '600 13.5px sans-serif';
+      ctx.fillText(`→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}`, cardX + 28, oy + 23);
+    });
+
+    // Bottom Accept CTA Button ([Tab] / [V])
+    ctx.fillStyle = isSingle ? '#0d9488' : '#7c3aed';
+    ctx.beginPath();
+    ctx.roundRect(cardX + 16, cardY + 276, cardW - 32, 50, 14);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 17px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('✓ [Tab] 또는 [V] 눌러 콜 수락', cardX + cardW / 2, cardY + 301);
 
     ctx.restore();
   }
@@ -900,7 +1118,10 @@ export class PhoneMap {
     navPlan: NavigationPlan
   ): void {
     const activeFp = delivery.activeMissions
-      .map((m) => `${m.order.id}:${m.phase}:${m.cargoSlot}:${m.foodIntegrity}`)
+      .map(
+        (m) =>
+          `${m.order.id}:${m.phase}:${m.cargoSlot}:${m.foodIntegrity}:${this.activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
+      )
       .join(',');
     const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}`).join(',');
     const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
@@ -959,7 +1180,10 @@ export class PhoneMap {
         (o) => `
         <div class="order-card ${o.rainBonus > 0 ? 'rain-order' : ''}">
           <div class="order-top">
-            <span class="order-shop">${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span></span>
+            <span class="order-shop">
+              <span class="dispatch-type-pill ${o.dispatchType === 'SINGLE' ? 'single' : 'alttle'}">${o.dispatchType === 'SINGLE' ? '한집' : '알뜰'}</span>
+              ${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span>
+            </span>
             <span class="order-fee">₩${(o.baseFee + o.rainBonus).toLocaleString()}</span>
           </div>
           <div class="order-menu">
@@ -1022,16 +1246,25 @@ export class PhoneMap {
 
         const intColor =
           m.foodIntegrity >= 80 ? '#10b981' : m.foodIntegrity >= 50 ? '#f59e0b' : '#ef4444';
+        const remSec = Math.ceil(m.remainingTimeSec);
+        const remMin = Math.floor(remSec / 60);
+        const remS = String(remSec % 60).padStart(2, '0');
+        const timerCls = remSec <= 30 ? 'urgent' : remSec <= 60 ? 'warn' : '';
+        const typeBadge =
+          m.order.dispatchType === 'SINGLE'
+            ? '<span class="dispatch-type-pill single">한집</span>'
+            : '<span class="dispatch-type-pill alttle">알뜰</span>';
 
         return `
           <div class="accepted-card ${isFocused ? 'focused' : ''}">
             <div class="accepted-top">
+              ${typeBadge}
               <span class="step-badge ${isPickupStage ? 'pickup' : 'dropoff'}">${this.getPhaseShortLabel(m.phase, m.cargoSlot)}</span>
-              ${slotPill}
+              <span class="mission-timer-pill ${timerCls}">⏱ ${remMin}:${remS}</span>
               <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus).toLocaleString()}</span>
             </div>
             <div class="order-top">
-              <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span>${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}</span>
+              <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}</span>
             </div>
             <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b></div>
             <div class="order-codes-row">

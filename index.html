@@ -94,6 +94,29 @@
               <div id="phone-sheet-body" class="sheet-body"></div>
             </div>
 
+            <!-- Centered 20-Second Incoming Call Popup Card inside Zoomed Smartphone -->
+            <div id="phone-dispatch-popup" class="dispatch-popup-overlay hidden">
+              <div id="dispatch-popup-card" class="dispatch-popup-card">
+                <div class="dp-top">
+                  <span id="dp-type-badge" class="dp-type-badge single">🚀 한집배달</span>
+                  <div class="dp-timer-wrap">
+                    <svg class="dp-ring-svg" viewBox="0 0 44 44">
+                      <circle class="dp-ring-bg" cx="22" cy="22" r="18"></circle>
+                      <circle id="dp-ring-fg" class="dp-ring-fg" cx="22" cy="22" r="18"></circle>
+                    </svg>
+                    <span id="dp-timer-text" class="dp-timer-text">20</span>
+                  </div>
+                </div>
+                <div id="dp-fee" class="dp-fee">₩5,800</div>
+                <div id="dp-sub-meta" class="dp-sub-meta">제한시간 5분 (300초) · 총 240m</div>
+                <div id="dp-stops" class="dp-stops"></div>
+                <div class="dp-actions">
+                  <button class="dp-btn reject" data-action="reject_offer">거절</button>
+                  <button class="dp-btn accept" data-action="accept_offer">콜 수락 (V / Tab)</button>
+                </div>
+              </div>
+            </div>
+
             <div class="phone-home-bar"></div>
           </div>
         </div>
@@ -155,6 +178,7 @@
             <button class="kp-btn prefix" data-key="A">A</button>
             <button class="kp-btn prefix" data-key="B">B</button>
             <button class="kp-btn prefix" data-key="C">C</button>
+            <button class="kp-btn prefix" data-key="S">S</button>
             <button class="kp-btn prefix" data-key="-">-</button>
           </div>
           <div class="keypad-grid">

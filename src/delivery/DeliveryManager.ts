@@ -6,8 +6,14 @@ export const CARGO_SLOT_COUNT = 3;
 export const INTERACT_ZONE_RADIUS = 3.6;
 export const RAIN_SURCHARGE_BONUS = 1500;
 export const BASE_FLAT_FEE = 3200;
+export const SINGLE_FLAT_FEE = 4500; // 한집배달 기본 4,500원 + 거리할증
+export const SINGLE_TIME_LIMIT_SEC = 300; // 한집배달 제한시간 300초
+export const ALTTLE_FLAT_FEE = 2800; // 알뜰배달 기본 2,800원 x 2건
+export const ALTTLE_TIME_LIMIT_SEC = 500; // 알뜰배달 제한시간 500초
 export const FUEL_PRICE_PER_PERCENT = 40; // full 0->100% fill = ₩4,000
 export const REPAIR_COST_PER_DAMAGE_STAGE = 2500; // stage 1..3 = ₩2,500..₩7,500
+
+export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';
 
 export interface DailyFinanceLedger {
   completedCount: number;
@@ -27,6 +33,9 @@ export interface DailyFinanceLedger {
 export interface DeliveryOrder {
   id: string;
   orderNumber: string; // e.g., "A-12", "B-07", "C-45"
+  dispatchType: DispatchOrderType; // 'SINGLE' (한집배달) | 'ALTTLE_BUNDLE' (알뜰배달)
+  baseFlatFee: number; // 4500 (SINGLE) | 2800 (ALTTLE_BUNDLE)
+  timeLimitSec: number; // 300 (SINGLE) | 500 (ALTTLE_BUNDLE)
   shop: DeliveryLocation;
   customer: DeliveryLocation;
   unitNumber: string; // e.g., "1402호"
@@ -52,6 +61,7 @@ export interface ActiveMission {
   phase: MissionPhase;
   foodIntegrity: number; // 0..100
   startedAt: number;
+  remainingTimeSec: number; // counts down from order.timeLimitSec (300s / 500s)
   cargoSlot: number | null; // 0 | 1 | 2 when inside top-box
   pickedUp: boolean;
 }
@@ -287,11 +297,18 @@ export class DeliveryManager {
       const menuName = menus[Math.floor(Math.random() * menus.length)];
       const manhattan = Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z);
       const distanceMeters = Math.round(manhattan);
-      const baseFee = Math.round((3200 + distanceMeters * 12) / 100) * 100;
+      const isSingle = orders.length % 2 === 0;
+      const dispatchType: DispatchOrderType = isSingle ? 'SINGLE' : 'ALTTLE_BUNDLE';
+      const baseFlatFee = isSingle ? SINGLE_FLAT_FEE : ALTTLE_FLAT_FEE;
+      const distBonus = isSingle ? Math.round((distanceMeters * 12) / 100) * 100 : 0;
+      const baseFee = baseFlatFee + distBonus;
 
       orders.push({
         id: `ORD-${this.orderSeq++}`,
         orderNumber: this.generateOrderNumber(usedNumbers),
+        dispatchType,
+        baseFlatFee,
+        timeLimitSec: isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
         shop,
         customer,
         unitNumber: this.generateUnitNumber(),
@@ -316,6 +333,7 @@ export class DeliveryManager {
       phase: 'to_pickup',
       foodIntegrity: 100,
       startedAt: performance.now(),
+      remainingTimeSec: found.timeLimitSec,
       cargoSlot: null,
       pickedUp: false,
     });
@@ -327,6 +345,36 @@ export class DeliveryManager {
     }
     this.invalidateNavCache();
     return found;
+  }
+
+  /** Accepts 1 (SINGLE) or 2 (ALTTLE_BUNDLE) orders simultaneously from OrderDispatchManager */
+  public acceptDispatchedOffer(orders: DeliveryOrder[]): boolean {
+    if (orders.length === 0) return false;
+    if (this.activeMissions.length + orders.length > MAX_CONCURRENT_ORDERS) {
+      return false;
+    }
+    const now = performance.now();
+    for (const o of orders) {
+      this.activeMissions.push({
+        order: o,
+        phase: 'to_pickup',
+        foodIntegrity: 100,
+        startedAt: now,
+        remainingTimeSec: o.timeLimitSec,
+        cargoSlot: null,
+        pickedUp: false,
+      });
+    }
+    this.invalidateNavCache();
+    return true;
+  }
+
+  /** Steps active mission delivery countdown timers (300s SINGLE / 500s ALTTLE_BUNDLE) */
+  public stepTimers(dt: number): void {
+    for (const m of this.activeMissions) {
+      if (m.phase === 'corridor_exit') continue;
+      m.remainingTimeSec = Math.max(0, m.remainingTimeSec - dt);
+    }
   }
 
   private replenishAvailableOrders(): void {
@@ -352,11 +400,18 @@ export class DeliveryManager {
       const menuName = menus[Math.floor(Math.random() * menus.length)];
       const manhattan = Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z);
       const distanceMeters = Math.round(manhattan);
-      const baseFee = Math.round((3200 + distanceMeters * 12) / 100) * 100;
+      const isSingle = this.availableOrders.length % 2 === 0;
+      const dispatchType: DispatchOrderType = isSingle ? 'SINGLE' : 'ALTTLE_BUNDLE';
+      const baseFlatFee = isSingle ? SINGLE_FLAT_FEE : ALTTLE_FLAT_FEE;
+      const distBonus = isSingle ? Math.round((distanceMeters * 12) / 100) * 100 : 0;
+      const baseFee = baseFlatFee + distBonus;
 
       this.availableOrders.push({
         id: `ORD-${this.orderSeq++}`,
         orderNumber: this.generateOrderNumber(usedNumbers),
+        dispatchType,
+        baseFlatFee,
+        timeLimitSec: isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
         shop,
         customer,
         unitNumber: this.generateUnitNumber(),
@@ -470,8 +525,9 @@ export class DeliveryManager {
     const rainBonus = m.order.rainBonus;
     const earned = Math.round((m.order.baseFee * integrityFactor + tip + rainBonus) / 100) * 100;
 
-    // Record itemized income breakdown into daily ledger
-    const basePart = Math.min(m.order.baseFee, BASE_FLAT_FEE);
+    // Record itemized income breakdown into daily ledger (respects SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee)
+    const flatRef = m.order.baseFlatFee || BASE_FLAT_FEE;
+    const basePart = Math.min(m.order.baseFee, flatRef);
     const distPart = Math.max(0, m.order.baseFee - basePart);
     const damageDed = Math.max(0, Math.round(m.order.baseFee * (1 - integrityFactor) / 100) * 100);
     this.baseFeeTotal += basePart;
