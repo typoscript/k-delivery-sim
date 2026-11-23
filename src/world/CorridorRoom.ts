@@ -12,6 +12,7 @@ interface UnitDoorSlot {
   facingX: number; // +1 if on left wall (-X), -1 if on right wall (+X)
   group: THREE.Group;
   doorPivot: THREE.Group;
+  plaqueMesh: THREE.Mesh;
   bellLedMat: THREE.MeshStandardMaterial;
   plaqueMat: THREE.MeshStandardMaterial;
   unitNumber: string;
@@ -238,6 +239,7 @@ export class CorridorRoom {
         facingX: cfg.facingX,
         group: doorGroup,
         doorPivot,
+        plaqueMesh: plaque,
         bellLedMat,
         plaqueMat,
         unitNumber: `140${idx + 1}호`,
@@ -449,6 +451,15 @@ export class CorridorRoom {
   public getTargetDoorMat(): { x: number; z: number; unitNumber: string } {
     const d = this.doors[this.targetDoorIndex];
     return { x: d.matX, z: d.matZ, unitNumber: d.unitNumber };
+  }
+
+  /** Returns the two required 3D proof-photo targets (placed food bag + door unit plaque) */
+  public getProofTargets(): { foodBagMesh: THREE.Object3D; doorPlateMesh: THREE.Object3D } {
+    const d = this.doors[this.targetDoorIndex];
+    return {
+      foodBagMesh: this.placedFoodBag,
+      doorPlateMesh: d.plaqueMesh,
+    };
   }
 
   public isNearTargetDoor(px: number, pz: number): boolean {

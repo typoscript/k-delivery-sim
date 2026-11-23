@@ -9,6 +9,7 @@ import {
   SettlementResult,
   getInstructionMeta,
 } from '../delivery/DeliveryManager';
+import { PhotoProofResult } from '../camera/PhotoProofValidator';
 
 export type ActiveModalType =
   | 'none'
@@ -101,6 +102,12 @@ export class ModalUi {
   private readonly cameraOverlay = document.getElementById('camera-viewfinder')!;
   private readonly cameraStamp = document.getElementById('camera-stamp')!;
   private readonly cameraFlash = document.getElementById('camera-flash')!;
+  private readonly vfFrame = document.getElementById('vf-frame')!;
+  private readonly vfChkPlate = document.getElementById('vf-chk-plate')!;
+  private readonly vfChkFood = document.getElementById('vf-chk-food')!;
+  private readonly vfGuideText = document.getElementById('vf-guide-text')!;
+  private readonly vfFailPopup = document.getElementById('vf-fail-popup')!;
+  private vfFailTimer: number | null = null;
 
   // Settlement Popup
   private readonly settlementBackdrop = document.getElementById('settlement-modal')!;
@@ -521,7 +528,43 @@ export class ModalUi {
     const now = new Date();
     const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     this.cameraStamp.textContent = `#${order.orderNumber} · ${order.customer.name} ${order.unitNumber} · ${ts}`;
+    this.vfFailPopup.classList.add('hidden');
+    this.vfFrame.classList.remove('valid', 'fail-shake');
     this.cameraOverlay.classList.remove('hidden');
+  }
+
+  /** Live-updates the central 60% viewfinder detection chips (호수 팻말 + 음식 봉투) */
+  public updateCameraProofStatus(res: PhotoProofResult): void {
+    if (this.activeModal !== 'camera') return;
+    this.vfChkPlate.textContent = res.plate.valid ? '✓ 호수 팻말' : '✕ 호수 팻말';
+    this.vfChkPlate.className = `vf-chk-pill ${res.plate.valid ? 'ok' : 'miss'}`;
+
+    this.vfChkFood.textContent = res.food.valid ? '✓ 음식 봉투' : '✕ 음식 봉투';
+    this.vfChkFood.className = `vf-chk-pill ${res.food.valid ? 'ok' : 'miss'}`;
+
+    this.vfFrame.classList.toggle('valid', res.valid);
+    this.vfGuideText.textContent = res.valid
+      ? '✓ 호수 + 음식 봉투 확인 완료! [Space] 또는 셔터 버튼으로 배달 완료 승인'
+      : res.reason;
+  }
+
+  /** Displays a prominent failure warning popup inside the viewfinder and prompts re-shooting */
+  public showCameraValidationWarning(res: PhotoProofResult): void {
+    if (this.activeModal !== 'camera') return;
+    this.vfFailPopup.innerHTML = `⚠️ 현관문 호수와 음식 봉투가 모두 보이도록 찍어주세요!<div style="font-size:11.5px;margin-top:4px;font-weight:600;color:#fecaca">${res.reason}</div>`;
+    this.vfFailPopup.classList.remove('hidden');
+    this.vfFrame.classList.remove('fail-shake');
+    void this.vfFrame.offsetWidth;
+    this.vfFrame.classList.add('fail-shake');
+
+    if (this.vfFailTimer !== null) {
+      window.clearTimeout(this.vfFailTimer);
+    }
+    this.vfFailTimer = window.setTimeout(() => {
+      this.vfFailPopup.classList.add('hidden');
+      this.vfFrame.classList.remove('fail-shake');
+      this.vfFailTimer = null;
+    }, 3200);
   }
 
   public triggerCameraFlash(): void {

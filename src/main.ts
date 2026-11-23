@@ -13,6 +13,7 @@ import { PlayerMesh } from './player/PlayerMesh';
 import { HandheldPhone3D } from './player/HandheldPhone3D';
 import { HandheldFoodBag3D } from './player/HandheldFoodBag3D';
 import { CameraController } from './camera/CameraController';
+import { validateDeliveryPhotoFrame } from './camera/PhotoProofValidator';
 import { GameAudio } from './audio/GameAudio';
 import {
   DeliveryManager,
@@ -193,8 +194,21 @@ const finalizeCorridorSettlement = () => {
 const handleTakeDeliveryPhoto = () => {
   const m = delivery.getCorridorMission();
   if (!m || m.phase !== 'photo_mode') return;
+
+  // Validate that BOTH the floor food bag AND door unit plaque are framed in central 60% viewfinder!
+  const { foodBagMesh, doorPlateMesh } = corridorRoom.getProofTargets();
+  const check = validateDeliveryPhotoFrame(camera, foodBagMesh, doorPlateMesh);
+
+  if (!check.valid) {
+    audio.playKeypadBeep(false);
+    modalUi.showCameraValidationWarning(check);
+    hud.showToast('⚠️ 현관문 호수와 음식 봉투가 모두 보이도록 찍어주세요!', 3400);
+    return;
+  }
+
   audio.playCameraShutter();
   modalUi.triggerCameraFlash();
+  hud.showToast('✅ 인증 사진 확인 완료 — 배달 완료 승인!', 2600);
   finalizeCorridorSettlement();
 };
 
@@ -1084,6 +1098,13 @@ function animate(now: number): void {
   );
 
   camController.update(camera, playerCtrl.state, scooterPhysics.state, scooterMesh, dt);
+
+  // Live viewfinder framing validation (Bounding Box + vector.project(camera)) when in PHOTO_DOOR camera mode!
+  if (inCorridor && modalUi.activeModal === 'camera') {
+    const { foodBagMesh, doorPlateMesh } = corridorRoom.getProofTargets();
+    const proofStatus = validateDeliveryPhotoFrame(camera, foodBagMesh, doorPlateMesh);
+    modalUi.updateCameraProofStatus(proofStatus);
+  }
 
   // Weather local rain particles (InstancedMesh), wet asphalt shader, & rain audio (instantly muted indoors!)
   weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);

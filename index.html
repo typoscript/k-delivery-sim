@@ -247,21 +247,30 @@
       <div id="camera-viewfinder" class="camera-viewfinder hidden">
         <div class="vf-top">
           <span class="vf-badge">📸 배달 완료 인증 카메라</span>
+          <div class="vf-checks">
+            <span id="vf-chk-plate" class="vf-chk-pill miss">✕ 호수 팻말</span>
+            <span id="vf-chk-food" class="vf-chk-pill miss">✕ 음식 봉투</span>
+          </div>
           <span id="camera-stamp" class="vf-stamp">1402호 · 17:35</span>
         </div>
-        <div class="vf-frame">
+        <div id="vf-frame" class="vf-frame">
           <span class="vf-corner tl"></span>
           <span class="vf-corner tr"></span>
           <span class="vf-corner bl"></span>
           <span class="vf-corner br"></span>
           <div class="vf-crosshair"></div>
-          <div class="vf-guide-text">발매트 위 음식 봉투를 비추고 촬영하세요</div>
+          <div id="vf-fail-popup" class="vf-fail-popup hidden">
+            ⚠️ 현관문 호수와 음식 봉투가 모두 보이도록 찍어주세요!
+          </div>
+          <div id="vf-guide-text" class="vf-guide-text">
+            중앙 60% 프레임 안에 호수 팻말과 음식 봉투를 함께 담아 촬영하세요
+          </div>
         </div>
         <div class="vf-bottom">
           <button id="camera-shutter-btn" class="shutter-btn" title="사진 촬영 (Space)">
             <span class="shutter-inner"></span>
           </button>
-          <div class="vf-key-hint"><kbd>Space</kbd> 또는 셔터 버튼으로 배달 완료 촬영</div>
+          <div class="vf-key-hint"><kbd>WASD</kbd> 거리 조절 · <kbd>마우스</kbd> 각도 조절 · <kbd>Space</kbd> 촬영</div>
         </div>
       </div>
       <div id="camera-flash" class="camera-flash hidden"></div>
