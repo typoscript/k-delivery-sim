@@ -3,6 +3,8 @@ import './style.css';
 import { CityWorld } from './world/CityWorld';
 import { TrafficSystem } from './world/TrafficSystem';
 import { CORRIDOR_ORIGIN_Y, CorridorRoom } from './world/CorridorRoom';
+import { RoadNavigator } from './world/RoadNavigator';
+import { RoadNavLine3D } from './world/RoadNavLine3D';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import { OnFootInput, PlayerController } from './player/PlayerController';
@@ -11,7 +13,7 @@ import { HandheldPhone3D } from './player/HandheldPhone3D';
 import { HandheldFoodBag3D } from './player/HandheldFoodBag3D';
 import { CameraController } from './camera/CameraController';
 import { GameAudio } from './audio/GameAudio';
-import { DeliveryManager } from './delivery/DeliveryManager';
+import { DeliveryManager, MAX_CONCURRENT_ORDERS, RoutePoint } from './delivery/DeliveryManager';
 import { Hud } from './ui/Hud';
 import { ModalUi } from './ui/ModalUi';
 import { collidesWithWorld } from './types';
@@ -37,6 +39,8 @@ scene.add(camera);
 const world = new CityWorld(scene);
 const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
+const roadNavigator = new RoadNavigator();
+const roadNavLine3D = new RoadNavLine3D(world.root); // Parented to world.root -> auto-occluded indoors!
 const delivery = new DeliveryManager(world.locations);
 const scooterPhysics = new ScooterPhysics();
 const playerCtrl = new PlayerController();
@@ -49,13 +53,17 @@ const tmpCargoPos = new THREE.Vector3();
 const isPlayerNearCargoBox = (): boolean => {
   if (playerCtrl.state.inCorridor || playerCtrl.state.mode !== 'on_foot') return false;
   scooterMesh.getCargoBoxWorldPosition(tmpCargoPos);
-  return Math.hypot(playerCtrl.state.x - tmpCargoPos.x, playerCtrl.state.z - tmpCargoPos.z) <= 2.3;
+  return Math.hypot(playerCtrl.state.x - tmpCargoPos.x, playerCtrl.state.z - tmpCargoPos.z) <= 2.4;
 };
 
-const enterElevatorToCorridor = () => {
-  const m = delivery.activeMission;
+const playerHasPhonePhysically = (): boolean => {
+  return hud.phoneMap.placement !== 'mounted' || playerCtrl.state.mode === 'riding';
+};
+
+const enterElevatorToCorridor = (missionId: string) => {
+  const m = delivery.getMissionById(missionId);
   if (!m) return;
-  // Require having the phone with you (not left on scooter!) to take the delivery proof photo upstairs
+  // Physical phone possession check: cannot take proof photo upstairs if phone was left on scooter!
   if (hud.phoneMap.placement === 'mounted') {
     hud.showToast(
       '🚫 휴대폰이 오토바이 거치대에 있습니다! 배달 인증 사진을 찍으려면 먼저 오토바이에서 [Tab]으로 챙겨오세요',
@@ -66,9 +74,9 @@ const enterElevatorToCorridor = () => {
   audio.playElevatorDing();
   hud.stowPhoneToPocket();
   modalUi.playElevatorTransition(
-    `🛗 ${m.order.customer.name} ${m.order.unitNumber}층으로 이동 중...`,
+    `🛗 [#${m.order.orderNumber}] ${m.order.customer.name} ${m.order.unitNumber} 이동 중...`,
     () => {
-      // Midpoint while screen is completely black: occlude entire outdoor world!
+      // Midpoint while screen is completely black: occlude entire outdoor world + nav line!
       world.setOutdoorVisible(false);
       traffic.root.visible = false;
       scooterMesh.root.visible = false;
@@ -76,7 +84,7 @@ const enterElevatorToCorridor = () => {
       corridorRoom.configureForUnit(m.order.unitNumber);
       corridorRoom.root.visible = true;
 
-      delivery.enterCorridor();
+      delivery.enterCorridor(missionId);
       const sp = corridorRoom.elevatorSpawn;
       playerCtrl.teleportTo(sp.x, sp.y, sp.z, sp.heading, true);
       camController.onFootYaw = sp.heading;
@@ -85,7 +93,7 @@ const enterElevatorToCorridor = () => {
     () => {
       audio.playElevatorDing();
       hud.showToast(
-        `🏢 ${m.order.unitNumber} 문 앞 발매트에서 [E]를 눌러 음식을 내려놓으세요`,
+        `🏢 ${m.order.unitNumber} 문 앞 발매트에서 [E]를 눌러 [#${m.order.orderNumber}] 음식을 내려놓으세요`,
         3600
       );
     }
@@ -124,17 +132,23 @@ const exitCorridorToStreet = () => {
     },
     () => {
       audio.playElevatorDing();
-      hud.showToast('1층 복귀 완료! [Tab]으로 휴대폰을 꺼내 다음 배달 콜을 확인하세요', 3600);
+      const rem = delivery.activeMissions.length;
+      hud.showToast(
+        rem > 0
+          ? `1층 복귀 완료! 남은 묶음 배달 ${rem}건의 다음 경로가 도로에 안내됩니다`
+          : '1층 복귀 완료! [Tab]으로 휴대폰을 꺼내 다음 묶음 콜을 확인하세요',
+        3800
+      );
     }
   );
 };
 
 const handleTakeDeliveryPhoto = () => {
-  if (!delivery.activeMission || delivery.activeMission.phase !== 'photo_mode') return;
+  const m = delivery.getCorridorMission();
+  if (!m || m.phase !== 'photo_mode') return;
   audio.playCameraShutter();
   modalUi.triggerCameraFlash();
 
-  // Render clean 3D corridor frame right before capturing proof photo thumbnail
   renderer.render(scene, camera);
   const photoDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
 
@@ -147,26 +161,72 @@ const handleTakeDeliveryPhoto = () => {
   }
 };
 
+const handleCargoSlotAction = (slotIndex: number) => {
+  const carrying = delivery.getCarryingMission();
+  const slotMission = delivery.getCargoSlotMission(slotIndex);
+
+  if (slotMission === null) {
+    if (!carrying) {
+      hud.showToast(`슬롯 ${slotIndex + 1}은 비어 있습니다`);
+      return;
+    }
+    const loaded = delivery.loadFoodIntoCargoSlot(slotIndex);
+    if (loaded) {
+      scooterMesh.triggerCargoBoxOpen();
+      audio.playCargoBoxSound();
+      modalUi.closeAll();
+      hud.showToast(
+        `📦 슬롯 ${slotIndex + 1}에 [#${loaded.order.orderNumber}] 적재 완료! (${loaded.order.customer.name} ${loaded.order.unitNumber})`,
+        3600
+      );
+    }
+    return;
+  }
+
+  // Slot is occupied -> unload if hands are free
+  if (carrying) {
+    hud.showToast(
+      `🚫 이미 [#${carrying.order.orderNumber}] 음식을 들고 있습니다! 빈 슬롯에 먼저 적재하세요`,
+      3000
+    );
+    return;
+  }
+
+  const unloaded = delivery.unloadFoodFromCargoSlot(slotIndex);
+  if (unloaded) {
+    scooterMesh.triggerCargoBoxOpen();
+    audio.playCargoBoxSound();
+    modalUi.closeAll();
+    hud.showToast(
+      `🛍️ 슬롯 ${slotIndex + 1}에서 [#${unloaded.order.orderNumber}] 꺼냄 → ${unloaded.order.customer.name} ${unloaded.order.unitNumber} (PIN ${unloaded.order.doorPin})`,
+      3800
+    );
+  }
+};
+
 const modalUi = new ModalUi({
-  onPosSuccess: () => {
-    if (delivery.completePosPickup()) {
+  onPosSuccess: (missionId) => {
+    const picked = delivery.completePosPickup(missionId);
+    if (picked) {
       audio.playChime('pickup');
       hud.showToast(
-        '🛍️ 픽업 완료! 음식을 손에 들었습니다 → 오토바이 뒤편 배달통에서 [E]로 적재하세요',
+        `🛍️ [#${picked.order.orderNumber}] 픽업 완료! 오토바이 뒤편 배달통 [E]로 슬롯에 적재하세요`,
         3800
       );
     }
   },
-  onPinSuccess: () => {
-    if (delivery.unlockLobbyDoor() && delivery.activeMission) {
+  onPinSuccess: (missionId) => {
+    const unlocked = delivery.unlockLobbyDoor(missionId);
+    if (unlocked) {
       audio.playChime('accept');
-      world.setLobbyDoorOpen(delivery.activeMission.order.customer.id);
+      world.setLobbyDoorOpen(unlocked.order.customer.id);
       hud.showToast(
-        '🔓 공동현관 문이 열렸습니다! [E]를 눌러 엘리베이터에 탑승하세요',
+        `🔓 ${unlocked.order.customer.name} 공동현관 개방! [E]를 눌러 엘리베이터에 탑승하세요`,
         3400
       );
     }
   },
+  onCargoSlotAction: handleCargoSlotAction,
   onTakePhoto: handleTakeDeliveryPhoto,
   onSettlementClose: () => {
     hud.showToast('배달 완료! 복도 엘리베이터 앞에서 [E]를 눌러 1층으로 내려가세요', 3600);
@@ -175,29 +235,31 @@ const modalUi = new ModalUi({
 });
 
 const handleContextInteract = () => {
-  const m = delivery.activeMission;
-  if (!m) {
-    hud.showToast('진행 중인 배달이 없습니다 ([Tab] → [V]로 콜 수락)');
+  if (delivery.activeMissions.length === 0) {
+    hud.showToast('진행 중인 배달이 없습니다 ([Tab] → [V]로 최대 3건 콜 수락)');
     return;
   }
 
   // Inside underground corridor
   if (playerCtrl.state.inCorridor) {
-    if (m.phase === 'in_corridor') {
+    const cm = delivery.getCorridorMission();
+    if (!cm) return;
+
+    if (cm.phase === 'in_corridor') {
       if (corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z)) {
         corridorRoom.placeFoodOnTargetMat();
         delivery.placeFoodAtDoor();
         hud.stowPhoneToPocket();
         audio.playCargoBoxSound();
-        modalUi.openCameraViewfinder(m.order);
+        modalUi.openCameraViewfinder(cm.order);
         hud.showToast('📸 음식을 발매트에 내려놓았습니다! [Space]로 인증 사진을 찍으세요', 3400);
       } else {
-        hud.showToast(`${m.order.unitNumber} 문 앞 발매트로 가까이 가세요`);
+        hud.showToast(`${cm.order.unitNumber} 문 앞 발매트로 가까이 가세요`);
       }
       return;
     }
 
-    if (m.phase === 'corridor_exit') {
+    if (cm.phase === 'corridor_exit') {
       if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z)) {
         exitCorridorToStreet();
       } else {
@@ -211,51 +273,65 @@ const handleContextInteract = () => {
   // Outdoors (must be on foot)
   if (playerCtrl.state.mode !== 'on_foot') return;
 
-  if (m.phase === 'to_pickup' && delivery.isNearShopPickup(playerCtrl.state.x, playerCtrl.state.z)) {
+  const carrying = delivery.getCarryingMission();
+  const hasPhone = playerHasPhonePhysically();
+
+  // 1. Outdoor Shop Pickup POS
+  const shopMission = delivery.getMissionNearShopPickup(playerCtrl.state.x, playerCtrl.state.z);
+  if (shopMission) {
+    if (carrying) {
+      hud.showToast(
+        `🛍️ 이미 [#${carrying.order.orderNumber}] 음식을 손에 들고 있습니다! 먼저 오토바이 배달통에 [E]로 적재하세요`,
+        3600
+      );
+      return;
+    }
     if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
     else hud.phoneMap.setZoomed(false);
-    modalUi.openPosKeypad(m.order);
+    modalUi.openPosKeypad(shopMission.order, hasPhone);
     return;
   }
 
-  if (m.phase === 'carrying_to_box' && isPlayerNearCargoBox()) {
-    delivery.loadFoodIntoCargoBox();
-    scooterMesh.triggerCargoBoxOpen();
-    audio.playCargoBoxSound();
-    hud.showToast(
-      `📦 배달통에 적재 완료! 이제 [F]로 탑승해 ${m.order.customer.name}으로 출발하세요`,
-      3600
-    );
+  // 2. Scooter Rear 3-Slot Cargo Box
+  if (isPlayerNearCargoBox()) {
+    if (carrying || delivery.isCargoLoaded()) {
+      if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+      else hud.phoneMap.setZoomed(false);
+      scooterMesh.triggerCargoBoxOpen();
+      audio.playCargoBoxSound();
+      modalUi.openCargoBoxModal(delivery, playerCtrl.state.x, playerCtrl.state.z);
+    } else {
+      hud.showToast('배달통이 비어 있습니다. 매장에서 음식을 픽업해 오세요!');
+    }
     return;
   }
 
-  if (m.phase === 'cargo_loaded' && isPlayerNearCargoBox()) {
-    delivery.unloadFoodFromCargoBox();
-    scooterMesh.triggerCargoBoxOpen();
-    audio.playCargoBoxSound();
-    hud.showToast(
-      `🛍️ 배달통에서 음식을 꺼냈습니다! ${m.order.customer.name} 공동현관으로 이동하세요`,
-      3600
-    );
-    return;
+  // 3. Customer 1st-Floor Lobby Glass Door PIN / Elevator
+  const lobbyMission = delivery.getMissionNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z);
+  if (lobbyMission) {
+    if (lobbyMission.phase === 'carrying_to_lobby') {
+      if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+      else hud.phoneMap.setZoomed(false);
+      modalUi.openPinKeypad(lobbyMission.order, hasPhone);
+      return;
+    }
+    if (lobbyMission.phase === 'lobby_unlocked') {
+      enterElevatorToCorridor(lobbyMission.order.id);
+      return;
+    }
   }
 
-  if (
-    m.phase === 'carrying_to_lobby' &&
-    delivery.isNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z)
-  ) {
-    if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-    else hud.phoneMap.setZoomed(false);
-    modalUi.openPinKeypad(m.order);
-    return;
-  }
-
-  if (
-    m.phase === 'lobby_unlocked' &&
-    delivery.isNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z)
-  ) {
-    enterElevatorToCorridor();
-    return;
+  // Helpful feedback if holding wrong food bag at a different residential building
+  const nearRes = delivery.getNearestResidenceWithin(playerCtrl.state.x, playerCtrl.state.z);
+  if (nearRes) {
+    if (carrying) {
+      hud.showToast(
+        `🚫 현재 들고 있는 [#${carrying.order.orderNumber}]의 목적지는 ${carrying.order.customer.name}입니다!`,
+        3600
+      );
+    } else if (delivery.isCargoLoaded()) {
+      hud.showToast('🛍️ 먼저 오토바이 뒤편 배달통에서 [E]로 해당 호수 음식을 꺼내오세요!', 3200);
+    }
   }
 };
 
@@ -287,19 +363,34 @@ const hud = new Hud({
     if (order) {
       audio.playChime('accept');
       hud.showToast(
-        `${order.shop.emoji} ${order.shop.name} 콜 수락! 픽업번호 [#${order.orderNumber}]`,
+        `${order.shop.emoji} ${order.shop.name} [#${order.orderNumber}] 수락! (${delivery.activeMissions.length}/${MAX_CONCURRENT_ORDERS}건 묶음)`,
         3200
       );
+    } else if (!delivery.canAcceptMoreOrders()) {
+      hud.showToast(`최대 ${MAX_CONCURRENT_ORDERS}건까지 동시 묶음 배달이 가능합니다!`, 2600);
     }
   },
   onRefreshOrders: () => {
     delivery.refreshAvailableOrders();
     hud.showToast('신규 배달 콜을 새로고침했습니다');
   },
-  onCancelMission: () => {
-    delivery.cancelActiveMission();
-    world.setLobbyDoorOpen(null);
-    hud.showToast('진행 중인 배달을 취소했습니다');
+  onCancelMission: (orderId) => {
+    const removed = delivery.cancelMission(orderId);
+    if (removed) {
+      world.setLobbyDoorOpen(null);
+      hud.showToast(`[#${removed.order.orderNumber}] 배달 주문을 취소했습니다`);
+    }
+  },
+  onSelectMission: (missionId) => {
+    delivery.setSelectedMission(missionId);
+    if (missionId === null) {
+      hud.showToast('🧭 자동 최적 추천 동선 안내로 전환했습니다', 2400);
+    } else {
+      const m = delivery.getMissionById(missionId);
+      if (m) {
+        hud.showToast(`🧭 [#${m.order.orderNumber}] 경로를 우선 안내합니다`, 2400);
+      }
+    }
   },
   onInteractMission: handleContextInteract,
   onTogglePhone: handleTogglePhone,
@@ -352,7 +443,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   }
 });
 
-// Wire lowside / car crash -> rider ejection + crash sound + food damage!
+// Wire lowside / car crash -> rider ejection + crash sound + food damage across all loaded slots!
 scooterPhysics.setOnCrash((crashSide, impactSpeed) => {
   playerCtrl.ejectFromScooter(scooterPhysics.state, crashSide, impactSpeed);
   handheldPhone3D.cancelMountAnimation();
@@ -361,9 +452,12 @@ scooterPhysics.setOnCrash((crashSide, impactSpeed) => {
     hud.stowPhoneToPocket();
   }
   audio.playCrashSound();
-  const dmg = delivery.applyCrashDamage();
-  if (dmg > 0) {
-    hud.showToast(`💥 전도 사고! 배달통 음식이 흔들려 파손되었습니다 (-${dmg}%)`, 3800);
+  const { damagedCount, loss } = delivery.applyCrashDamage();
+  if (damagedCount > 0) {
+    hud.showToast(
+      `💥 전도 사고! 배달통 음식 ${damagedCount}건이 흔들려 파손되었습니다 (-${loss}%)`,
+      3800
+    );
   } else {
     hud.showToast('💥 너무 기울어 오토바이가 미끄러졌습니다! 일으켜 세우세요', 3400);
   }
@@ -377,7 +471,7 @@ window.addEventListener('pointerdown', () => audio.ensureStarted(), { once: true
 window.addEventListener('keydown', (e) => {
   audio.ensureStarted();
 
-  // Let active modal (POS / PIN / Camera shutter / Settlement / Transition) handle keys first!
+  // Let active modal (POS / PIN / Cargo / Camera shutter / Settlement / Transition) handle keys first!
   if (modalUi.handleKeyDown(e)) {
     return;
   }
@@ -410,13 +504,12 @@ window.addEventListener('keydown', (e) => {
       if (res.changed) {
         const nowRiding = playerCtrl.state.mode === 'riding';
         if (nowRiding) {
-          // Getting ON scooter: if phone was held in hand, tuck into pocket (if already mounted on bike, keep it mounted!)
           if (hud.phoneMap.placement === 'in_hand') {
             hud.stowPhoneToPocket();
           }
           hud.phoneMap.setZoomed(false);
         } else {
-          // Getting OFF scooter: close zoom, but if phone is MOUNTED on the scooter, it STAYS on the scooter!
+          // Physical phone possession: if mounted on scooter, it stays on the scooter when dismounting!
           hud.phoneMap.setZoomed(false);
         }
         audio.playMountSound(nowRiding);
@@ -466,6 +559,7 @@ window.addEventListener('keydown', (e) => {
       if (night && !scooterPhysics.state.headlights) {
         scooterPhysics.state.headlights = true;
       }
+      lastRenderedRouteRef = null;
       hud.showToast(night ? '야간 모드 (라이트 자동 ON)' : '주간 모드');
       break;
     }
@@ -497,6 +591,7 @@ window.addEventListener('keydown', (e) => {
       hud.stowPhoneToPocket();
       scooterMesh.setPhoneMounted(false);
       camController.resetLook();
+      delivery.invalidateNavCache();
       hud.showToast('위치 초기화 완료');
       break;
     }
@@ -537,12 +632,14 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  roadNavLine3D.setResolution(window.innerWidth, window.innerHeight);
 });
 
-hud.showToast('[Tab] 휴대폰 꺼내기 → [V] 확대로 콜 수락 후 야외 픽업대로 이동하세요!', 4800);
+hud.showToast('[Tab] 휴대폰 꺼내기 → [V] 확대에서 최대 3건 묶음 콜 수락 & A* 내비 안내 시작!', 5200);
 
 let lastTime = performance.now();
 let elapsed = 0;
+let lastRenderedRouteRef: RoutePoint[] | null = null;
 
 function animate(now: number): void {
   requestAnimationFrame(animate);
@@ -555,7 +652,6 @@ function animate(now: number): void {
   const isRiding = playerCtrl.state.mode === 'riding';
   const movementBlocked = modalUi.isBlockingMovement();
 
-  // Only simulate outdoor traffic & lobby doors when outdoors (full CPU/GPU occlusion inside corridor!)
   if (!inCorridor) {
     world.updateLobbyDoors(dt);
     traffic.step(
@@ -641,15 +737,31 @@ function animate(now: number): void {
     );
   }
 
-  // Outdoor 3D beacon (only visible outdoors for pickup / customer lobby)
+  // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
+  const navPlan = delivery.getNavigationPlan(
+    playerCtrl.state.x,
+    playerCtrl.state.z,
+    playerCtrl.state.heading,
+    scooterPhysics.state.x,
+    scooterPhysics.state.z,
+    inCorridor,
+    elapsed,
+    roadNavigator
+  );
+
+  // Outdoor 3D Beacon + Fluorescent Neon-Green A* Road Navigation Line + 3-Slot Scooter Cargo Visuals
   if (!inCorridor) {
-    const activeTarget = delivery.getCurrentOutdoorTarget();
-    const isPickup = delivery.activeMission?.phase === 'to_pickup';
-    world.updateBeacon(activeTarget, isPickup, elapsed);
+    world.updateBeacon(navPlan.target, navPlan.isPickupTarget, elapsed);
+
+    const routeFor3D = navPlan.isCargoBoxTarget ? [] : navPlan.route;
+    if (routeFor3D !== lastRenderedRouteRef) {
+      lastRenderedRouteRef = routeFor3D;
+      roadNavLine3D.setPath(routeFor3D, world.isNight);
+    }
+    roadNavLine3D.updateAnimation(dt, elapsed);
+
     scooterMesh.sync(scooterPhysics.state, elapsed, dt);
-    scooterMesh.setCargoLoadedVisual(delivery.isCargoLoaded());
-    // Show 3D phone clamped on scooter mount whenever mounted (even when dismounted!),
-    // except while zoomed in or before the mounting hand reaches the cradle
+    scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());
     scooterMesh.setPhoneMounted(
       hud.phoneMap.placement === 'mounted' &&
         !hud.phoneMap.isZoomed &&
@@ -673,7 +785,6 @@ function animate(now: number): void {
     elapsed
   );
 
-  // Always 1st-person: hide player's own body mesh
   playerMesh.sync(
     playerCtrl.state,
     scooterMesh.riderMountPoint,
@@ -688,6 +799,7 @@ function animate(now: number): void {
     playerCtrl.state,
     scooterPhysics.state,
     delivery,
+    navPlan,
     traffic.signalState,
     world.isNight,
     audio.muted,
@@ -703,12 +815,11 @@ function animate(now: number): void {
     }
   );
 
-  // Only render scooter mirrors when outdoors & riding (zero wasted GPU passes inside corridor!)
+  // Only render scooter mirrors when outdoors & riding
   if (!inCorridor && isRiding) {
     scooterMesh.renderMirrors(renderer, scene, scooterPhysics.state);
   }
 
-  // Safety guard: keep corridor Y aligned if camera ever inspects
   void CORRIDOR_ORIGIN_Y;
   renderer.render(scene, camera);
 }

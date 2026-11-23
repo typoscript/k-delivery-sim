@@ -1,7 +1,12 @@
 import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { CityMapInfo } from '../world/CityWorld';
-import { DeliveryManager } from '../delivery/DeliveryManager';
+import {
+  CARGO_SLOT_COUNT,
+  DeliveryManager,
+  MAX_CONCURRENT_ORDERS,
+  NavigationPlan,
+} from '../delivery/DeliveryManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { PhoneCallbacks, PhoneMap, PhonePlacement } from './PhoneMap';
 
@@ -75,6 +80,7 @@ export class Hud {
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    navPlan: NavigationPlan,
     signalState: SignalStateSnapshot,
     isNight: boolean,
     isMuted: boolean,
@@ -83,22 +89,33 @@ export class Hud {
     ctx: InteractionContext
   ): void {
     const isRiding = player.mode === 'riding';
+    const carrying = delivery.getCarryingMission();
+    const corridorM = delivery.getCorridorMission();
+    const loadedCount = delivery.getLoadedCargoCount();
+    const activeCount = delivery.activeMissions.length;
 
     if (player.inCorridor) {
-      const unit = delivery.activeMission?.order.unitNumber ?? '';
-      this.modeBadge.textContent = `🏢 실내 복도 (${unit})`;
+      const unit = corridorM?.order.unitNumber ?? '';
+      const ordNo = corridorM ? `#${corridorM.order.orderNumber} ` : '';
+      this.modeBadge.textContent = `🏢 실내 복도 (${ordNo}${unit})`;
       this.modeBadge.className = 'mode-pill foot';
     } else if (player.mode === 'knockdown') {
       this.modeBadge.textContent = '💥 전도! 일어나는 중';
       this.modeBadge.className = 'mode-pill danger';
     } else if (isRiding) {
-      this.modeBadge.textContent = delivery.isCargoLoaded()
-        ? '🛵 라이딩 · 📦 배달통 적재됨'
-        : '🛵 1인칭 라이딩';
+      this.modeBadge.textContent =
+        loadedCount > 0
+          ? `🛵 라이딩 · 📦 배달통 ${loadedCount}/${CARGO_SLOT_COUNT}칸`
+          : activeCount > 0
+            ? `🛵 라이딩 · 묶음 ${activeCount}/${MAX_CONCURRENT_ORDERS}건`
+            : '🛵 1인칭 라이딩';
       this.modeBadge.className = 'mode-pill riding';
-    } else if (delivery.isCarryingFood()) {
-      this.modeBadge.textContent = '🛍️ 도보 · 음식 들고 이동 중';
+    } else if (carrying) {
+      this.modeBadge.textContent = `🛍️ 도보 · [#${carrying.order.orderNumber}] 음식 휴대 중`;
       this.modeBadge.className = 'mode-pill riding';
+    } else if (activeCount > 0) {
+      this.modeBadge.textContent = `🚶 도보 · 묶음 ${activeCount}/${MAX_CONCURRENT_ORDERS} (적재 ${loadedCount})`;
+      this.modeBadge.className = 'mode-pill foot';
     } else {
       this.modeBadge.textContent = '🚶 1인칭 도보';
       this.modeBadge.className = 'mode-pill foot';
@@ -107,8 +124,7 @@ export class Hud {
     this.ridingCluster.classList.toggle('hidden', !isRiding);
     this.slipWarningEl.classList.toggle('hidden', !(isRiding && scooter.slipWarning));
 
-    // Context-sensitive GTA interaction prompt
-    const promptHtml = this.computePrompt(player, scooter, delivery, ctx);
+    const promptHtml = this.computePrompt(player, scooter, delivery, navPlan, ctx);
     if (promptHtml && !ctx.modalOpen) {
       this.interactPrompt.innerHTML = promptHtml;
       this.interactPrompt.classList.remove('hidden');
@@ -143,59 +159,87 @@ export class Hud {
       this.indAudio.textContent = isMuted ? '음소거' : '사운드';
     }
 
-    this.phoneMap.update(player, scooter, delivery, signalState, isNight, elapsedTime, mapInfo);
+    this.phoneMap.update(
+      player,
+      scooter,
+      delivery,
+      navPlan,
+      signalState,
+      isNight,
+      elapsedTime,
+      mapInfo
+    );
   }
 
   private computePrompt(
     player: PlayerState,
     scooter: ScooterState,
     delivery: DeliveryManager,
+    navPlan: NavigationPlan,
     ctx: InteractionContext
   ): string | null {
     if (player.mode === 'knockdown') return null;
 
-    const m = delivery.activeMission;
     const isRiding = player.mode === 'riding';
 
     // --- Inside Underground Corridor ---
-    if (player.inCorridor && m) {
-      if (m.phase === 'in_corridor' && ctx.nearCorridorTargetDoor) {
-        return `<kbd>E</kbd> ${m.order.unitNumber} 문 앞 발매트에 음식 내려놓기`;
+    const corridorM = delivery.getCorridorMission();
+    if (player.inCorridor && corridorM) {
+      if (corridorM.phase === 'in_corridor' && ctx.nearCorridorTargetDoor) {
+        return `<kbd>E</kbd> ${corridorM.order.unitNumber} 문 앞 발매트에 [#${corridorM.order.orderNumber}] 내려놓기`;
       }
-      if (m.phase === 'corridor_exit' && ctx.nearCorridorElevator) {
+      if (corridorM.phase === 'corridor_exit' && ctx.nearCorridorElevator) {
         return '<kbd>E</kbd> 🛗 엘리베이터 타고 1층으로 내려가기';
       }
       return null;
     }
 
-    // --- Outdoor Mission Interactions ---
-    if (m && !isRiding) {
-      if (m.phase === 'to_pickup' && delivery.isNearShopPickup(player.x, player.z)) {
-        return `<kbd>E</kbd> ${m.order.shop.emoji} 야외 픽업 POS 열기 (주문번호: ${m.order.orderNumber})`;
+    const carrying = delivery.getCarryingMission();
+    const loadedCount = delivery.getLoadedCargoCount();
+
+    // --- Outdoor On-Foot Interactions ---
+    if (!isRiding) {
+      // 1. Outdoor Shop Pickup POS
+      const shopM = delivery.getMissionNearShopPickup(player.x, player.z);
+      if (shopM) {
+        if (carrying) {
+          return `🛍️ [#${carrying.order.orderNumber}] 휴대 중 — 먼저 오토바이 배달통에 <kbd>E</kbd> 적재`;
+        }
+        return `<kbd>E</kbd> ${shopM.order.shop.emoji} 야외 픽업 POS 열기 (주문번호: ${shopM.order.orderNumber})`;
       }
-      if (m.phase === 'carrying_to_box' && ctx.nearCargoBox) {
-        return '<kbd>E</kbd> 📦 오토바이 배달통에 음식 적재';
+
+      // 2. Rear Scooter 3-Slot Cargo Box
+      if (ctx.nearCargoBox && (carrying !== null || loadedCount > 0)) {
+        if (carrying && (carrying.phase === 'carrying_to_box' || carrying.phase === 'carrying_to_lobby')) {
+          return `<kbd>E</kbd> 📦 배달통 슬롯 열기 ([#${carrying.order.orderNumber}] 적재 · ${loadedCount}/${CARGO_SLOT_COUNT})`;
+        }
+        return `<kbd>E</kbd> 📦 배달통 슬롯 열기 (적재 ${loadedCount}/${CARGO_SLOT_COUNT}칸 · 꺼내기)`;
       }
-      if (m.phase === 'cargo_loaded' && ctx.nearCargoBox) {
-        return '<kbd>E</kbd> 🛍️ 오토바이 배달통에서 음식 꺼내기';
-      }
-      if (m.phase === 'carrying_to_lobby' && delivery.isNearCustomerLobby(player.x, player.z)) {
-        return `<kbd>E</kbd> 🔑 ${m.order.customer.name} 공동현관 비밀번호 입력`;
-      }
-      if (m.phase === 'lobby_unlocked' && delivery.isNearCustomerLobby(player.x, player.z)) {
-        return `<kbd>E</kbd> 🛗 엘리베이터 탑승 (${m.order.unitNumber} 이동)`;
+
+      // 3. Customer Lobby Entrance PIN / Elevator
+      const lobbyM = delivery.getMissionNearCustomerLobby(player.x, player.z);
+      if (lobbyM) {
+        if (lobbyM.phase === 'carrying_to_lobby') {
+          return `<kbd>E</kbd> 🔑 ${lobbyM.order.customer.name} 공동현관 PIN 입력 ([#${lobbyM.order.orderNumber}])`;
+        }
+        if (lobbyM.phase === 'lobby_unlocked') {
+          return `<kbd>E</kbd> 🛗 엘리베이터 탑승 (${lobbyM.order.unitNumber} 이동)`;
+        }
       }
     }
 
-    if (m && isRiding && Math.abs(scooter.speed) <= 4.2) {
-      if (m.phase === 'to_pickup' && delivery.isNearShopPickup(player.x, player.z)) {
-        return '<kbd>F</kbd> 하차 후 야외 픽업대에서 픽업';
+    // --- Outdoor Riding Contextual Hints ---
+    if (isRiding && Math.abs(scooter.speed) <= 4.2) {
+      const shopM = delivery.getMissionNearShopPickup(player.x, player.z);
+      if (shopM) {
+        return `<kbd>F</kbd> 하차 후 ${shopM.order.shop.name} 픽업 ([#${shopM.order.orderNumber}])`;
       }
       if (
-        m.phase === 'cargo_loaded' &&
-        (delivery.getDistanceToOutdoorTarget(player.x, player.z) ?? 999) < 12
+        loadedCount > 0 &&
+        navPlan.focusMission?.phase === 'cargo_loaded' &&
+        (navPlan.guidance?.totalDistance ?? 999) < 16
       ) {
-        return '<kbd>F</kbd> 하차 후 뒤편 배달통에서 음식 꺼내기';
+        return `<kbd>F</kbd> 하차 후 배달통에서 [#${navPlan.focusMission.order.orderNumber}] 꺼내기`;
       }
     }
 

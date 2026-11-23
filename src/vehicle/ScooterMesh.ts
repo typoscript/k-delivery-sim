@@ -9,7 +9,9 @@ export class ScooterMesh {
   private readonly rearWheel: THREE.Object3D;
   private readonly kickstandGroup = new THREE.Group();
   private readonly cargoLidPivot = new THREE.Group();
-  private readonly cargoLoadedMat: THREE.MeshStandardMaterial;
+  private readonly cargoSlotLedMats: THREE.MeshStandardMaterial[] = [];
+  private readonly cargoSlotBags: THREE.Mesh[] = [];
+  private cargoSlotOccupied: [boolean, boolean, boolean] = [false, false, false];
   private cargoLidTimer = 0;
   private readonly mountedPhone3D = new THREE.Group();
   public readonly mountedPhoneHitMesh: THREE.Mesh;
@@ -67,11 +69,15 @@ export class ScooterMesh {
       emissive: 0x22c55e,
       emissiveIntensity: 0.08,
     });
-    this.cargoLoadedMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a,
-      emissive: 0x10b981,
-      emissiveIntensity: 0,
-    });
+    for (let i = 0; i < 3; i++) {
+      this.cargoSlotLedMats.push(
+        new THREE.MeshStandardMaterial({
+          color: 0x0f172a,
+          emissive: 0x10b981,
+          emissiveIntensity: 0,
+        })
+      );
+    }
 
     // Setup real-time side mirror render targets (horizontally flipped for true reflection!)
     const mirrorOpts: THREE.RenderTargetOptions = {
@@ -165,10 +171,27 @@ export class ScooterMesh {
     this.cargoLidPivot.position.set(0, 1.38, -0.1);
     const boxLid = new THREE.Mesh(new THREE.BoxGeometry(0.59, 0.07, 0.55), darkMat);
     boxLid.position.set(0, 0.02, -0.26);
-    const cargoStatusLed = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.035, 0.03), this.cargoLoadedMat);
-    cargoStatusLed.position.set(0, 0.02, -0.54);
-    this.cargoLidPivot.add(boxLid, cargoStatusLed);
+    this.cargoLidPivot.add(boxLid);
+
+    // 3-Slot Cargo Status LED Bars on rear lid edge (Slot 1 left -> Slot 3 right)
+    const ledSlotGeo = new THREE.BoxGeometry(0.11, 0.036, 0.03);
+    for (let i = 0; i < 3; i++) {
+      const slotLed = new THREE.Mesh(ledSlotGeo, this.cargoSlotLedMats[i]);
+      slotLed.position.set((1 - i) * 0.145, 0.02, -0.54);
+      this.cargoLidPivot.add(slotLed);
+    }
     this.bodyTiltGroup.add(this.cargoLidPivot);
+
+    // 3 interior cargo slot food bag indicators (visible only while lid is open & slot occupied)
+    const bagGeo = new THREE.BoxGeometry(0.135, 0.22, 0.34);
+    const bagMat = new THREE.MeshStandardMaterial({ color: 0xd9a96f, roughness: 0.85 });
+    for (let i = 0; i < 3; i++) {
+      const bag = new THREE.Mesh(bagGeo, bagMat);
+      bag.position.set((1 - i) * 0.16, 1.29, -0.36);
+      bag.visible = false;
+      this.cargoSlotBags.push(bag);
+      this.bodyTiltGroup.add(bag);
+    }
 
     const reflectMat = new THREE.MeshStandardMaterial({
       color: 0xfef08a,
@@ -427,8 +450,11 @@ export class ScooterMesh {
     this.cargoLidTimer = 1.15;
   }
 
-  public setCargoLoadedVisual(loaded: boolean): void {
-    this.cargoLoadedMat.emissiveIntensity = loaded ? 2.4 : 0;
+  public setCargoSlotsVisual(occupied: [boolean, boolean, boolean]): void {
+    this.cargoSlotOccupied = occupied;
+    for (let i = 0; i < 3; i++) {
+      this.cargoSlotLedMats[i].emissiveIntensity = occupied[i] ? 2.5 : 0;
+    }
   }
 
   public getCargoBoxWorldPosition(out: THREE.Vector3): THREE.Vector3 {
@@ -443,6 +469,10 @@ export class ScooterMesh {
     }
     const targetLidRot = this.cargoLidTimer > 0 ? 1.15 : 0;
     this.cargoLidPivot.rotation.x += (targetLidRot - this.cargoLidPivot.rotation.x) * Math.min(1, dt * 10);
+    const lidVisibleOpen = this.cargoLidPivot.rotation.x > 0.12;
+    for (let i = 0; i < 3; i++) {
+      this.cargoSlotBags[i].visible = lidVisibleOpen && this.cargoSlotOccupied[i];
+    }
     const fallenOffset = state.crashed ? 0.24 : 0;
     this.root.position.set(state.x, fallenOffset, state.z);
     this.root.rotation.y = state.heading;

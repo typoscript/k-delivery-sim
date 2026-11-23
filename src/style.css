@@ -1464,3 +1464,562 @@ kbd {
     height: 410px;
   }
 }
+
+/* ======================== Phase 1: Bundled Delivery Tabs & Cargo 3-Slot Modal ======================== */
+.phone-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.07);
+  flex-shrink: 0;
+}
+
+.phone-device.night .phone-tabs {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.phone-tab-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 5px 2px;
+  font-size: 9.8px;
+  font-weight: 800;
+  color: #475569;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
+}
+
+.phone-device.night .phone-tab-btn {
+  color: #94a3b8;
+}
+
+.phone-tab-btn.active {
+  background: #0d9488;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.35);
+}
+
+.phone-tab-badge {
+  display: inline-block;
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 8.5px;
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.phone-tab-btn.active .phone-tab-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.bundle-cap-pill {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.14);
+  color: #0f766e;
+}
+
+.phone-device.night .bundle-cap-pill {
+  background: rgba(45, 212, 191, 0.2);
+  color: #5eead4;
+}
+
+.bundle-cap-pill.full {
+  background: rgba(234, 88, 12, 0.18);
+  color: #ea580c;
+}
+
+.order-accept-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Accepted Mission Cards inside Phone */
+.accepted-card {
+  border-radius: 11px;
+  padding: 7px 8px;
+  background: #f1f5f9;
+  border: 1.5px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phone-device.night .accepted-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.accepted-card.focused {
+  border-color: #10b981;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3);
+}
+
+.accepted-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.slot-pill {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1.5px 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.18);
+  color: #059669;
+}
+
+.phone-device.night .slot-pill {
+  color: #34d399;
+}
+
+.slot-pill.hand {
+  background: rgba(245, 158, 11, 0.22);
+  color: #d97706;
+}
+
+.phone-device.night .slot-pill.hand {
+  color: #fbbf24;
+}
+
+.accepted-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.sheet-focus-btn {
+  border: none;
+  border-radius: 7px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.phone-device.night .sheet-focus-btn {
+  background: rgba(59, 130, 246, 0.24);
+  color: #93c5fd;
+}
+
+.sheet-focus-btn.active {
+  background: #10b981;
+  color: #ffffff;
+}
+
+/* Checklist Tab */
+.check-summary {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 5px 8px;
+  border-radius: 9px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.phone-device.night .check-summary {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+.check-card {
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: #f1f5f9;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phone-device.night .check-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.check-card.done {
+  opacity: 0.78;
+}
+
+.check-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chk-chip {
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.16);
+  color: #64748b;
+}
+
+.phone-device.night .chk-chip {
+  color: #94a3b8;
+}
+
+.chk-chip.checked {
+  background: rgba(16, 185, 129, 0.2);
+  color: #059669;
+}
+
+.phone-device.night .chk-chip.checked {
+  color: #34d399;
+}
+
+/* Recommended Route Guide Tab */
+.route-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  background: rgba(16, 185, 129, 0.12);
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #059669;
+}
+
+.phone-device.night .route-summary-bar {
+  background: rgba(16, 185, 129, 0.18);
+  color: #4ade80;
+}
+
+.route-auto-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 9.5px;
+  font-weight: 800;
+  cursor: pointer;
+  background: #0d9488;
+  color: #ffffff;
+}
+
+.route-auto-btn.inactive {
+  background: rgba(100, 116, 139, 0.25);
+  color: #475569;
+}
+
+.phone-device.night .route-auto-btn.inactive {
+  color: #cbd5e1;
+}
+
+.route-stop-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+}
+
+.phone-device.night .route-stop-card {
+  background: #1e293b;
+}
+
+.route-stop-card.current {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.route-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.route-step-num.pickup {
+  background: #ea580c;
+}
+
+.route-step-num.load_box {
+  background: #0284c7;
+}
+
+.route-step-num.dropoff {
+  background: #059669;
+}
+
+.route-stop-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-stop-title {
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-stop-sub {
+  font-size: 9.5px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phone-device.night .route-stop-sub {
+  color: #94a3b8;
+}
+
+.route-stop-dist {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #2563eb;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.phone-device.night .route-stop-dist {
+  color: #60a5fa;
+}
+
+.empty-tab-msg {
+  text-align: center;
+  font-size: 11px;
+  color: #64748b;
+  padding: 16px 8px;
+}
+
+.phone-device.night .empty-tab-msg {
+  color: #94a3b8;
+}
+
+/* ======================== Cargo Box 3-Slot Modal ======================== */
+.cargo-card {
+  width: min(410px, 92vw);
+  padding: 18px;
+  border-radius: 22px;
+  background: #0f172a;
+  border: 1px solid rgba(45, 212, 191, 0.42);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.72);
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.cargo-hand-banner {
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cargo-hand-banner.carrying {
+  background: rgba(234, 88, 12, 0.2);
+  border: 1px solid rgba(251, 146, 60, 0.5);
+  color: #fed7aa;
+}
+
+.cargo-hand-banner.free {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #a7f3d0;
+}
+
+.chb-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.chb-tag {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.chb-sub {
+  font-size: 11.5px;
+  color: #f8fafc;
+}
+
+.cargo-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cargo-slot-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #1e293b;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+}
+
+.cargo-slot-card.empty.actionable {
+  border-color: rgba(45, 212, 191, 0.55);
+  background: rgba(15, 118, 110, 0.18);
+}
+
+.cargo-slot-card.occupied.near-dest {
+  border-color: #22c55e;
+  background: rgba(20, 83, 45, 0.4);
+}
+
+.cs-left,
+.cs-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cs-top-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cs-slot-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cs-slot-badge.filled {
+  color: #5eead4;
+}
+
+.cs-ord-num {
+  font-size: 11.5px;
+  font-weight: 900;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(249, 115, 22, 0.25);
+  color: #fdba74;
+}
+
+.cs-dist {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: #60a5fa;
+}
+
+.cs-dist.here {
+  color: #4ade80;
+}
+
+.cs-empty-text {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.cs-dest {
+  font-size: 13px;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.cs-meta {
+  font-size: 11px;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-foot-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+.cs-pin b {
+  color: #38bdf8;
+}
+
+.cs-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 82px;
+}
+
+.cs-btn.load {
+  background: #0d9488;
+  color: #ffffff;
+}
+
+.cs-btn.load:hover:not(:disabled) {
+  background: #14b8a6;
+}
+
+.cs-btn.unload {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.cs-btn.unload:hover:not(:disabled) {
+  background: #3b82f6;
+}
+
+.cs-btn:disabled {
+  background: rgba(100, 116, 139, 0.28);
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.cargo-footer-hint {
+  text-align: center;
+  font-size: 11.5px;
+  color: #94a3b8;
+}

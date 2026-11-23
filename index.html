@@ -18,9 +18,9 @@
         </div>
         <div id="help-panel" class="help-grid">
           <div><kbd>F</kbd> <strong>오토바이 탑승 / 하차</strong></div>
-          <div><kbd>E</kbd> <strong>픽업 / 배달 완료</strong> (도보)</div>
+          <div><kbd>E</kbd> <strong>픽업 / 배달통 슬롯 / 배달</strong> (도보)</div>
           <div><kbd>Tab</kbd> <strong>휴대폰 꺼내기 / 거치대 장착</strong></div>
-          <div><kbd>V</kbd> / <kbd>폰 클릭</kbd> <strong>휴대폰 확대해서 보기</strong></div>
+          <div><kbd>V</kbd> / <kbd>폰 클릭</kbd> <strong>배달앱 확대 (최대 3건 묶음)</strong></div>
           <div><kbd>W A S D</kbd> 이동 / 오토바이 주행</div>
           <div><kbd>마우스 드래그</kbd> / <kbd>←→</kbd> 시선 회전</div>
           <div><kbd>Shift</kbd> 달리기 · <kbd>Space</kbd> 점프/브레이크</div>
@@ -237,6 +237,21 @@
       <!-- 5. 2-Second Elevator Black Fade Overlay -->
       <div id="fade-overlay" class="fade-overlay hidden">
         <div id="fade-caption" class="fade-caption">🛗 이동 중...</div>
+      </div>
+
+      <!-- 6. Scooter Rear Cargo Box 3-Slot Manager Modal -->
+      <div id="cargo-modal" class="modal-backdrop hidden">
+        <div class="cargo-card">
+          <div class="keypad-header">
+            <span id="cargo-modal-title">📦 오토바이 배달통 (0 / 3칸)</span>
+            <button class="keypad-close" data-action="close">✕</button>
+          </div>
+          <div id="cargo-hand-banner" class="cargo-hand-banner"></div>
+          <div id="cargo-slots-list" class="cargo-slots-list"></div>
+          <div class="cargo-footer-hint">
+            <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> 키 또는 클릭으로 슬롯 적재/꺼내기 · <kbd>Esc</kbd> 닫기
+          </div>
+        </div>
       </div>
     </div>
 

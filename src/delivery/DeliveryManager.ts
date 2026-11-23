@@ -1,8 +1,13 @@
-import { CITY_ROAD_LINES, DeliveryLocation } from '../types';
+import { DeliveryLocation } from '../types';
+import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
+
+export const MAX_CONCURRENT_ORDERS = 3;
+export const CARGO_SLOT_COUNT = 3;
+export const INTERACT_ZONE_RADIUS = 3.6;
 
 export interface DeliveryOrder {
   id: string;
-  orderNumber: string; // e.g., "A-12", "B-45", "77"
+  orderNumber: string; // e.g., "A-12", "B-07", "C-45"
   shop: DeliveryLocation;
   customer: DeliveryLocation;
   unitNumber: string; // e.g., "1402호"
@@ -14,8 +19,8 @@ export interface DeliveryOrder {
 
 export type MissionPhase =
   | 'to_pickup' // Go to outdoor store pickup counter & enter order number on POS
-  | 'carrying_to_box' // Food bag in hand (CARRYING_FOOD, cannot drive!) -> load into scooter rear cargo box
-  | 'cargo_loaded' // Food inside scooter cargo box (CARGO_LOADED) -> ride to residence & unload from box
+  | 'carrying_to_box' // Food bag in hand (CARRYING_FOOD, cannot drive!) -> load into scooter cargo slot
+  | 'cargo_loaded' // Food inside scooter cargo box slot (0..2) -> ride to residence & unload from slot
   | 'carrying_to_lobby' // Food bag back in hand -> enter 4-digit PIN at 1st-floor glass door
   | 'lobby_unlocked' // 1st-floor glass door open -> step to elevator to ride up to corridor
   | 'in_corridor' // Inside underground corridor (y=-500) -> place food on target unit doormat
@@ -27,6 +32,15 @@ export interface ActiveMission {
   phase: MissionPhase;
   foodIntegrity: number; // 0..100
   startedAt: number;
+  cargoSlot: number | null; // 0 | 1 | 2 when inside top-box
+  pickedUp: boolean;
+}
+
+export interface CompletedMissionRecord {
+  order: DeliveryOrder;
+  earned: number;
+  foodIntegrity: number;
+  completedAt: string;
 }
 
 export interface SettlementResult {
@@ -39,17 +53,43 @@ export interface SettlementResult {
   completedCount: number;
 }
 
-export interface RoutePoint {
+export interface RecommendedStop {
+  missionId: string;
+  orderNumber: string;
+  kind: 'pickup' | 'load_box' | 'dropoff';
+  location: DeliveryLocation | null; // null when kind === 'load_box' (scooter rear box)
   x: number;
   z: number;
+  label: string;
+  sublabel: string;
+  emoji: string;
+  cargoSlot: number | null;
+  legDistance: number;
+  cumulativeDistance: number;
+  isCurrent: boolean;
 }
 
-const ROAD_LINES = CITY_ROAD_LINES;
-export const INTERACT_ZONE_RADIUS = 3.6;
+export interface NavigationPlan {
+  focusMission: ActiveMission | null;
+  target: DeliveryLocation | null;
+  targetPos: { x: number; z: number } | null;
+  isPickupTarget: boolean;
+  isCargoBoxTarget: boolean;
+  route: RoutePoint[];
+  guidance: TurnGuidance | null;
+  recommendedStops: RecommendedStop[];
+  totalBundleDistance: number;
+}
+
+export type { RoutePoint };
 
 export class DeliveryManager {
   public availableOrders: DeliveryOrder[] = [];
-  public activeMission: ActiveMission | null = null;
+  public activeMissions: ActiveMission[] = [];
+  public cargoSlots: [string | null, string | null, string | null] = [null, null, null];
+  public completedMissions: CompletedMissionRecord[] = [];
+  public selectedMissionId: string | null = null; // null = Auto Recommended Route
+
   public totalEarnings = 0;
   public completedCount = 0;
 
@@ -57,17 +97,120 @@ export class DeliveryManager {
   private readonly residences: DeliveryLocation[];
   private orderSeq = 1;
 
+  // Cached navigation plan to avoid recomputing A* every frame when stationary
+  private cachedPlan: NavigationPlan | null = null;
+  private lastNavX = Infinity;
+  private lastNavZ = Infinity;
+  private lastNavHeading = Infinity;
+  private lastNavFingerprint = '';
+  private lastNavTime = -1;
+
   constructor(locations: DeliveryLocation[]) {
     this.shops = locations.filter((l) => l.type === 'shop');
     this.residences = locations.filter((l) => l.type === 'residential');
     this.refreshAvailableOrders();
   }
 
-  private generateOrderNumber(): string {
-    const prefixes = ['A-', 'B-', 'C-', ''];
-    const p = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const num = 10 + Math.floor(Math.random() * 89);
-    return `${p}${num}`;
+  /** Backward-compatible primary mission accessor (carried / corridor / pinned / first active) */
+  public get activeMission(): ActiveMission | null {
+    return (
+      this.getCorridorMission() ??
+      this.getCarryingMission() ??
+      (this.selectedMissionId
+        ? this.activeMissions.find((m) => m.order.id === this.selectedMissionId) ?? null
+        : null) ??
+      this.activeMissions[0] ??
+      null
+    );
+  }
+
+  public getMissionById(id: string | null): ActiveMission | null {
+    if (!id) return null;
+    return this.activeMissions.find((m) => m.order.id === id) ?? null;
+  }
+
+  public getCorridorMission(): ActiveMission | null {
+    return (
+      this.activeMissions.find(
+        (m) => m.phase === 'in_corridor' || m.phase === 'photo_mode' || m.phase === 'corridor_exit'
+      ) ?? null
+    );
+  }
+
+  public getCarryingMission(): ActiveMission | null {
+    return (
+      this.activeMissions.find(
+        (m) =>
+          m.phase === 'carrying_to_box' ||
+          m.phase === 'carrying_to_lobby' ||
+          m.phase === 'lobby_unlocked' ||
+          m.phase === 'in_corridor'
+      ) ?? null
+    );
+  }
+
+  public isCarryingFood(): boolean {
+    return this.getCarryingMission() !== null;
+  }
+
+  public isCargoLoaded(): boolean {
+    return this.cargoSlots.some((id) => id !== null);
+  }
+
+  public getLoadedCargoCount(): number {
+    let count = 0;
+    for (const id of this.cargoSlots) {
+      if (id !== null) count++;
+    }
+    return count;
+  }
+
+  public getCargoSlotOccupiedFlags(): [boolean, boolean, boolean] {
+    return [this.cargoSlots[0] !== null, this.cargoSlots[1] !== null, this.cargoSlots[2] !== null];
+  }
+
+  public getCargoSlotMission(slotIndex: number): ActiveMission | null {
+    if (slotIndex < 0 || slotIndex >= CARGO_SLOT_COUNT) return null;
+    const id = this.cargoSlots[slotIndex];
+    return id ? this.getMissionById(id) : null;
+  }
+
+  public getFirstEmptyCargoSlot(): number {
+    for (let i = 0; i < CARGO_SLOT_COUNT; i++) {
+      if (this.cargoSlots[i] === null) return i;
+    }
+    return -1;
+  }
+
+  public canAcceptMoreOrders(): boolean {
+    return this.activeMissions.length < MAX_CONCURRENT_ORDERS;
+  }
+
+  public setSelectedMission(missionId: string | null): void {
+    if (missionId === null) {
+      this.selectedMissionId = null;
+    } else if (this.activeMissions.some((m) => m.order.id === missionId)) {
+      this.selectedMissionId = missionId;
+    }
+    this.invalidateNavCache();
+  }
+
+  public invalidateNavCache(): void {
+    this.lastNavFingerprint = '';
+  }
+
+  private generateOrderNumber(usedNumbers: Set<string>): string {
+    const prefixes = ['A-', 'B-', 'C-'];
+    for (let tries = 0; tries < 25; tries++) {
+      const p = prefixes[Math.floor(Math.random() * prefixes.length)];
+      const num = String(1 + Math.floor(Math.random() * 98)).padStart(2, '0');
+      const code = `${p}${num}`;
+      if (!usedNumbers.has(code)) {
+        usedNumbers.add(code);
+        return code;
+      }
+    }
+    return `D-${10 + (this.orderSeq % 89)}`;
   }
 
   private generateUnitNumber(): string {
@@ -86,10 +229,13 @@ export class DeliveryManager {
 
   public refreshAvailableOrders(): void {
     const orders: DeliveryOrder[] = [];
-    const usedPairs = new Set<string>();
+    const usedPairs = new Set<string>(
+      this.activeMissions.map((m) => `${m.order.shop.id}-${m.order.customer.id}`)
+    );
+    const usedNumbers = new Set<string>(this.activeMissions.map((m) => m.order.orderNumber));
 
     let attempts = 0;
-    while (orders.length < 3 && attempts < 30) {
+    while (orders.length < 4 && attempts < 45) {
       attempts++;
       const shop = this.shops[Math.floor(Math.random() * this.shops.length)];
       const customer = this.residences[Math.floor(Math.random() * this.residences.length)];
@@ -105,7 +251,7 @@ export class DeliveryManager {
 
       orders.push({
         id: `ORD-${this.orderSeq++}`,
-        orderNumber: this.generateOrderNumber(),
+        orderNumber: this.generateOrderNumber(usedNumbers),
         shop,
         customer,
         unitNumber: this.generateUnitNumber(),
@@ -120,89 +266,182 @@ export class DeliveryManager {
   }
 
   public acceptOrder(orderId: string): DeliveryOrder | null {
-    if (this.activeMission) return null;
+    if (!this.canAcceptMoreOrders()) return null;
     const found = this.availableOrders.find((o) => o.id === orderId);
     if (!found) return null;
 
-    this.activeMission = {
+    this.activeMissions.push({
       order: found,
       phase: 'to_pickup',
       foodIntegrity: 100,
       startedAt: performance.now(),
-    };
+      cargoSlot: null,
+      pickedUp: false,
+    });
     this.availableOrders = this.availableOrders.filter((o) => o.id !== orderId);
+
+    // Keep at least 3 fresh calls ready so bundled pickups feel lively
+    if (this.availableOrders.length < 2) {
+      this.replenishAvailableOrders();
+    }
+    this.invalidateNavCache();
     return found;
   }
 
-  public cancelActiveMission(): void {
-    this.activeMission = null;
-    if (this.availableOrders.length < 3) {
-      this.refreshAvailableOrders();
+  private replenishAvailableOrders(): void {
+    const usedPairs = new Set<string>([
+      ...this.activeMissions.map((m) => `${m.order.shop.id}-${m.order.customer.id}`),
+      ...this.availableOrders.map((o) => `${o.shop.id}-${o.customer.id}`),
+    ]);
+    const usedNumbers = new Set<string>([
+      ...this.activeMissions.map((m) => m.order.orderNumber),
+      ...this.availableOrders.map((o) => o.orderNumber),
+    ]);
+
+    let attempts = 0;
+    while (this.availableOrders.length < 4 && attempts < 35) {
+      attempts++;
+      const shop = this.shops[Math.floor(Math.random() * this.shops.length)];
+      const customer = this.residences[Math.floor(Math.random() * this.residences.length)];
+      const key = `${shop.id}-${customer.id}`;
+      if (usedPairs.has(key)) continue;
+      usedPairs.add(key);
+
+      const menus = shop.menus ?? ['배달 음식 세트'];
+      const menuName = menus[Math.floor(Math.random() * menus.length)];
+      const manhattan = Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z);
+      const distanceMeters = Math.round(manhattan);
+      const baseFee = Math.round((3200 + distanceMeters * 12) / 100) * 100;
+
+      this.availableOrders.push({
+        id: `ORD-${this.orderSeq++}`,
+        orderNumber: this.generateOrderNumber(usedNumbers),
+        shop,
+        customer,
+        unitNumber: this.generateUnitNumber(),
+        doorPin: this.generateDoorPin(),
+        menuName,
+        baseFee,
+        distanceMeters,
+      });
     }
   }
 
-  public isCarryingFood(): boolean {
-    if (!this.activeMission) return false;
-    const p = this.activeMission.phase;
-    return (
-      p === 'carrying_to_box' ||
-      p === 'carrying_to_lobby' ||
-      p === 'lobby_unlocked' ||
-      p === 'in_corridor'
-    );
+  public cancelMission(orderId: string): ActiveMission | null {
+    const idx = this.activeMissions.findIndex((m) => m.order.id === orderId);
+    if (idx === -1) return null;
+    const m = this.activeMissions[idx];
+    if (m.phase === 'in_corridor' || m.phase === 'photo_mode' || m.phase === 'corridor_exit') {
+      return null;
+    }
+
+    if (m.cargoSlot !== null && this.cargoSlots[m.cargoSlot] === orderId) {
+      this.cargoSlots[m.cargoSlot] = null;
+    }
+    this.activeMissions.splice(idx, 1);
+    if (this.selectedMissionId === orderId) {
+      this.selectedMissionId = null;
+    }
+    if (this.availableOrders.length < 3) {
+      this.replenishAvailableOrders();
+    }
+    this.invalidateNavCache();
+    return m;
   }
 
-  public isCargoLoaded(): boolean {
-    return this.activeMission?.phase === 'cargo_loaded';
+  /** Complete POS pickup for a specific `to_pickup` mission (only when hands are free) */
+  public completePosPickup(missionId: string): ActiveMission | null {
+    if (this.isCarryingFood()) return null;
+    const m = this.getMissionById(missionId);
+    if (!m || m.phase !== 'to_pickup') return null;
+    m.phase = 'carrying_to_box';
+    m.pickedUp = true;
+    this.invalidateNavCache();
+    return m;
   }
 
-  public completePosPickup(): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'to_pickup') return false;
-    this.activeMission.phase = 'carrying_to_box';
-    return true;
+  /** Load currently held food bag (`carrying_to_box` or `carrying_to_lobby`) into a specific cargo slot (0..2) */
+  public loadFoodIntoCargoSlot(slotIndex: number): ActiveMission | null {
+    if (slotIndex < 0 || slotIndex >= CARGO_SLOT_COUNT) return null;
+    if (this.cargoSlots[slotIndex] !== null) return null;
+    const carrying = this.getCarryingMission();
+    if (!carrying) return null;
+    if (carrying.phase !== 'carrying_to_box' && carrying.phase !== 'carrying_to_lobby') {
+      return null;
+    }
+
+    this.cargoSlots[slotIndex] = carrying.order.id;
+    carrying.cargoSlot = slotIndex;
+    carrying.phase = 'cargo_loaded';
+    this.invalidateNavCache();
+    return carrying;
   }
 
-  public loadFoodIntoCargoBox(): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'carrying_to_box') return false;
-    this.activeMission.phase = 'cargo_loaded';
-    return true;
+  /** Unload a specific cargo slot (0..2) into the rider's left hand (`carrying_to_lobby`) */
+  public unloadFoodFromCargoSlot(slotIndex: number): ActiveMission | null {
+    if (slotIndex < 0 || slotIndex >= CARGO_SLOT_COUNT) return null;
+    if (this.isCarryingFood()) return null;
+    const id = this.cargoSlots[slotIndex];
+    if (!id) return null;
+    const m = this.getMissionById(id);
+    if (!m || m.phase !== 'cargo_loaded') return null;
+
+    this.cargoSlots[slotIndex] = null;
+    m.cargoSlot = null;
+    m.phase = 'carrying_to_lobby';
+    this.invalidateNavCache();
+    return m;
   }
 
-  public unloadFoodFromCargoBox(): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'cargo_loaded') return false;
-    this.activeMission.phase = 'carrying_to_lobby';
-    return true;
+  public unlockLobbyDoor(missionId: string): ActiveMission | null {
+    const m = this.getMissionById(missionId);
+    if (!m || m.phase !== 'carrying_to_lobby') return null;
+    m.phase = 'lobby_unlocked';
+    this.invalidateNavCache();
+    return m;
   }
 
-  public unlockLobbyDoor(): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'carrying_to_lobby') return false;
-    this.activeMission.phase = 'lobby_unlocked';
-    return true;
+  public enterCorridor(missionId: string): ActiveMission | null {
+    const m = this.getMissionById(missionId);
+    if (!m || m.phase !== 'lobby_unlocked') return null;
+    m.phase = 'in_corridor';
+    this.invalidateNavCache();
+    return m;
   }
 
-  public enterCorridor(): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'lobby_unlocked') return false;
-    this.activeMission.phase = 'in_corridor';
-    return true;
-  }
-
-  public placeFoodAtDoor(): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'in_corridor') return false;
-    this.activeMission.phase = 'photo_mode';
-    return true;
+  public placeFoodAtDoor(): ActiveMission | null {
+    const m = this.getCorridorMission();
+    if (!m || m.phase !== 'in_corridor') return null;
+    m.phase = 'photo_mode';
+    return m;
   }
 
   /** Called when the player presses shutter in smartphone camera viewfinder! */
   public completePhotoSettlement(): SettlementResult | null {
-    if (!this.activeMission || this.activeMission.phase !== 'photo_mode') return null;
+    const m = this.getCorridorMission();
+    if (!m || m.phase !== 'photo_mode') return null;
 
-    const m = this.activeMission;
     const integrityFactor = m.foodIntegrity / 100;
     const tip = m.foodIntegrity >= 95 ? 500 : 0;
     const earned = Math.round((m.order.baseFee * integrityFactor + tip) / 100) * 100;
 
     this.totalEarnings += earned;
     this.completedCount += 1;
+
+    const now = new Date();
+    const completedAt = `${String(now.getHours()).padStart(2, '0')}:${String(
+      now.getMinutes()
+    ).padStart(2, '0')}`;
+
+    this.completedMissions.unshift({
+      order: m.order,
+      earned,
+      foodIntegrity: m.foodIntegrity,
+      completedAt,
+    });
+    if (this.completedMissions.length > 12) {
+      this.completedMissions.length = 12;
+    }
 
     const result: SettlementResult = {
       order: m.order,
@@ -214,53 +453,75 @@ export class DeliveryManager {
       completedCount: this.completedCount,
     };
 
-    // Stay in corridor until player takes the elevator back down!
-    this.activeMission.phase = 'corridor_exit';
+    m.phase = 'corridor_exit';
     return result;
   }
 
   public finishAfterCorridorExit(): void {
-    this.activeMission = null;
-    this.refreshAvailableOrders();
-  }
-
-  public getCurrentOutdoorTarget(): DeliveryLocation | null {
-    if (!this.activeMission) return null;
-    const p = this.activeMission.phase;
-    if (p === 'to_pickup') return this.activeMission.order.shop;
-    if (p === 'cargo_loaded' || p === 'carrying_to_lobby' || p === 'lobby_unlocked') {
-      return this.activeMission.order.customer;
+    const finished = this.activeMissions.find((m) => m.phase === 'corridor_exit');
+    if (finished) {
+      if (this.selectedMissionId === finished.order.id) {
+        this.selectedMissionId = null;
+      }
+      this.activeMissions = this.activeMissions.filter((m) => m.order.id !== finished.order.id);
     }
-    return null;
+    this.replenishAvailableOrders();
+    this.invalidateNavCache();
   }
 
-  public getDistanceToOutdoorTarget(x: number, z: number): number | null {
-    const target = this.getCurrentOutdoorTarget();
-    if (!target) return null;
-    return Math.hypot(x - target.x, z - target.z);
-  }
-
-  public isNearShopPickup(x: number, z: number): boolean {
-    if (!this.activeMission || this.activeMission.phase !== 'to_pickup') return false;
-    const s = this.activeMission.order.shop;
-    return Math.hypot(x - s.x, z - s.z) <= INTERACT_ZONE_RADIUS;
-  }
-
-  public isNearCustomerLobby(x: number, z: number): boolean {
-    if (!this.activeMission) return false;
-    const p = this.activeMission.phase;
-    if (p !== 'carrying_to_lobby' && p !== 'lobby_unlocked') return false;
-    const c = this.activeMission.order.customer;
-    return Math.hypot(x - c.x, z - c.z) <= INTERACT_ZONE_RADIUS;
-  }
-
-  public applyCrashDamage(): number {
-    if (!this.activeMission || this.activeMission.phase !== 'cargo_loaded') {
-      return 0;
+  /** Returns the nearest `to_pickup` mission whose outdoor shop counter is within interact radius */
+  public getMissionNearShopPickup(x: number, z: number): ActiveMission | null {
+    let best: ActiveMission | null = null;
+    let bestDist = INTERACT_ZONE_RADIUS;
+    for (const m of this.activeMissions) {
+      if (m.phase !== 'to_pickup') continue;
+      const d = Math.hypot(x - m.order.shop.x, z - m.order.shop.z);
+      if (d <= bestDist) {
+        // Prefer pinned mission if tied at the same shop
+        if (best && d === bestDist && best.order.id === this.selectedMissionId) continue;
+        best = m;
+        bestDist = d;
+      }
     }
-    const loss = 28;
-    this.activeMission.foodIntegrity = Math.max(15, this.activeMission.foodIntegrity - loss);
-    return loss;
+    return best;
+  }
+
+  /** Returns the carried mission if player is near its target customer lobby */
+  public getMissionNearCustomerLobby(x: number, z: number): ActiveMission | null {
+    const carrying = this.getCarryingMission();
+    if (!carrying) return null;
+    if (carrying.phase !== 'carrying_to_lobby' && carrying.phase !== 'lobby_unlocked') return null;
+    const c = carrying.order.customer;
+    return Math.hypot(x - c.x, z - c.z) <= INTERACT_ZONE_RADIUS ? carrying : null;
+  }
+
+  /** Helper: checks if player is standing right in front of any residential lobby (to warn about wrong bag) */
+  public getNearestResidenceWithin(x: number, z: number, radius = INTERACT_ZONE_RADIUS): DeliveryLocation | null {
+    let best: DeliveryLocation | null = null;
+    let bestD = radius;
+    for (const r of this.residences) {
+      const d = Math.hypot(x - r.x, z - r.z);
+      if (d <= bestD) {
+        best = r;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** Applies crash damage to ALL food bags currently loaded in the 3 cargo box slots */
+  public applyCrashDamage(): { damagedCount: number; loss: number } {
+    const loss = 25;
+    let damagedCount = 0;
+    for (const id of this.cargoSlots) {
+      if (!id) continue;
+      const m = this.getMissionById(id);
+      if (m && m.phase === 'cargo_loaded') {
+        m.foodIntegrity = Math.max(15, m.foodIntegrity - loss);
+        damagedCount++;
+      }
+    }
+    return { damagedCount, loss: damagedCount > 0 ? loss : 0 };
   }
 
   public applyFine(amount: number): number {
@@ -269,50 +530,267 @@ export class DeliveryManager {
     return deducted;
   }
 
-  public computeRoute(fromX: number, fromZ: number): RoutePoint[] {
-    const target = this.getCurrentOutdoorTarget();
-    if (!target) return [];
+  /**
+   * Computes the optimal valid multi-stop sequence (Recommended Route Guide) for up to 3 bundled orders,
+   * then computes the live A* shortest path & turn-by-turn guidance to the active stop.
+   * Cached and throttled cleanly so per-frame CPU overhead is near zero.
+   */
+  public getNavigationPlan(
+    playerX: number,
+    playerZ: number,
+    playerHeading: number,
+    scooterX: number,
+    scooterZ: number,
+    inCorridor: boolean,
+    elapsedTime: number,
+    navigator: RoadNavigator
+  ): NavigationPlan {
+    if (inCorridor || this.activeMissions.length === 0) {
+      return {
+        focusMission: this.activeMission,
+        target: null,
+        targetPos: null,
+        isPickupTarget: false,
+        isCargoBoxTarget: false,
+        route: [],
+        guidance: null,
+        recommendedStops: [],
+        totalBundleDistance: 0,
+      };
+    }
 
-    const snapRoad = (v: number) => {
-      let best: number = ROAD_LINES[0];
-      let bestDist = Infinity;
-      for (const r of ROAD_LINES) {
-        const d = Math.abs(v - r);
-        if (d < bestDist) {
-          bestDist = d;
-          best = r;
-        }
+    const fp =
+      `${this.selectedMissionId ?? 'auto'}|` +
+      this.activeMissions.map((m) => `${m.order.id}:${m.phase}:${m.cargoSlot}`).join(',');
+
+    const moved = Math.hypot(playerX - this.lastNavX, playerZ - this.lastNavZ);
+    const turned = Math.abs(playerHeading - this.lastNavHeading);
+    const dtSince = elapsedTime - this.lastNavTime;
+
+    if (
+      this.cachedPlan &&
+      fp === this.lastNavFingerprint &&
+      moved < 1.8 &&
+      turned < 0.22 &&
+      dtSince < 0.25
+    ) {
+      return this.cachedPlan;
+    }
+
+    const stops = this.computeRecommendedStops(playerX, playerZ, scooterX, scooterZ);
+
+    // Determine active stop:
+    //  1) If carrying food, immediate priority is ALWAYS that carried mission (load to box or drop off)
+    //  2) Else if user manually pinned a mission (`selectedMissionId`), focus its next stop
+    //  3) Else follow recommendedStops[0]
+    let currentStop: RecommendedStop | null = stops[0] ?? null;
+    const carrying = this.getCarryingMission();
+    if (!carrying && this.selectedMissionId) {
+      const pinnedStop = stops.find((s) => s.missionId === this.selectedMissionId);
+      if (pinnedStop) {
+        currentStop = pinnedStop;
       }
-      return best;
+    }
+
+    for (const s of stops) {
+      s.isCurrent = currentStop !== null && s.missionId === currentStop.missionId && s.kind === currentStop.kind;
+    }
+
+    const focusMission = currentStop ? this.getMissionById(currentStop.missionId) : null;
+    const targetPos = currentStop ? { x: currentStop.x, z: currentStop.z } : null;
+    const target = currentStop?.location ?? null;
+    const isPickupTarget = currentStop?.kind === 'pickup';
+    const isCargoBoxTarget = currentStop?.kind === 'load_box';
+
+    let route: RoutePoint[] = [];
+    let guidance: TurnGuidance | null = null;
+
+    if (targetPos) {
+      if (isCargoBoxTarget) {
+        const directDist = Math.hypot(targetPos.x - playerX, targetPos.z - playerZ);
+        route = [
+          { x: playerX, z: playerZ },
+          { x: targetPos.x, z: targetPos.z },
+        ];
+        guidance = {
+          direction: 'arrive',
+          distanceToTurn: Math.round(directDist),
+          totalDistance: Math.round(directDist),
+          instructionText: `배달통 적재 (${Math.round(directDist)}m)`,
+        };
+      } else {
+        const pathRes = navigator.findShortestPath(playerX, playerZ, targetPos.x, targetPos.z);
+        route = pathRes.points;
+        guidance = navigator.computeTurnGuidance(route, pathRes.distance, playerHeading);
+      }
+    }
+
+    const totalBundleDistance =
+      stops.length > 0 ? Math.round(stops[stops.length - 1].cumulativeDistance) : 0;
+
+    const plan: NavigationPlan = {
+      focusMission,
+      target,
+      targetPos,
+      isPickupTarget,
+      isCargoBoxTarget,
+      route,
+      guidance,
+      recommendedStops: stops,
+      totalBundleDistance,
     };
 
-    const startRoadZ = snapRoad(fromZ);
-    const endRoadX = snapRoad(target.x);
-    const endRoadZ = snapRoad(target.z);
+    this.cachedPlan = plan;
+    this.lastNavX = playerX;
+    this.lastNavZ = playerZ;
+    this.lastNavHeading = playerHeading;
+    this.lastNavFingerprint = fp;
+    this.lastNavTime = elapsedTime;
+    return plan;
+  }
 
-    const pts: RoutePoint[] = [{ x: fromX, z: fromZ }];
-    if (Math.abs(fromX - target.x) + Math.abs(fromZ - target.z) < 28) {
-      pts.push({ x: target.x, z: target.z });
-      return pts;
+  /**
+   * Exact optimal valid stop ordering (TSP with pickup->dropoff precedence) over <= 3 active orders.
+   * Uses Manhattan road-grid metric for ultra-fast (<0.05ms) evaluation of all valid sequences (<= 90).
+   */
+  private computeRecommendedStops(
+    playerX: number,
+    playerZ: number,
+    scooterX: number,
+    scooterZ: number
+  ): RecommendedStop[] {
+    if (this.activeMissions.length === 0) return [];
+
+    interface StepCandidate {
+      mission: ActiveMission;
+      kind: 'pickup' | 'load_box' | 'dropoff';
+      x: number;
+      z: number;
+      location: DeliveryLocation | null;
     }
 
-    pts.push({ x: fromX, z: startRoadZ });
-    pts.push({ x: endRoadX, z: startRoadZ });
-    if (endRoadZ !== startRoadZ) {
-      pts.push({ x: endRoadX, z: endRoadZ });
-    }
-    if (Math.hypot(target.x - endRoadX, target.z - endRoadZ) > 3) {
-      pts.push({ x: target.x, z: endRoadZ });
-    }
-    pts.push({ x: target.x, z: target.z });
+    const forcedFirst: StepCandidate[] = [];
+    const missions = this.activeMissions;
 
-    const cleaned: RoutePoint[] = [pts[0]];
-    for (let i = 1; i < pts.length; i++) {
-      const prev = cleaned[cleaned.length - 1];
-      if (Math.hypot(pts[i].x - prev.x, pts[i].z - prev.z) > 2) {
-        cleaned.push(pts[i]);
+    // 0 = needs pickup then dropoff, 1 = needs dropoff only, 2 = already handled/done
+    const initialStage: number[] = missions.map((m) => {
+      if (m.phase === 'to_pickup') return 0;
+      if (m.phase === 'carrying_to_box') {
+        forcedFirst.push({
+          mission: m,
+          kind: 'load_box',
+          x: scooterX,
+          z: scooterZ,
+          location: null,
+        });
+        return 1; // after loading into box, still needs dropoff
       }
+      if (m.phase === 'carrying_to_lobby' || m.phase === 'lobby_unlocked') {
+        forcedFirst.push({
+          mission: m,
+          kind: 'dropoff',
+          x: m.order.customer.x,
+          z: m.order.customer.z,
+          location: m.order.customer,
+        });
+        return 2; // already forced as immediate first stop
+      }
+      if (m.phase === 'cargo_loaded') return 1;
+      return 2;
+    });
+
+    const startX = forcedFirst.length > 0 ? forcedFirst[forcedFirst.length - 1].x : playerX;
+    const startZ = forcedFirst.length > 0 ? forcedFirst[forcedFirst.length - 1].z : playerZ;
+
+    let bestCost = Infinity;
+    let bestTail: StepCandidate[] = [];
+
+    const manhattan = (ax: number, az: number, bx: number, bz: number) =>
+      Math.abs(ax - bx) + Math.abs(az - bz);
+
+    const search = (
+      cx: number,
+      cz: number,
+      stages: number[],
+      costSoFar: number,
+      seq: StepCandidate[]
+    ) => {
+      if (costSoFar >= bestCost) return;
+
+      let remaining = false;
+      for (let i = 0; i < missions.length; i++) {
+        if (stages[i] < 2) {
+          remaining = true;
+          const m = missions[i];
+          const isPickup = stages[i] === 0;
+          const loc = isPickup ? m.order.shop : m.order.customer;
+          const nextCost = costSoFar + manhattan(cx, cz, loc.x, loc.z);
+
+          stages[i]++;
+          seq.push({
+            mission: m,
+            kind: isPickup ? 'pickup' : 'dropoff',
+            x: loc.x,
+            z: loc.z,
+            location: loc,
+          });
+          search(loc.x, loc.z, stages, nextCost, seq);
+          seq.pop();
+          stages[i]--;
+        }
+      }
+
+      if (!remaining && costSoFar < bestCost) {
+        bestCost = costSoFar;
+        bestTail = [...seq];
+      }
+    };
+
+    search(startX, startZ, [...initialStage], 0, []);
+
+    const fullSeq = [...forcedFirst, ...bestTail];
+    const result: RecommendedStop[] = [];
+    let prevX = playerX;
+    let prevZ = playerZ;
+    let cumDist = 0;
+
+    for (let i = 0; i < fullSeq.length; i++) {
+      const st = fullSeq[i];
+      const leg = Math.round(manhattan(prevX, prevZ, st.x, st.z));
+      cumDist += leg;
+      prevX = st.x;
+      prevZ = st.z;
+
+      const m = st.mission;
+      const slotTag = m.cargoSlot !== null ? ` · 슬롯 ${m.cargoSlot + 1}` : '';
+      result.push({
+        missionId: m.order.id,
+        orderNumber: m.order.orderNumber,
+        kind: st.kind,
+        location: st.location,
+        x: st.x,
+        z: st.z,
+        label:
+          st.kind === 'pickup'
+            ? m.order.shop.name
+            : st.kind === 'load_box'
+              ? '오토바이 배달통 적재'
+              : `${m.order.customer.name} ${m.order.unitNumber}`,
+        sublabel:
+          st.kind === 'pickup'
+            ? `픽업 #${m.order.orderNumber} · ${m.order.menuName}`
+            : st.kind === 'load_box'
+              ? `손에 든 #${m.order.orderNumber} 적재 후 이동`
+              : `배달 #${m.order.orderNumber}${slotTag} · PIN ${m.order.doorPin}`,
+        emoji:
+          st.kind === 'pickup' ? m.order.shop.emoji : st.kind === 'load_box' ? '📦' : m.order.customer.emoji,
+        cargoSlot: m.cargoSlot,
+        legDistance: leg,
+        cumulativeDistance: cumDist,
+        isCurrent: i === 0,
+      });
     }
-    return cleaned;
+
+    return result;
   }
 }
