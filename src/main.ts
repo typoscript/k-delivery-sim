@@ -976,6 +976,10 @@ function animate(now: number): void {
         const leftZ = -Math.sin(scooterPhysics.state.heading);
         const hitSide = relX * leftX + relZ * leftZ >= 0 ? 1 : -1;
         scooterPhysics.triggerExternalCrash(hitSide);
+      },
+      () => {
+        audio.playAiCarHorn();
+        hud.showToast('📢 빵빵! 차량 차선 끼어들기 주의!', 1800);
       }
     );
     pedestrians.update(

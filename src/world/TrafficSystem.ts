@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BusStopPoint, CITY_ROAD_LINES, ObstacleBox, clamp, wrapAngle } from '../types';
 
 export type SignalColor = 'green' | 'yellow' | 'red';
+export type VehicleDriveState = 'CRUISING' | 'DECELERATING' | 'STOPPED' | 'EMERGENCY_BRAKE';
 
 export interface SignalStateSnapshot {
   ns: SignalColor;
@@ -21,19 +22,25 @@ type CardinalDir = 0 | 1 | 2 | 3; // 0: +Z (N), 1: +X (E), 2: -Z (S), 3: -X (W)
 const ROAD_LINES = CITY_ROAD_LINES;
 const LANE_OFFSET = 3.5;
 const STOP_LINE_DIST = 11.2;
+const SIGNAL_STOP_MARGIN = 3.0; // Stop smoothly 3m before intersection stop line on RED/YELLOW!
+const FRONT_RAY_RANGE = 12.0; // 12m forward bumper raycast distance sensor
+const SAFE_FOLLOW_GAP = 5.0; // Full brake when ahead vehicle is within 5m
+const ACTIVE_SPAWN_RADIUS = 120.0; // Maintain 20~25 vehicle density within 120m of player
 const CYCLE_DURATION = 18.0;
 
 interface AiVehicle {
   mesh: THREE.Group;
+  wheels: THREE.Object3D[];
   brakeMat: THREE.MeshStandardMaterial;
   headlightMat: THREE.MeshStandardMaterial;
   hazardMat?: THREE.MeshStandardMaterial;
+  taxiCapMat?: THREE.MeshStandardMaterial;
   isBus: boolean;
+  isTaxi: boolean;
+  driveState: VehicleDriveState;
   x: number;
   z: number;
   heading: number;
-  dir: CardinalDir;
-  roadIndex: number;
   speed: number;
   cruiseSpeed: number;
   braking: boolean;
@@ -45,9 +52,14 @@ interface AiVehicle {
   // Bus stop dwell state
   busStopWaitTimer: number;
   busStopCooldown: number;
+  // Cut-in single-honk state
+  playerCutInActive: boolean;
+  hornCooldown: number;
   colorHex: string;
   halfWidth: number;
   halfLength: number;
+  dir: CardinalDir;
+  roadIndex: number;
 }
 
 function dirVector(dir: CardinalDir): [number, number] {
@@ -102,10 +114,32 @@ export class TrafficSystem {
   private prevPlayerX = -62;
   private prevPlayerZ = -34.2;
   private violationCooldown = 0;
+  private recycleTimer = 0;
+
+  // Shared beveled low-poly car geometries & reusable raycast scratch objects (zero per-frame GC!)
+  private readonly beveledSedanBodyGeo: THREE.BufferGeometry;
+  private readonly beveledSedanCabinGeo: THREE.BufferGeometry;
+  private readonly beveledVanCabinGeo: THREE.BufferGeometry;
+  private readonly carWheelGeo: THREE.CylinderGeometry;
+  private readonly carRimGeo: THREE.CylinderGeometry;
+
+  private readonly frontRay = new THREE.Ray();
+  private readonly rayHitPoint = new THREE.Vector3();
+  private readonly tmpBox = new THREE.Box3();
+  private readonly tmpMin = new THREE.Vector3();
+  private readonly tmpMax = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, busStops: BusStopPoint[]) {
     this.busStops = busStops;
     scene.add(this.root);
+
+    this.beveledSedanBodyGeo = this.createBeveledBoxGeometry(1.88, 0.68, 4.24, 0.08);
+    this.beveledSedanCabinGeo = this.createBeveledBoxGeometry(1.68, 0.6, 2.18, 0.08);
+    this.beveledVanCabinGeo = this.createBeveledBoxGeometry(1.74, 0.9, 3.16, 0.08);
+    this.carWheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12);
+    this.carWheelGeo.rotateZ(Math.PI / 2);
+    this.carRimGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.24, 10);
+    this.carRimGeo.rotateZ(Math.PI / 2);
 
     this.nsRedMat = new THREE.MeshStandardMaterial({ color: 0x3b0a0a, emissive: 0xef4444, emissiveIntensity: 0 });
     this.nsYellowMat = new THREE.MeshStandardMaterial({ color: 0x3b2c0a, emissive: 0xfacc15, emissiveIntensity: 0 });
@@ -305,29 +339,72 @@ export class TrafficSystem {
     return { group, brakeMat, headlightMat, hazardMat };
   }
 
+  /** Creates a crisp low-poly chamfered/beveled box geometry centered at origin */
+  private createBeveledBoxGeometry(
+    w: number,
+    h: number,
+    d: number,
+    bevel: number
+  ): THREE.BufferGeometry {
+    const bw = Math.max(0.1, w - bevel * 2);
+    const bh = Math.max(0.1, h - bevel * 2);
+    const bd = Math.max(0.1, d - bevel * 2);
+
+    const shape = new THREE.Shape();
+    const hw = bw / 2;
+    const hh = bh / 2;
+    const r = Math.min(bevel * 0.9, hw * 0.3, hh * 0.3);
+    shape.moveTo(-hw + r, -hh);
+    shape.lineTo(hw - r, -hh);
+    shape.quadraticCurveTo(hw, -hh, hw, -hh + r);
+    shape.lineTo(hw, hh - r);
+    shape.quadraticCurveTo(hw, hh, hw - r, hh);
+    shape.lineTo(-hw + r, hh);
+    shape.quadraticCurveTo(-hw, hh, -hw, hh - r);
+    shape.lineTo(-hw, -hh + r);
+    shape.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: bd,
+      bevelEnabled: true,
+      bevelSegments: 1,
+      steps: 1,
+      bevelSize: bevel,
+      bevelThickness: bevel,
+      curveSegments: 2,
+    });
+    geo.center();
+    return geo;
+  }
+
   private createCarMesh(
     bodyColor: number,
     isTaxi: boolean,
-    isVan: boolean
+    isVan: boolean,
+    silverTaxi = false
   ): {
     group: THREE.Group;
+    wheels: THREE.Object3D[];
     brakeMat: THREE.MeshStandardMaterial;
     headlightMat: THREE.MeshStandardMaterial;
+    taxiCapMat?: THREE.MeshStandardMaterial;
   } {
     const group = new THREE.Group();
+    const wheels: THREE.Object3D[] = [];
 
     const paintMat = new THREE.MeshStandardMaterial({
       color: bodyColor,
-      roughness: 0.35,
-      metalness: 0.25,
+      roughness: 0.34,
+      metalness: silverTaxi ? 0.5 : 0.25,
     });
     const glassMat = new THREE.MeshStandardMaterial({
       color: 0x0f172a,
-      roughness: 0.15,
-      metalness: 0.5,
+      roughness: 0.14,
+      metalness: 0.52,
     });
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x1e242c, roughness: 0.72 });
     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9 });
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.6, roughness: 0.35 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.62, roughness: 0.32 });
     const brakeMat = new THREE.MeshStandardMaterial({
       color: 0x7f1d1d,
       emissive: 0xef4444,
@@ -339,40 +416,74 @@ export class TrafficSystem {
       emissiveIntensity: 0.35,
     });
 
-    const length = isVan ? 4.5 : 4.2;
+    const length = isVan ? 4.45 : 4.24;
     const width = 1.88;
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(width, 0.72, length), paintMat);
+    // Beveled low-poly lower chassis
+    const body = new THREE.Mesh(this.beveledSedanBodyGeo, paintMat);
     body.position.set(0, 0.66, 0);
+    if (isVan) body.scale.set(1, 1.05, 1.05);
     body.castShadow = true;
     body.receiveShadow = true;
     group.add(body);
 
-    const cabinLen = isVan ? 3.2 : 2.15;
-    const cabinHeight = isVan ? 0.95 : 0.64;
+    // Front grille & rear bumper accents
+    const grille = new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.22, 0.08), bumperMat);
+    grille.position.set(0, 0.56, length / 2 + 0.01);
+    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.18, 0.08), bumperMat);
+    rearBumper.position.set(0, 0.44, -length / 2 - 0.01);
+    group.add(grille, rearBumper);
+
+    // Beveled cabin roof
+    const cabinLen = isVan ? 3.16 : 2.18;
+    const cabinHeight = isVan ? 0.9 : 0.6;
     const cabinZ = isVan ? -0.35 : -0.18;
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(width - 0.16, cabinHeight, cabinLen), paintMat);
-    cabin.position.set(0, 1.02 + cabinHeight / 2 - 0.04, cabinZ);
+    const cabin = new THREE.Mesh(
+      isVan ? this.beveledVanCabinGeo : this.beveledSedanCabinGeo,
+      paintMat
+    );
+    cabin.position.set(0, 1.0 + cabinHeight / 2 - 0.04, cabinZ);
     cabin.castShadow = true;
     group.add(cabin);
 
-    const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.28, cabinHeight * 0.66, 0.06), glassMat);
-    frontGlass.position.set(0, 1.0 + cabinHeight * 0.45, cabinZ + cabinLen / 2 + 0.01);
-    const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.28, cabinHeight * 0.62, 0.06), glassMat);
-    rearGlass.position.set(0, 1.0 + cabinHeight * 0.45, cabinZ - cabinLen / 2 - 0.01);
-    group.add(frontGlass, rearGlass);
+    // Sloped front/rear windshields & side window bands
+    const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.32, cabinHeight * 0.66, 0.06), glassMat);
+    frontGlass.position.set(0, 0.98 + cabinHeight * 0.44, cabinZ + cabinLen / 2 - 0.02);
+    frontGlass.rotation.x = -0.22;
+    const rearGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.32, cabinHeight * 0.62, 0.06), glassMat);
+    rearGlass.position.set(0, 0.98 + cabinHeight * 0.44, cabinZ - cabinLen / 2 + 0.02);
+    rearGlass.rotation.x = 0.2;
+    const sideGlass = new THREE.Mesh(new THREE.BoxGeometry(width - 0.16, cabinHeight * 0.56, cabinLen - 0.36), glassMat);
+    sideGlass.position.set(0, 1.0 + cabinHeight * 0.44, cabinZ);
+    group.add(frontGlass, rearGlass, sideGlass);
 
+    // Seoul Taxi (Orange / Silver) glowing roof cab light + side livery stripe + red "빈차" indicator!
+    let taxiCapMat: THREE.MeshStandardMaterial | undefined;
     if (isTaxi) {
-      const cap = new THREE.Mesh(
-        new THREE.BoxGeometry(0.55, 0.2, 0.24),
-        new THREE.MeshStandardMaterial({
-          color: 0xfef08a,
-          emissive: 0xfacc15,
-          emissiveIntensity: 0.85,
-        })
+      taxiCapMat = new THREE.MeshStandardMaterial({
+        color: 0xfef08a,
+        emissive: 0xfacc15,
+        emissiveIntensity: 1.6,
+      });
+      const capBase = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.28), bumperMat);
+      capBase.position.set(0, 1.59, -0.08);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.2, 0.22), taxiCapMat);
+      cap.position.set(0, 1.71, -0.08);
+
+      // Classic Seoul Taxi side orange/blue band
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(width + 0.02, 0.14, length - 0.35),
+        new THREE.MeshStandardMaterial({ color: silverTaxi ? 0xf97316 : 0xf8fafc, roughness: 0.4 })
       );
-      cap.position.set(0, 1.72, -0.05);
-      group.add(cap);
+      stripe.position.set(0, 0.68, 0);
+
+      // Glowing red "빈차" dash lamp visible on front windshield
+      const emptyLamp = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.1, 0.04),
+        new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 2.2 })
+      );
+      emptyLamp.position.set(-0.42, 1.08, cabinZ + cabinLen / 2 + 0.02);
+      group.add(capBase, cap, stripe, emptyLamp);
     }
 
     for (const side of [-1, 1]) {
@@ -383,22 +494,19 @@ export class TrafficSystem {
       group.add(hl, tl);
     }
 
-    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12);
-    wheelGeo.rotateZ(Math.PI / 2);
-    const rimGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.24, 10);
-    rimGeo.rotateZ(Math.PI / 2);
-
     for (const wz of [-1.32, 1.32]) {
       for (const side of [-1, 1]) {
-        const w = new THREE.Mesh(wheelGeo, wheelMat);
-        w.position.set(side * 0.9, 0.34, wz);
-        const r = new THREE.Mesh(rimGeo, rimMat);
-        r.position.set(side * 0.9, 0.34, wz);
-        group.add(w, r);
+        const wheelGroup = new THREE.Group();
+        wheelGroup.position.set(side * 0.9, 0.34, wz);
+        const w = new THREE.Mesh(this.carWheelGeo, wheelMat);
+        const r = new THREE.Mesh(this.carRimGeo, rimMat);
+        wheelGroup.add(w, r);
+        group.add(wheelGroup);
+        wheels.push(wheelGroup);
       }
     }
 
-    return { group, brakeMat, headlightMat };
+    return { group, wheels, brakeMat, headlightMat, taxiCapMat };
   }
 
   private spawnTrafficVehicles(): void {
@@ -432,10 +540,13 @@ export class TrafficSystem {
 
       this.vehicles.push({
         mesh: group,
+        wheels: [],
         brakeMat,
         headlightMat,
         hazardMat,
         isBus: true,
+        isTaxi: false,
+        driveState: 'CRUISING',
         x,
         z,
         heading,
@@ -451,55 +562,57 @@ export class TrafficSystem {
         turnTargetRoadIndex: b.roadIdx,
         busStopWaitTimer: 0,
         busStopCooldown: 0,
+        playerCutInActive: false,
+        hornCooldown: 0,
         colorHex: b.color === 0x1d4ed8 ? '#2563eb' : '#16a34a',
         halfWidth: 1.25,
         halfLength: 4.75,
       });
     }
 
-    // --- 2. Spawn 22 AI Cars (Sedans, Seoul Taxis, Vans across the 6x6 city!) ---
-    const palette: Array<{ hex: number; css: string; taxi?: boolean; van?: boolean }> = [
-      { hex: 0xf8fafc, css: '#f8fafc' },
-      { hex: 0xf97316, css: '#f97316', taxi: true },
-      { hex: 0x94a3b8, css: '#94a3b8' },
-      { hex: 0x1e3a8a, css: '#3b82f6' },
-      { hex: 0xe2e8f0, css: '#e2e8f0', van: true },
-      { hex: 0x334155, css: '#64748b' },
-      { hex: 0xfacc15, css: '#facc15', taxi: true },
-      { hex: 0x0f766e, css: '#14b8a6' },
+    // --- 2. Spawn 20 Sedans & Seoul Taxis (Orange & Silver Taxis) + 6 Buses (density-capped to 20~25 inside 120m!) ---
+    const palette: Array<{ hex: number; css: string; taxi?: boolean; silverTaxi?: boolean; van?: boolean }> = [
+      { hex: 0xf97316, css: '#f97316', taxi: true }, // 서울 주황 택시 (꽃담황토색)
+      { hex: 0xf8fafc, css: '#f8fafc' }, // 화이트 세단
+      { hex: 0xcbd5e1, css: '#cbd5e1', taxi: true, silverTaxi: true }, // 서울 은색 택시
+      { hex: 0x1e293b, css: '#334155' }, // 블랙 세단
+      { hex: 0x94a3b8, css: '#94a3b8' }, // 실버 세단
+      { hex: 0x1e3a8a, css: '#3b82f6' }, // 네이비 세단
+      { hex: 0xf97316, css: '#f97316', taxi: true }, // 서울 주황 택시
+      { hex: 0xe2e8f0, css: '#e2e8f0', van: true }, // 화이트 밴
+      { hex: 0x0f766e, css: '#14b8a6' }, // 청록 세단
     ];
 
     const carSpawns: Array<{ dir: CardinalDir; roadIdx: number; along: number }> = [
-      { dir: 1, roadIdx: 1, along: -150 },
-      { dir: 1, roadIdx: 2, along: 15 },
+      { dir: 1, roadIdx: 1, along: -95 },
+      { dir: 1, roadIdx: 2, along: -12 },
+      { dir: 1, roadIdx: 2, along: -135 },
+      { dir: 1, roadIdx: 3, along: -72 },
       { dir: 1, roadIdx: 3, along: 15 },
-      { dir: 1, roadIdx: 4, along: -140 },
-      { dir: 1, roadIdx: 4, along: 75 },
-      { dir: 1, roadIdx: 5, along: -80 },
-      { dir: 3, roadIdx: 0, along: 145 },
-      { dir: 3, roadIdx: 1, along: 80 },
-      { dir: 3, roadIdx: 2, along: -155 },
-      { dir: 3, roadIdx: 3, along: 160 },
-      { dir: 3, roadIdx: 4, along: -10 },
-      { dir: 0, roadIdx: 0, along: -140 },
-      { dir: 0, roadIdx: 1, along: -80 },
-      { dir: 0, roadIdx: 1, along: 90 },
-      { dir: 0, roadIdx: 2, along: 85 },
-      { dir: 0, roadIdx: 3, along: -150 },
-      { dir: 0, roadIdx: 4, along: -5 },
-      { dir: 0, roadIdx: 5, along: -85 },
-      { dir: 2, roadIdx: 1, along: 155 },
-      { dir: 2, roadIdx: 2, along: -15 },
-      { dir: 2, roadIdx: 4, along: 145 },
-      { dir: 2, roadIdx: 5, along: 85 },
+      { dir: 3, roadIdx: 1, along: 12 },
+      { dir: 3, roadIdx: 2, along: -15 },
+      { dir: 3, roadIdx: 2, along: 55 },
+      { dir: 3, roadIdx: 3, along: -18 },
+      { dir: 0, roadIdx: 1, along: -82 },
+      { dir: 0, roadIdx: 1, along: 12 },
+      { dir: 0, roadIdx: 2, along: -68 },
+      { dir: 0, roadIdx: 2, along: 18 },
+      { dir: 0, roadIdx: 3, along: -65 },
+      { dir: 2, roadIdx: 1, along: -10 },
+      { dir: 2, roadIdx: 2, along: 58 },
+      { dir: 2, roadIdx: 2, along: -88 },
+      { dir: 2, roadIdx: 3, along: 15 },
+      { dir: 0, roadIdx: 2, along: -152 },
+      { dir: 1, roadIdx: 4, along: 145 },
     ];
 
     carSpawns.forEach((sp, idx) => {
       const style = palette[idx % palette.length];
-      const { group, brakeMat, headlightMat } = this.createCarMesh(
+      const { group, wheels, brakeMat, headlightMat, taxiCapMat } = this.createCarMesh(
         style.hex,
         Boolean(style.taxi),
-        Boolean(style.van)
+        Boolean(style.van),
+        Boolean(style.silverTaxi)
       );
 
       const roadCoord = ROAD_LINES[sp.roadIdx];
@@ -514,9 +627,13 @@ export class TrafficSystem {
 
       this.vehicles.push({
         mesh: group,
+        wheels,
         brakeMat,
         headlightMat,
+        taxiCapMat,
         isBus: false,
+        isTaxi: Boolean(style.taxi),
+        driveState: 'CRUISING',
         x,
         z,
         heading,
@@ -532,9 +649,11 @@ export class TrafficSystem {
         turnTargetRoadIndex: sp.roadIdx,
         busStopWaitTimer: 0,
         busStopCooldown: 0,
+        playerCutInActive: false,
+        hornCooldown: 0,
         colorHex: style.css,
-        halfWidth: 1.0,
-        halfLength: style.van ? 2.3 : 2.15,
+        halfWidth: 0.98,
+        halfLength: style.van ? 2.28 : 2.16,
       });
     });
   }
@@ -609,6 +728,17 @@ export class TrafficSystem {
     this.ewGreenMat.emissiveIntensity = ew === 'green' ? 3.2 : 0;
   }
 
+  public getActiveCountWithinRadius(px: number, pz: number, radius = ACTIVE_SPAWN_RADIUS): number {
+    const rSq = radius * radius;
+    let count = 0;
+    for (const v of this.vehicles) {
+      const dx = v.x - px;
+      const dz = v.z - pz;
+      if (dx * dx + dz * dz <= rSq) count++;
+    }
+    return count;
+  }
+
   public step(
     dt: number,
     elapsedTime: number,
@@ -618,7 +748,8 @@ export class TrafficSystem {
     playerSpeed: number,
     isRiding: boolean,
     onRedLightViolation: () => void,
-    onCarCollisionCrash: (carX: number, carZ: number) => void
+    onCarCollisionCrash: (carX: number, carZ: number) => void,
+    onCarHornHonk?: () => void
   ): void {
     const clampedDt = Math.min(dt, 0.05);
     this.updateSignals(elapsedTime);
@@ -633,6 +764,13 @@ export class TrafficSystem {
     this.prevPlayerX = playerX;
     this.prevPlayerZ = playerZ;
 
+    // Maintain 20~25 active vehicle density within 120m radius around player via clean spawn/despawn cycling!
+    this.recycleTimer += clampedDt;
+    if (this.recycleTimer >= 0.35) {
+      this.recycleTimer = 0;
+      this.recycleDistantVehicles(playerX, playerZ);
+    }
+
     const blinkOn = Math.floor(elapsedTime * 2.6) % 2 === 0;
     for (let i = 0; i < this.vehicles.length; i++) {
       this.stepVehicle(
@@ -645,8 +783,82 @@ export class TrafficSystem {
         playerZ,
         playerSpeed,
         isRiding,
-        onCarCollisionCrash
+        onCarCollisionCrash,
+        onCarHornHonk
       );
+    }
+  }
+
+  /** Despawns vehicles beyond 120m radius and respawns them cleanly onto nearby road lanes to hold 20~25 density */
+  private recycleDistantVehicles(playerX: number, playerZ: number): void {
+    const maxDistSq = ACTIVE_SPAWN_RADIUS * ACTIVE_SPAWN_RADIUS;
+    let activeNear = this.getActiveCountWithinRadius(playerX, playerZ, ACTIVE_SPAWN_RADIUS);
+    if (activeNear >= 24) return;
+
+    const nearNSRoads: number[] = [];
+    const nearEWRoads: number[] = [];
+    for (let r = 0; r < ROAD_LINES.length; r++) {
+      if (Math.abs(ROAD_LINES[r] - playerX) <= ACTIVE_SPAWN_RADIUS - 12) nearNSRoads.push(r);
+      if (Math.abs(ROAD_LINES[r] - playerZ) <= ACTIVE_SPAWN_RADIUS - 12) nearEWRoads.push(r);
+    }
+
+    for (let i = 0; i < this.vehicles.length && activeNear < 24; i++) {
+      const car = this.vehicles[i];
+      if (car.isBus) continue; // Keep scheduled city buses along their fixed corridors
+      const dx = car.x - playerX;
+      const dz = car.z - playerZ;
+      if (dx * dx + dz * dz <= maxDistSq) continue;
+
+      // Pick a candidate nearby road line within 120m of player and respawn safely outside immediate 45m view
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const dir = Math.floor(Math.random() * 4) as CardinalDir;
+        const ns = isAxisNS(dir);
+        const candidates = ns ? nearNSRoads : nearEWRoads;
+        if (candidates.length === 0) continue;
+
+        const roadIdx = candidates[Math.floor(Math.random() * candidates.length)];
+        const roadCoord = ROAD_LINES[roadIdx];
+        const lane = laneCoordForDir(roadCoord, dir);
+        const perpDist = Math.abs(lane - (ns ? playerX : playerZ));
+        const maxAlong = Math.sqrt(Math.max(0, (ACTIVE_SPAWN_RADIUS - 4) ** 2 - perpDist * perpDist));
+        if (maxAlong < 12) continue;
+
+        const alongCenter = ns ? playerZ : playerX;
+        const along = clamp(alongCenter + (Math.random() * 2 - 1) * maxAlong, -215, 215);
+
+        // Avoid spawning right inside an intersection box
+        if (ROAD_LINES.some((rc) => Math.abs(along - rc) < 15)) continue;
+
+        const cx = ns ? lane : along;
+        const cz = ns ? along : lane;
+        const distPlayer = Math.hypot(cx - playerX, cz - playerZ);
+        if (distPlayer < 45 || distPlayer > ACTIVE_SPAWN_RADIUS - 2) continue;
+
+        // Ensure clear spacing from every other vehicle
+        let clear = true;
+        for (let j = 0; j < this.vehicles.length; j++) {
+          if (j === i) continue;
+          if (Math.hypot(this.vehicles[j].x - cx, this.vehicles[j].z - cz) < 13) {
+            clear = false;
+            break;
+          }
+        }
+        if (!clear) continue;
+
+        car.dir = dir;
+        car.roadIndex = roadIdx;
+        car.x = cx;
+        car.z = cz;
+        car.heading = dirHeading(dir);
+        car.turning = false;
+        car.speed = car.cruiseSpeed * 0.75;
+        car.driveState = 'CRUISING';
+        car.playerCutInActive = false;
+        car.mesh.position.set(cx, 0, cz);
+        car.mesh.rotation.y = car.heading;
+        activeNear++;
+        break;
+      }
     }
   }
 
@@ -682,6 +894,30 @@ export class TrafficSystem {
     }
   }
 
+  /** Casts a forward 12m THREE.Ray from the vehicle's front bumper against an AABB, returning hit distance or null */
+  private castFrontBumperRay(
+    originX: number,
+    originZ: number,
+    dirX: number,
+    dirZ: number,
+    boxMinX: number,
+    boxMaxX: number,
+    boxMinZ: number,
+    boxMaxZ: number,
+    maxDist: number
+  ): number | null {
+    this.frontRay.origin.set(originX, 0.7, originZ);
+    this.frontRay.direction.set(dirX, 0, dirZ);
+    this.tmpMin.set(boxMinX, 0, boxMinZ);
+    this.tmpMax.set(boxMaxX, 2.5, boxMaxZ);
+    this.tmpBox.set(this.tmpMin, this.tmpMax);
+
+    const hit = this.frontRay.intersectBox(this.tmpBox, this.rayHitPoint);
+    if (!hit) return null;
+    const dist = Math.hypot(this.rayHitPoint.x - originX, this.rayHitPoint.z - originZ);
+    return dist <= maxDist ? dist : null;
+  }
+
   private stepVehicle(
     car: AiVehicle,
     index: number,
@@ -692,11 +928,16 @@ export class TrafficSystem {
     playerZ: number,
     playerSpeed: number,
     isRiding: boolean,
-    onCarCollisionCrash: (carX: number, carZ: number) => void
+    onCarCollisionCrash: (carX: number, carZ: number) => void,
+    onCarHornHonk?: () => void
   ): void {
     const [fx, fz] = dirVector(car.dir);
     let mustStop = false;
+    let emergencyBrake = false;
+    let decelerating = false;
     let desiredSpeed = car.cruiseSpeed;
+
+    if (car.hornCooldown > 0) car.hornCooldown = Math.max(0, car.hornCooldown - dt);
 
     // 0. Bus Stop Dwelling Logic (only for City Buses!)
     if (car.isBus) {
@@ -716,17 +957,18 @@ export class TrafficSystem {
               mustStop = true;
             } else {
               desiredSpeed = Math.min(desiredSpeed, distAhead * 0.7);
+              decelerating = true;
             }
           }
         }
       }
     }
 
-    // 1. Intersection signals & turning
+    // 1. Intersection signals (RED/YELLOW -> smoothly DECELERATING -> STOPPED 3m before stop line!) & turning
     if (!car.turning) {
       const along = isAxisNS(car.dir) ? car.z : car.x;
       const stepSign = isAxisNS(car.dir) ? fz : fx;
-      const stopDist = car.isBus ? STOP_LINE_DIST + 2.4 : STOP_LINE_DIST;
+      const stopTarget = (car.isBus ? STOP_LINE_DIST + 2.4 : STOP_LINE_DIST) + SIGNAL_STOP_MARGIN;
 
       let nextLineIdx = -1;
       let nextDist = Infinity;
@@ -740,11 +982,12 @@ export class TrafficSystem {
 
       if (nextLineIdx !== -1) {
         const sig = this.getSignalForDirection(car.dir);
-        if (sig !== 'green' && nextDist > 8.0 && nextDist < stopDist + 13) {
-          if (nextDist <= stopDist + 1.5) {
+        if (sig !== 'green' && nextDist > STOP_LINE_DIST - 1.5 && nextDist < stopTarget + 16) {
+          if (nextDist <= stopTarget + 0.8) {
             mustStop = true;
           } else {
-            desiredSpeed = Math.min(desiredSpeed, (nextDist - stopDist) * 0.85);
+            desiredSpeed = Math.min(desiredSpeed, (nextDist - stopTarget) * 0.75);
+            decelerating = true;
           }
         }
 
@@ -764,7 +1007,6 @@ export class TrafficSystem {
 
           const options: CardinalDir[] = [];
           if (canGoStraight) {
-            // Buses strongly prefer continuing along main bus corridors!
             options.push(car.dir, car.dir);
             if (car.isBus) options.push(car.dir, car.dir);
           }
@@ -790,52 +1032,93 @@ export class TrafficSystem {
       }
     }
 
-    // 2. Check vehicles & player ahead
+    // 2. Front-Bumper 12m Raycast Distance Sensor (prevents rear-ending ahead cars & emergency-brakes + honks for player cut-in!)
     const curFx = Math.sin(car.heading);
     const curFz = Math.cos(car.heading);
-    const lookAhead = car.isBus ? 18.0 : 14.0;
-    const stopGap = car.isBus ? 10.2 : 7.5;
+    const bumperX = car.x + curFx * car.halfLength;
+    const bumperZ = car.z + curFz * car.halfLength;
+    const rayRange = car.isBus ? FRONT_RAY_RANGE + 3.0 : FRONT_RAY_RANGE; // 12m for cars/taxis
 
+    // 2a. Raycast against ahead AI vehicles
     for (let j = 0; j < this.vehicles.length; j++) {
       if (j === index) continue;
       const other = this.vehicles[j];
-      const dx = other.x - car.x;
-      const dz = other.z - car.z;
-      const forwardDist = dx * curFx + dz * curFz;
-      const lateralDist = Math.abs(dx * curFz - dz * curFx);
-      const safeGap = stopGap + (other.isBus ? 2.6 : 0);
-      if (forwardDist > 0 && forwardDist < lookAhead + (other.isBus ? 3 : 0) && lateralDist < 2.4) {
-        if (forwardDist < safeGap) {
+      const oNs = Math.abs(Math.cos(other.heading)) > 0.7;
+      const oRx = (oNs ? other.halfWidth : other.halfLength) + 0.45;
+      const oRz = (oNs ? other.halfLength : other.halfWidth) + 0.45;
+
+      const hitDist = this.castFrontBumperRay(
+        bumperX,
+        bumperZ,
+        curFx,
+        curFz,
+        other.x - oRx,
+        other.x + oRx,
+        other.z - oRz,
+        other.z + oRz,
+        rayRange
+      );
+      if (hitDist !== null) {
+        if (hitDist <= SAFE_FOLLOW_GAP) {
           mustStop = true;
         } else {
-          desiredSpeed = Math.min(desiredSpeed, other.speed * 0.85);
+          const factor = (hitDist - SAFE_FOLLOW_GAP) / Math.max(1, rayRange - SAFE_FOLLOW_GAP);
+          desiredSpeed = Math.min(desiredSpeed, Math.max(other.speed * 0.9, car.cruiseSpeed * factor));
+          decelerating = true;
         }
       }
     }
 
-    const pdx = playerX - car.x;
-    const pdz = playerZ - car.z;
-    const pForward = pdx * curFx + pdz * curFz;
-    const pLateral = Math.abs(pdx * curFz - pdz * curFx);
-    const playerStop = car.isBus ? 8.2 : 5.6;
-    if (pForward > 0 && pForward < playerStop + 7.0 && pLateral < 2.3) {
-      if (pForward < playerStop) {
+    // 2b. Raycast against player scooter / rider cutting into lane (<= 12m) -> emergency brake + single horn blast!
+    const playerHitDist = this.castFrontBumperRay(
+      bumperX,
+      bumperZ,
+      curFx,
+      curFz,
+      playerX - 1.35,
+      playerX + 1.35,
+      playerZ - 1.35,
+      playerZ + 1.35,
+      rayRange
+    );
+
+    if (playerHitDist !== null) {
+      if (playerHitDist <= 7.5) {
         mustStop = true;
+        emergencyBrake = true;
+        // Honk ONCE when player cuts in front while vehicle is moving!
+        if (!car.playerCutInActive && car.hornCooldown <= 0 && car.speed > 2.2) {
+          car.playerCutInActive = true;
+          car.hornCooldown = 5.0;
+          if (onCarHornHonk) onCarHornHonk();
+        }
       } else {
-        desiredSpeed = Math.min(desiredSpeed, 2.0);
+        desiredSpeed = Math.min(desiredSpeed, 2.2);
+        decelerating = true;
       }
+    } else {
+      car.playerCutInActive = false;
     }
 
-    // 3. Speed update
+    // 3. Smooth Speed & Drive State FSM Update (CRUISING / DECELERATING / STOPPED / EMERGENCY_BRAKE)
     if (mustStop) {
-      car.speed = Math.max(0, car.speed - (car.isBus ? 9.5 : 12.5) * dt);
+      const decelRate = emergencyBrake ? 22.0 : car.isBus ? 9.5 : 12.5;
+      car.speed = Math.max(0, car.speed - decelRate * dt);
       car.braking = true;
+      car.driveState =
+        emergencyBrake && car.speed > 0.25
+          ? 'EMERGENCY_BRAKE'
+          : car.speed <= 0.12
+            ? 'STOPPED'
+            : 'DECELERATING';
     } else if (car.speed < desiredSpeed) {
       car.speed = Math.min(desiredSpeed, car.speed + (car.isBus ? 3.8 : 5.2) * dt);
       car.braking = false;
+      car.driveState = 'CRUISING';
     } else {
-      car.speed = Math.max(desiredSpeed, car.speed - 6.5 * dt);
-      car.braking = car.speed > desiredSpeed + 0.5;
+      car.speed = Math.max(desiredSpeed, car.speed - 6.8 * dt);
+      car.braking = car.speed > desiredSpeed + 0.4;
+      car.driveState = decelerating || car.braking ? 'DECELERATING' : 'CRUISING';
     }
 
     // 4. Move along lane or turn smoothly
@@ -882,11 +1165,19 @@ export class TrafficSystem {
       }
     }
 
-    // 6. Sync mesh & lights
+    // 6. Sync mesh, rolling wheels & lights (including illuminated Seoul Taxi roof cap!)
     car.mesh.position.set(car.x, 0, car.z);
     car.mesh.rotation.y = car.heading;
-    car.brakeMat.emissiveIntensity = car.braking || car.speed < 0.3 ? 2.8 : isNight ? 0.8 : 0.25;
-    car.headlightMat.emissiveIntensity = isNight ? 2.8 : 0.4;
+    if (car.wheels.length > 0 && car.speed > 0.05) {
+      const spin = (car.speed * dt) / 0.34;
+      for (const w of car.wheels) w.rotation.x += spin;
+    }
+    car.brakeMat.emissiveIntensity =
+      car.braking || car.speed < 0.3 ? 3.0 : isNight ? 0.8 : 0.25;
+    car.headlightMat.emissiveIntensity = isNight ? 3.0 : 0.45;
+    if (car.taxiCapMat) {
+      car.taxiCapMat.emissiveIntensity = isNight ? 2.6 : 1.4;
+    }
     if (car.hazardMat) {
       car.hazardMat.emissiveIntensity = car.busStopWaitTimer > 0 && blinkOn ? 3.2 : 0;
     }

@@ -338,6 +338,32 @@ export class GameAudio {
     osc.stop(now + 0.03);
   }
 
+  /** Dual-tone realistic car klaxon honk when player cuts in front of an AI sedan/taxi */
+  public playAiCarHorn(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    // Classic Korean sedan dual-horn harmony (F4 ~349Hz + A4 ~440Hz, crisp short warning blast)
+    [349.23, 440.0].forEach((freq) => {
+      const osc = this.ctx!.createOscillator();
+      const filter = this.ctx!.createBiquadFilter();
+      const g = this.ctx!.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      filter.type = 'bandpass';
+      filter.frequency.value = 920;
+      filter.Q.value = 1.6;
+      g.gain.setValueAtTime(0.001, now);
+      g.gain.linearRampToValueAtTime(0.24, now + 0.02);
+      g.gain.setValueAtTime(0.22, now + 0.28);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+      osc.connect(filter);
+      filter.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(now);
+      osc.stop(now + 0.38);
+    });
+  }
+
   /** Celebratory fanfare chime for completing the Daily Delivery Mission (+₩5,000 bonus!) */
   public playMissionBonusFanfare(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
