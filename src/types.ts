@@ -59,6 +59,22 @@ export interface SpeedCameraMarker {
   limitKmh: number;
 }
 
+export interface PolicePatrolMarker {
+  id: string;
+  x: number;
+  z: number;
+  heading: number;
+  sirenActive: boolean;
+}
+
+export interface UpcomingCameraAlert {
+  cameraId: string;
+  label: string;
+  distanceMeters: number;
+  limitKmh: number;
+  isOverSpeed: boolean;
+}
+
 export function wrapAngle(angle: number): number {
   let a = angle;
   while (a > Math.PI) a -= Math.PI * 2;

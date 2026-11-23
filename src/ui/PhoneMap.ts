@@ -59,6 +59,7 @@ export class PhoneMap {
   private readonly earningsEl = document.getElementById('phone-earnings')!;
   private readonly statusPillEl = document.getElementById('phone-status-pill')!;
   private readonly pinTooltipEl = document.getElementById('phone-pin-tooltip')!;
+  private readonly camAlertEl = document.getElementById('phone-cam-alert')!;
   private readonly cookingBannerEl = document.getElementById('phone-cooking-banner')!;
   private readonly topNavEl = document.getElementById('phone-top-nav')!;
   private readonly bottomSheetEl = document.querySelector('.app-bottom-sheet') as HTMLElement;
@@ -580,6 +581,7 @@ export class PhoneMap {
 
       this.syncDeliverySheet(player, delivery, navPlan);
       this.syncPinTooltip(delivery, navPlan);
+      this.syncCameraAlertBanner(mapInfo);
       this.syncCookingBanner(delivery);
       this.syncDispatchPopup(activeOffer);
 
@@ -632,6 +634,20 @@ export class PhoneMap {
     const inst = getInstructionMeta(focus.order.deliveryInstruction);
     this.pinTooltipEl.innerHTML = `🔑 공동현관 <b>${focus.order.doorPinLabel}</b> · ${inst.badge}`;
     this.pinTooltipEl.classList.remove('hidden');
+  }
+
+  /** Shows 80m speed-camera approach warning strip inside zoomed smartphone topbar */
+  private syncCameraAlertBanner(mapInfo: CityMapInfo): void {
+    const cam = mapInfo.upcomingCamera;
+    if (!cam) {
+      this.camAlertEl.classList.add('hidden');
+      return;
+    }
+    this.camAlertEl.className = `phone-cam-alert${cam.isOverSpeed ? ' overspeed' : ''}`;
+    this.camAlertEl.innerHTML = `
+      <span>📷 전방 ${cam.distanceMeters}m 신호·과속 단속</span>
+      <span>${cam.isOverSpeed ? '🚨 감속!' : `제한 ${cam.limitKmh}`}</span>
+    `;
   }
 
   /** Shows yellow cooking delay gauge (or emerald ready banner) inside zoomed smartphone topbar */
@@ -772,7 +788,7 @@ export class PhoneMap {
     ctx.fillText(isRidingNavMode ? 'NAVI · 5G 🔋' : '5G 🔋', w - 14, 18);
 
     if (isRidingNavMode) {
-      this.renderRidingNavOverlay(ctx, w, h, scooter, delivery, navPlan, isNight, areaName);
+      this.renderRidingNavOverlay(ctx, w, h, scooter, delivery, navPlan, isNight, areaName, mapInfo, elapsedTime);
     } else {
       this.renderOnFootPhoneOverlay(ctx, w, h, player, delivery, navPlan, isNight, areaName);
     }
@@ -941,7 +957,9 @@ export class PhoneMap {
     delivery: DeliveryManager,
     navPlan: NavigationPlan,
     isNight: boolean,
-    areaName: string
+    areaName: string,
+    mapInfo: CityMapInfo,
+    elapsedTime: number
   ): void {
     const g = navPlan.guidance;
     const fm = navPlan.focusMission;
@@ -1027,10 +1045,37 @@ export class PhoneMap {
       );
     }
 
+    // 80m Forward Speed-Camera Navi Warning Strip on 3D Handlebar Smartphone!
+    const upCam = mapInfo.upcomingCamera;
+    if (upCam) {
+      const alertY = g && fm ? 184 : 122;
+      const flashRed = upCam.isOverSpeed && Math.floor(elapsedTime * 6) % 2 === 0;
+      ctx.fillStyle = upCam.isOverSpeed
+        ? flashRed
+          ? 'rgba(220, 38, 38, 0.96)'
+          : 'rgba(153, 27, 27, 0.95)'
+        : 'rgba(234, 179, 8, 0.95)';
+      ctx.strokeStyle = upCam.isOverSpeed ? '#fecaca' : '#0f172a';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(12, alertY, w - 24, 42, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = upCam.isOverSpeed ? '#ffffff' : '#0f172a';
+      ctx.font = '900 14.5px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`📷 전방 ${upCam.distanceMeters}m 신호·과속 단속`, 22, alertY + 21);
+
+      ctx.textAlign = 'right';
+      ctx.fillText(upCam.isOverSpeed ? '🚨 감속!' : `제한 ${upCam.limitKmh}`, w - 22, alertY + 21);
+    }
+
     // Yellow Cooking Delay Countdown Gauge Strip on 3D Mounted Handlebar Smartphone!
     const cookM = delivery.getPrimaryCookingMission();
     if (cookM) {
-      const barY = g && fm ? 184 : 122;
+      const barY = (g && fm ? 184 : 122) + (upCam ? 48 : 0);
       const isWaiting = cookM.phase === 'cooking_wait';
       const frac =
         isWaiting && cookM.cookingDurationSec > 0
@@ -2048,6 +2093,32 @@ export class PhoneMap {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(cam.limitKmh), 0, 0.5);
+        ctx.restore();
+      }
+    }
+
+    // Live Korean Police Patrol Car Markers (🚓 with alternating red/blue strobe) on Smartphone GPS Map!
+    if (mapInfo.policePatrols) {
+      const strobe = Math.floor(elapsedTime * 5) % 2 === 0;
+      for (const p of mapInfo.policePatrols) {
+        const px2 = toX(p.x);
+        const py2 = toY(p.z);
+        ctx.fillStyle = strobe ? '#2563eb' : '#ef4444';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(px2, py2, p.sirenActive ? 9.5 : 7.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(px2, py2);
+        if (rotateHeadingUp) ctx.rotate(-player.heading);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🚓', 0, 0.5);
         ctx.restore();
       }
     }

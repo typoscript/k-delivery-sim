@@ -3376,3 +3376,164 @@ body.phone-3d-hover canvas {
     opacity: 0;
   }
 }
+
+/* Korean Police Traffic Fine Ticket Notice Popup (Top-Right Non-Blocking Card) */
+.fine-ticket-popup {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 42;
+  width: min(332px, calc(100vw - 32px));
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #fffdf7 0%, #f8fafc 100%);
+  color: #0f172a;
+  border: 2px solid #dc2626;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.55), 0 0 0 3px rgba(220, 38, 38, 0.2);
+  pointer-events: auto;
+  overflow: hidden;
+  animation: fineTicketSlideIn 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fine-ticket-popup.hidden {
+  display: none;
+}
+
+.ft-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 7px;
+  border-bottom: 1.5px solid #e2e8f0;
+}
+
+.ft-agency {
+  font-size: 12.5px;
+  font-weight: 900;
+  color: #1e3a8a;
+  letter-spacing: -0.02em;
+}
+
+.ft-close-btn {
+  border: none;
+  background: rgba(15, 23, 42, 0.08);
+  color: #475569;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ft-close-btn:hover {
+  background: rgba(15, 23, 42, 0.16);
+}
+
+.ft-stamp {
+  position: absolute;
+  top: 40px;
+  right: 14px;
+  padding: 3px 8px;
+  border: 2.5px solid rgba(220, 38, 38, 0.78);
+  border-radius: 6px;
+  color: rgba(220, 38, 38, 0.82);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  transform: rotate(-11deg);
+  pointer-events: none;
+}
+
+.ft-violation {
+  margin-top: 8px;
+  font-size: 13.5px;
+  font-weight: 900;
+  color: #b91c1c;
+  padding-right: 76px;
+}
+
+.ft-meta-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 10px;
+  padding: 8px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  font-size: 11px;
+}
+
+.ft-meta-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ft-meta-grid span {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ft-meta-grid b {
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.ft-amount-row {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1.5px dashed #cbd5e1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.ft-amount {
+  font-size: 18px;
+  font-weight: 900;
+  color: #dc2626;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes fineTicketSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(36px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* Smartphone Top Speed-Camera Approach Alert Strip (80m Navi Warning) */
+.phone-cam-alert {
+  margin-top: 5px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(234, 179, 8, 0.94);
+  color: #0f172a;
+  font-size: 10.5px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+
+.phone-cam-alert.overspeed {
+  background: rgba(220, 38, 38, 0.96);
+  color: #ffffff;
+  animation: accidentPulse 0.45s ease-in-out infinite alternate;
+}
+
+.phone-cam-alert.hidden {
+  display: none;
+}

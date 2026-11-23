@@ -89,6 +89,7 @@
                 </div>
               </div>
               <div id="phone-pin-tooltip" class="phone-pin-tooltip hidden"></div>
+              <div id="phone-cam-alert" class="phone-cam-alert hidden"></div>
               <div id="phone-cooking-banner" class="phone-cooking-banner hidden"></div>
             </div>
 
@@ -235,6 +236,26 @@
 
       <!-- Speed / Red-Light Enforcement Camera Strobe Flash Overlay -->
       <div id="speed-cam-flash" class="speed-cam-flash hidden"></div>
+
+      <!-- Korean Police Traffic Violation Ticket Notice Popup (Non-Blocking Slide-In Card) -->
+      <div id="fine-ticket-popup" class="fine-ticket-popup hidden" role="status">
+        <div class="ft-header">
+          <span class="ft-agency">🚔 경찰청 교통과태료 고지서</span>
+          <button id="ft-close-btn" class="ft-close-btn" title="닫기">✕</button>
+        </div>
+        <div class="ft-stamp">단속 적발</div>
+        <div id="ft-violation" class="ft-violation">무인 과속 단속 (제한 50km/h 초과)</div>
+        <div class="ft-meta-grid">
+          <div><span>단속 지점</span><b id="ft-location">중앙대로 동측 단속</b></div>
+          <div><span>측정 속도</span><b id="ft-speed">64 km/h (제한 50)</b></div>
+          <div><span>위반 차량</span><b>서울 마 1234 (이륜차)</b></div>
+          <div><span>발생 시각</span><b id="ft-time">16:30</b></div>
+        </div>
+        <div class="ft-amount-row">
+          <span>즉시 차감 과태료</span>
+          <span id="ft-amount" class="ft-amount">-₩40,000</span>
+        </div>
+      </div>
 
       <!-- Center Notifications & Prompts -->
       <div id="accident-banner" class="accident-banner hidden" role="alert">

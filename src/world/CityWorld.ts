@@ -8,9 +8,11 @@ import {
   CityZoneMarker,
   DeliveryLocation,
   ObstacleBox,
+  PolicePatrolMarker,
   ServiceStationInfo,
   SlipSurfaceType,
   SpeedCameraMarker,
+  UpcomingCameraAlert,
   WeatherMode,
 } from '../types';
 
@@ -31,6 +33,8 @@ export interface CityMapInfo {
   busStops: BusStopPoint[];
   serviceStations: ServiceStationInfo[];
   speedCameras?: SpeedCameraMarker[];
+  policePatrols?: PolicePatrolMarker[];
+  upcomingCamera?: UpcomingCameraAlert | null;
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
 }

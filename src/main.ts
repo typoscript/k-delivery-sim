@@ -49,8 +49,9 @@ const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const roadNavigator = new RoadNavigator();
 const pedestrians = new PedestrianManager(world.root); // Independent 25-block crosswalk AI (paused indoors!)
-const roadHazards = new RoadHazardManager(world.root); // Speed cameras, illegal parked trucks & blind-spot pop-outs!
+const roadHazards = new RoadHazardManager(world.root); // Speed cameras, police patrols, illegal parked trucks & pop-outs!
 world.mapInfo.speedCameras = roadHazards.cameraMarkers;
+world.mapInfo.policePatrols = roadHazards.patrolMarkers;
 const weather = new WeatherManager(scene);
 const delivery = new DeliveryManager(world.locations);
 const dispatch = new OrderDispatchManager(world.locations, {
@@ -1075,6 +1076,7 @@ function animate(now: number): void {
         delivery.applyFine(camEv.fine);
         audio.playSpeedCameraFlash();
         hud.triggerSpeedCameraFlash();
+        hud.showFineTicketPopup(camEv);
         const reason =
           camEv.kind === 'speeding'
             ? `📸 무인 과속 단속! (${camEv.measuredKmh}km/h / 제한 ${camEv.limitKmh}km/h · ${camEv.label})`
@@ -1085,15 +1087,30 @@ function animate(now: number): void {
         audio.playPedestrianStartle();
         hud.showToast(`⚠️ 사각지대 돌발 주의! ${popEv.hazardName} 뒤에서 보행자 갑툭튀!`, 3200);
       },
-      handlePedestrianHit
+      handlePedestrianHit,
+      (overSpeed) => {
+        audio.playCameraApproachBeep(overSpeed);
+      },
+      (patrolEv) => {
+        delivery.applyFine(patrolEv.fine);
+        audio.playPoliceSiren();
+        hud.triggerSpeedCameraFlash();
+        hud.showFineTicketPopup(patrolEv);
+        hud.showToast(
+          `🚓 ${patrolEv.label} 현장 단속! (${patrolEv.measuredKmh}km/h 과속) 과태료 -₩${patrolEv.fine.toLocaleString()}`,
+          4600
+        );
+      }
     );
+    world.mapInfo.upcomingCamera = roadHazards.upcomingCamera;
   } else {
+    world.mapInfo.upcomingCamera = null;
     corridorRoom.updateVisual(elapsed, dt);
   }
 
   const allObstacles = inCorridor
     ? []
-    : [...world.obstacles, ...traffic.getCarObstacleBoxes(), ...roadHazards.obstacles];
+    : [...world.obstacles, ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
 
   const roadCondition = inCorridor
     ? { isRaining: false, surface: 'none' as const }

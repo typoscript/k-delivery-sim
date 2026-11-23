@@ -364,6 +364,81 @@ export class GameAudio {
     });
   }
 
+  /** Korean GPS navi 80m speed-camera zone chime ("딩동!" entry, or rapid "삐-삐!" when speeding >50km/h) */
+  public playCameraApproachBeep(overSpeed: boolean): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+
+    if (overSpeed) {
+      // Urgent T-map style overspeed double-beep ("삐! 삐!")
+      [0, 0.12].forEach((offset) => {
+        const t = now + offset;
+        const osc = this.ctx!.createOscillator();
+        const g = this.ctx!.createGain();
+        osc.type = 'square';
+        osc.frequency.value = 1480;
+        const filt = this.ctx!.createBiquadFilter();
+        filt.type = 'lowpass';
+        filt.frequency.value = 2400;
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.14, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
+        osc.connect(filt);
+        filt.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.095);
+      });
+    } else {
+      // Friendly 80m camera-ahead notice chime ("딩~동!")
+      [880, 1174.66].forEach((freq, idx) => {
+        const t = now + idx * 0.12;
+        const osc = this.ctx!.createOscillator();
+        const g = this.ctx!.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        g.gain.setValueAtTime(0.001, t);
+        g.gain.linearRampToValueAtTime(0.2, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(t);
+        osc.stop(t + 0.24);
+      });
+    }
+  }
+
+  /** Korean police patrol car wail siren ("우~웅 우~웅!") on live patrol enforcement */
+  public playPoliceSiren(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const filt = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    filt.type = 'bandpass';
+    filt.frequency.value = 1100;
+    filt.Q.value = 1.8;
+
+    // 2 classic rising/falling siren sweeps (~1.45s)
+    osc.frequency.setValueAtTime(620, now);
+    osc.frequency.linearRampToValueAtTime(1260, now + 0.36);
+    osc.frequency.linearRampToValueAtTime(640, now + 0.72);
+    osc.frequency.linearRampToValueAtTime(1280, now + 1.08);
+    osc.frequency.linearRampToValueAtTime(600, now + 1.44);
+
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.2, now + 0.06);
+    g.gain.setValueAtTime(0.18, now + 1.25);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 1.48);
+
+    osc.connect(filt);
+    filt.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 1.5);
+  }
+
   /** Sharp roadside speed/red-light enforcement camera strobe click + penalty warning beep */
   public playSpeedCameraFlash(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

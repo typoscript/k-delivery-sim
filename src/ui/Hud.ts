@@ -11,6 +11,7 @@ import { DispatchOffer } from '../delivery/OrderDispatchManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { PhoneCallbacks, PhoneMap, PhonePlacement } from './PhoneMap';
 import { WeatherMode } from '../types';
+import { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
 
 export interface InteractionContext {
   nearCargoBox: boolean;
@@ -35,6 +36,13 @@ export class Hud {
   private readonly accidentBanner = document.getElementById('accident-banner')!;
   private readonly accidentBannerDetail = document.getElementById('accident-banner-detail')!;
   private readonly speedCamFlash = document.getElementById('speed-cam-flash')!;
+  private readonly fineTicketEl = document.getElementById('fine-ticket-popup')!;
+  private readonly ftCloseBtn = document.getElementById('ft-close-btn')!;
+  private readonly ftViolationEl = document.getElementById('ft-violation')!;
+  private readonly ftLocationEl = document.getElementById('ft-location')!;
+  private readonly ftSpeedEl = document.getElementById('ft-speed')!;
+  private readonly ftTimeEl = document.getElementById('ft-time')!;
+  private readonly ftAmountEl = document.getElementById('ft-amount')!;
   private readonly toast = document.getElementById('toast')!;
   private readonly cookingHudBar = document.getElementById('cooking-hud-bar')!;
   private readonly cookingHudTitle = document.getElementById('cooking-hud-title')!;
@@ -58,10 +66,12 @@ export class Hud {
   public readonly phoneMap: PhoneMap;
   private toastTimer: number | null = null;
   private accidentBannerTimer: number | null = null;
+  private fineTicketTimer: number | null = null;
 
   constructor(phoneCallbacks: PhoneCallbacks, onToggleWeather?: () => void) {
     this.phoneMap = new PhoneMap(phoneCallbacks);
     this.toggleHelpBtn.addEventListener('click', () => this.toggleHelp());
+    this.ftCloseBtn.addEventListener('click', () => this.hideFineTicketPopup());
     if (onToggleWeather) {
       this.weatherBadge.addEventListener('click', () => onToggleWeather());
     }
@@ -125,6 +135,39 @@ export class Hud {
       this.speedCamFlash.classList.remove('active');
       this.speedCamFlash.classList.add('hidden');
     }, 390);
+  }
+
+  /** Displays non-blocking Korean Police Traffic Violation Ticket Notice Popup Card */
+  public showFineTicketPopup(ev: SpeedCameraTriggerEvent, durationMs = 6200): void {
+    const now = new Date();
+    const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+    this.ftViolationEl.textContent =
+      ev.kind === 'patrol_speeding'
+        ? `🚓 순찰차 현장 과속 단속 (제한 ${ev.limitKmh}km/h 초과)`
+        : ev.kind === 'red_light'
+          ? '📸 무인 신호위반 단속 카메라 적발'
+          : `📸 무인 과속 단속 (제한 ${ev.limitKmh}km/h 초과)`;
+    this.ftLocationEl.textContent = ev.label;
+    this.ftSpeedEl.textContent = `${ev.measuredKmh} km/h (제한 ${ev.limitKmh})`;
+    this.ftTimeEl.textContent = ts;
+    this.ftAmountEl.textContent = `-₩${ev.fine.toLocaleString()}`;
+
+    this.fineTicketEl.classList.remove('hidden');
+    if (this.fineTicketTimer !== null) {
+      window.clearTimeout(this.fineTicketTimer);
+    }
+    this.fineTicketTimer = window.setTimeout(() => {
+      this.hideFineTicketPopup();
+    }, durationMs);
+  }
+
+  public hideFineTicketPopup(): void {
+    this.fineTicketEl.classList.add('hidden');
+    if (this.fineTicketTimer !== null) {
+      window.clearTimeout(this.fineTicketTimer);
+      this.fineTicketTimer = null;
+    }
   }
 
   public update(

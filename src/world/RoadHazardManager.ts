@@ -1,5 +1,11 @@
 import * as THREE from 'three';
-import { ObstacleBox, SpeedCameraMarker } from '../types';
+import {
+  CITY_ROAD_LINES,
+  ObstacleBox,
+  PolicePatrolMarker,
+  SpeedCameraMarker,
+  UpcomingCameraAlert,
+} from '../types';
 import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
 import {
@@ -11,7 +17,7 @@ import {
 export interface SpeedCameraTriggerEvent {
   cameraId: string;
   label: string;
-  kind: 'speeding' | 'red_light';
+  kind: 'speeding' | 'red_light' | 'patrol_speeding';
   measuredKmh: number;
   limitKmh: number;
   fine: number;
@@ -19,6 +25,25 @@ export interface SpeedCameraTriggerEvent {
 
 export interface PopOutWarningEvent {
   hazardName: string;
+}
+
+type PatrolDir = 0 | 1 | 2 | 3; // 0:+Z, 1:+X, 2:-Z, 3:-X
+
+interface PolicePatrolUnit {
+  id: string;
+  label: string;
+  group: THREE.Group;
+  redBarMat: THREE.MeshStandardMaterial;
+  blueBarMat: THREE.MeshStandardMaterial;
+  x: number;
+  z: number;
+  heading: number;
+  dir: PatrolDir;
+  roadIndex: number;
+  speed: number;
+  cruiseSpeed: number;
+  sirenTimer: number;
+  citeCooldown: number;
 }
 
 interface SpeedCameraUnit {
@@ -62,31 +87,77 @@ interface ParkedHazardUnit {
 
 export const SPEED_CAMERA_LIMIT_KMH = 50;
 export const SPEED_CAMERA_GRACE_KMH = 2; // triggers at > 52 km/h
+export const SPEED_CAMERA_WARN_DIST = 80; // 80m ahead navi warning zone!
 export const SPEED_CAMERA_FINE = 40000; // 무인 과속/신호 단속 과태료 ₩40,000
+export const PATROL_ENFORCEMENT_FINE = 50000; // 순찰차 현장 단속 과태료 ₩50,000
+export const PATROL_SPEED_LIMIT_KMH = 60; // 순찰차 반경 22m 내 60km/h 초과 주행 시 현장 단속!
 const POPOUT_GLOBAL_COOLDOWN_SEC = 18.0;
 const POPOUT_COLLISION_RADIUS = 1.14;
+const PATROL_LANE_OFFSET = 3.5;
+
+function patrolDirVec(dir: PatrolDir): [number, number] {
+  if (dir === 0) return [0, 1];
+  if (dir === 1) return [1, 0];
+  if (dir === 2) return [0, -1];
+  return [-1, 0];
+}
+
+function patrolDirHeading(dir: PatrolDir): number {
+  if (dir === 0) return 0;
+  if (dir === 1) return Math.PI / 2;
+  if (dir === 2) return Math.PI;
+  return -Math.PI / 2;
+}
+
+function patrolLaneCoord(roadCoord: number, dir: PatrolDir): number {
+  return dir === 0 || dir === 3 ? roadCoord - PATROL_LANE_OFFSET : roadCoord + PATROL_LANE_OFFSET;
+}
 
 /**
  * Manages Korean Roadside Enforcement & Urban Delivery Hazards:
- * 1. Fixed Speed & Red-Light Enforcement Cameras (50 km/h limit, strobe flash, ₩40,000 fine)
- * 2. Illegally Double-Parked Hazard Vehicles (blinking 4-way K-택배 parcel trucks & sedans with collision boxes)
- * 3. Blind-Spot Pedestrian Pop-Out Events darting out from behind double-parked trucks!
+ * 1. Fixed Speed & Red-Light Enforcement Cameras (50 km/h limit, 80m navi approach warning, strobe flash, ₩40,000 fine)
+ * 2. Patrolling Korean Police Cars ("POLICE 112" with alternating red/blue lightbars & live patrol enforcement)
+ * 3. Illegally Double-Parked Hazard Vehicles (blinking 4-way K-택배 parcel trucks & sedans with collision boxes)
+ * 4. Blind-Spot Pedestrian Pop-Out Events darting out from behind double-parked trucks!
  * Parented to world.root -> automatically hidden when player enters underground apartment corridors (y = -500).
  */
 export class RoadHazardManager {
   public readonly root = new THREE.Group();
   public readonly obstacles: ObstacleBox[] = [];
   public readonly cameraMarkers: SpeedCameraMarker[] = [];
+  public readonly patrolMarkers: PolicePatrolMarker[] = [];
+  public upcomingCamera: UpcomingCameraAlert | null = null;
 
   private readonly cameras: SpeedCameraUnit[] = [];
   private readonly parkedHazards: ParkedHazardUnit[] = [];
+  private readonly patrolCars: PolicePatrolUnit[] = [];
   private readonly pedFactory = new PedestrianFactory();
   private globalPopOutCooldown = 3.0;
+  private lastWarnedCameraId: string | null = null;
+  private overSpeedBeepTimer = 0;
 
   constructor(parent: THREE.Object3D) {
     this.buildSpeedCameras();
     this.buildParkedHazards();
+    this.buildPolicePatrols();
     parent.add(this.root);
+  }
+
+  /** Returns static parked hazard obstacles + live moving police patrol car obstacle boxes */
+  public getAllObstacleBoxes(): ObstacleBox[] {
+    const list: ObstacleBox[] = [...this.obstacles];
+    for (const p of this.patrolCars) {
+      const ns = Math.abs(Math.cos(p.heading)) > 0.7;
+      const rx = ns ? 1.0 : 2.25;
+      const rz = ns ? 2.25 : 1.0;
+      list.push({
+        minX: p.x - rx,
+        maxX: p.x + rx,
+        minZ: p.z - rz,
+        maxZ: p.z + rz,
+      });
+    }
+    return list;
   }
 
   private createSignTexture(title: string, limit: string): THREE.CanvasTexture {
@@ -457,6 +528,143 @@ export class RoadHazardManager {
     }
   }
 
+  private createPoliceDoorTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 96;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, 256, 96);
+    // Korean Police blue + yellow diagonal livery stripes
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fillRect(0, 58, 256, 26);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(0, 50, 256, 8);
+    ctx.fillStyle = '#1e3a8a';
+    ctx.font = '900 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('경찰 POLICE', 128, 28);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 18px sans-serif';
+    ctx.fillText('112 순찰차', 128, 72);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private buildPolicePatrols(): void {
+    const specs: Array<{ id: string; label: string; dir: PatrolDir; roadIdx: number; along: number }> = [
+      { id: 'patrol-1', label: '중앙지구대 112 순찰차', dir: 1, roadIdx: 2, along: -92 },
+      { id: 'patrol-2', label: '강남지구대 112 순찰차', dir: 0, roadIdx: 3, along: -95 },
+    ];
+
+    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.28, metalness: 0.25 });
+    const blueAccentMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.32, metalness: 0.35 });
+    const doorTex = this.createPoliceDoorTexture();
+    const doorMat = new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.35 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.14, metalness: 0.6 });
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9 });
+    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12);
+    wheelGeo.rotateZ(Math.PI / 2);
+
+    for (const sp of specs) {
+      const group = new THREE.Group();
+
+      // Lower chassis with Korean police side livery
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.68, 4.32), [
+        doorMat,
+        doorMat,
+        whiteMat,
+        whiteMat,
+        blueAccentMat,
+        blueAccentMat,
+      ]);
+      body.position.set(0, 0.62, 0);
+      body.castShadow = true;
+      group.add(body);
+
+      // Cabin & windows
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.58, 2.2), whiteMat);
+      cabin.position.set(0, 1.21, -0.14);
+      cabin.castShadow = true;
+      group.add(cabin);
+
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.44, 2.24), glassMat);
+      glass.position.set(0, 1.22, -0.14);
+      group.add(glass);
+
+      // Roof Red / Blue Alternating Police Lightbar
+      const barBase = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.08, 0.28), glassMat);
+      barBase.position.set(0, 1.54, -0.08);
+      group.add(barBase);
+
+      const redBarMat = new THREE.MeshStandardMaterial({
+        color: 0x991b1b,
+        emissive: 0xef4444,
+        emissiveIntensity: 3.0,
+      });
+      const blueBarMat = new THREE.MeshStandardMaterial({
+        color: 0x1e3a8a,
+        emissive: 0x3b82f6,
+        emissiveIntensity: 3.0,
+      });
+
+      const redLed = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.24), redBarMat);
+      redLed.position.set(0.3, 1.62, -0.08);
+      const blueLed = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.24), blueBarMat);
+      blueLed.position.set(-0.3, 1.62, -0.08);
+      group.add(redLed, blueLed);
+
+      for (const [wx, wz] of [
+        [-0.92, 1.32],
+        [0.92, 1.32],
+        [-0.92, -1.32],
+        [0.92, -1.32],
+      ]) {
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.position.set(wx, 0.34, wz);
+        group.add(w);
+      }
+
+      const roadCoord = CITY_ROAD_LINES[sp.roadIdx];
+      const lane = patrolLaneCoord(roadCoord, sp.dir);
+      const isNS = sp.dir === 0 || sp.dir === 2;
+      const x = isNS ? lane : sp.along;
+      const z = isNS ? sp.along : lane;
+      const heading = patrolDirHeading(sp.dir);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = heading;
+      this.root.add(group);
+
+      this.patrolCars.push({
+        id: sp.id,
+        label: sp.label,
+        group,
+        redBarMat,
+        blueBarMat,
+        x,
+        z,
+        heading,
+        dir: sp.dir,
+        roadIndex: sp.roadIdx,
+        speed: 8.5,
+        cruiseSpeed: 9.8,
+        sirenTimer: 0,
+        citeCooldown: 0,
+      });
+
+      this.patrolMarkers.push({
+        id: sp.id,
+        x,
+        z,
+        heading,
+        sirenActive: false,
+      });
+    }
+  }
+
   public step(
     dt: number,
     elapsedTime: number,
@@ -465,15 +673,23 @@ export class RoadHazardManager {
     signalState: SignalStateSnapshot,
     onSpeedCameraTrigger?: (ev: SpeedCameraTriggerEvent) => void,
     onPopOutWarning?: (ev: PopOutWarningEvent) => void,
-    onPopOutPedestrianHit?: (ev: PedestrianCollisionEvent) => void
+    onPopOutPedestrianHit?: (ev: PedestrianCollisionEvent) => void,
+    onCameraApproachBeep?: (overSpeed: boolean) => void,
+    onPolicePatrolCite?: (ev: SpeedCameraTriggerEvent) => void
   ): void {
-    if (inCorridor) return;
+    if (inCorridor) {
+      this.upcomingCamera = null;
+      return;
+    }
 
     const clampedDt = Math.min(dt, 0.05);
     const speedKmh = Math.abs(scooter.speedMps) * 3.6;
     const blinkOn = Math.floor(elapsedTime * 2.6) % 2 === 0;
+    const scFwdX = Math.sin(scooter.heading);
+    const scFwdZ = Math.cos(scooter.heading);
 
-    // --- 1. Update Speed & Red-Light Enforcement Cameras ---
+    // --- 1. Update Speed & Red-Light Enforcement Cameras + 80m Navi Approach Warning ---
+    let nearestAhead: UpcomingCameraAlert | null = null;
     for (const cam of this.cameras) {
       if (cam.cooldown > 0) cam.cooldown = Math.max(0, cam.cooldown - clampedDt);
       if (cam.flashTimer > 0) {
@@ -483,6 +699,28 @@ export class RoadHazardManager {
         cam.flashMat.opacity = 0;
       }
       cam.ledMat.emissiveIntensity = blinkOn ? 2.8 : 0.7;
+
+      // 80m forward approach detection along player travel corridor
+      if (scooter.isRiding && !scooter.crashed && speedKmh >= 6) {
+        const toCamX = cam.x - scooter.x;
+        const toCamZ = cam.z - scooter.z;
+        const dist = Math.hypot(toCamX, toCamZ);
+        if (dist >= 7 && dist <= SPEED_CAMERA_WARN_DIST) {
+          const alignment = (toCamX * scFwdX + toCamZ * scFwdZ) / dist;
+          const lateral = Math.abs(toCamX * -scFwdZ + toCamZ * scFwdX);
+          if (alignment > 0.65 && lateral < 13) {
+            if (!nearestAhead || dist < nearestAhead.distanceMeters) {
+              nearestAhead = {
+                cameraId: cam.id,
+                label: cam.label,
+                distanceMeters: Math.round(dist),
+                limitKmh: cam.limitKmh,
+                isOverSpeed: speedKmh > cam.limitKmh,
+              };
+            }
+          }
+        }
+      }
 
       const dx = Math.abs(scooter.x - cam.x);
       const dz = Math.abs(scooter.z - cam.z);
@@ -512,6 +750,109 @@ export class RoadHazardManager {
       cam.wasInZone = inZone;
     }
 
+    this.upcomingCamera = nearestAhead;
+    if (nearestAhead) {
+      if (this.lastWarnedCameraId !== nearestAhead.cameraId) {
+        this.lastWarnedCameraId = nearestAhead.cameraId;
+        this.overSpeedBeepTimer = 0.55;
+        onCameraApproachBeep?.(nearestAhead.isOverSpeed);
+      } else if (nearestAhead.isOverSpeed) {
+        this.overSpeedBeepTimer -= clampedDt;
+        if (this.overSpeedBeepTimer <= 0) {
+          this.overSpeedBeepTimer = 0.55;
+          onCameraApproachBeep?.(true);
+        }
+      }
+    } else {
+      this.lastWarnedCameraId = null;
+      this.overSpeedBeepTimer = 0;
+    }
+
+    // --- 1.5. Update Patrolling Korean Police Cars ("POLICE 112") & Live Enforcement ---
+    for (let pi = 0; pi < this.patrolCars.length; pi++) {
+      const p = this.patrolCars[pi];
+      if (p.citeCooldown > 0) p.citeCooldown = Math.max(0, p.citeCooldown - clampedDt);
+      if (p.sirenTimer > 0) p.sirenTimer = Math.max(0, p.sirenTimer - clampedDt);
+
+      // Alternating red/blue roof LED lightbar (faster strobe during active enforcement!)
+      const strobeHz = p.sirenTimer > 0 ? 9.5 : 3.2;
+      const redPhase = Math.floor(elapsedTime * strobeHz) % 2 === 0;
+      p.redBarMat.emissiveIntensity = redPhase ? 3.8 : 0.25;
+      p.blueBarMat.emissiveIntensity = redPhase ? 0.25 : 3.8;
+
+      // Cruise along city arterial roads, stopping smoothly at red lights & turning cleanly at edges
+      const [fx, fz] = patrolDirVec(p.dir);
+      const isNS = p.dir === 0 || p.dir === 2;
+      const along = isNS ? p.z : p.x;
+      const stepSign = isNS ? fz : fx;
+      const sig = isNS ? signalState.ns : signalState.ew;
+
+      let mustStop = false;
+      for (let r = 0; r < CITY_ROAD_LINES.length; r++) {
+        const diff = (CITY_ROAD_LINES[r] - along) * stepSign;
+        if (diff > 9.5 && diff < 16.5 && sig !== 'green') {
+          mustStop = true;
+          break;
+        }
+      }
+
+      // Stop if rider is directly in front of patrol car
+      const toRiderX = scooter.x - p.x;
+      const toRiderZ = scooter.z - p.z;
+      const distRider = Math.hypot(toRiderX, toRiderZ);
+      const aheadDot = distRider > 0.1 ? (toRiderX * fx + toRiderZ * fz) / distRider : 0;
+      if (distRider < 7.0 && aheadDot > 0.72) {
+        mustStop = true;
+      }
+
+      const targetSpd = mustStop ? 0 : p.cruiseSpeed;
+      p.speed += (targetSpd - p.speed) * Math.min(1, clampedDt * (mustStop ? 8 : 3.5));
+      p.x += fx * p.speed * clampedDt;
+      p.z += fz * p.speed * clampedDt;
+
+      // Turn 90° smoothly at outer city road perimeter to keep patrolling endlessly
+      const nextAlong = isNS ? p.z : p.x;
+      if ((stepSign > 0 && nextAlong >= 198) || (stepSign < 0 && nextAlong <= -198)) {
+        const nextDir = ((p.dir + 1) % 4) as PatrolDir;
+        const clampedEdgeIdx = stepSign > 0 ? CITY_ROAD_LINES.length - 1 : 0;
+        p.dir = nextDir;
+        p.roadIndex = clampedEdgeIdx;
+        p.heading = patrolDirHeading(nextDir);
+        const newLane = patrolLaneCoord(CITY_ROAD_LINES[p.roadIndex], nextDir);
+        if (nextDir === 0 || nextDir === 2) p.x = newLane;
+        else p.z = newLane;
+      }
+
+      p.group.position.set(p.x, 0, p.z);
+      p.group.rotation.y = p.heading;
+
+      // Live Patrol Enforcement: speeding > 60 km/h within 22m of a police patrol car!
+      if (
+        scooter.isRiding &&
+        !scooter.crashed &&
+        p.citeCooldown <= 0 &&
+        distRider <= 22.0 &&
+        speedKmh > PATROL_SPEED_LIMIT_KMH
+      ) {
+        p.citeCooldown = 18.0;
+        p.sirenTimer = 4.5;
+        onPolicePatrolCite?.({
+          cameraId: p.id,
+          label: p.label,
+          kind: 'patrol_speeding',
+          measuredKmh: Math.round(speedKmh),
+          limitKmh: PATROL_SPEED_LIMIT_KMH,
+          fine: PATROL_ENFORCEMENT_FINE,
+        });
+      }
+
+      // Sync GPS marker for smartphone map (after citation so sirenActive reflects immediately!)
+      this.patrolMarkers[pi].x = p.x;
+      this.patrolMarkers[pi].z = p.z;
+      this.patrolMarkers[pi].heading = p.heading;
+      this.patrolMarkers[pi].sirenActive = p.sirenTimer > 0;
+    }
+
     // --- 2. Update Double-Parked Hazard Blinkers & Blind-Spot Pop-Out Pedestrians ---
     if (this.globalPopOutCooldown > 0) {
       this.globalPopOutCooldown = Math.max(0, this.globalPopOutCooldown - clampedDt);
@@ -519,8 +860,6 @@ export class RoadHazardManager {
 
     const canHitPopOut =
       scooter.isRiding && !scooter.crashed && speedKmh >= PEDESTRIAN_COLLISION_MIN_KMH;
-    const scFwdX = Math.sin(scooter.heading);
-    const scFwdZ = Math.cos(scooter.heading);
 
     for (const h of this.parkedHazards) {
       h.hazardMat.emissiveIntensity = blinkOn ? 2.8 : 0.12;
