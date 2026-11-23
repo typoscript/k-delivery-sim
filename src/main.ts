@@ -6,7 +6,7 @@ import { CORRIDOR_ORIGIN_Y, CorridorRoom } from './world/CorridorRoom';
 import { RoadNavigator } from './world/RoadNavigator';
 import { RoadNavLine3D } from './world/RoadNavLine3D';
 import { WeatherManager } from './world/WeatherManager';
-import { PedestrianSystem } from './world/PedestrianSystem';
+import { PedestrianManager } from './world/PedestrianManager';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import { OnFootInput, PlayerController } from './player/PlayerController';
@@ -50,7 +50,7 @@ const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const roadNavigator = new RoadNavigator();
 const roadNavLine3D = new RoadNavLine3D(world.root); // Parented to world.root -> auto-occluded indoors!
-const pedestrians = new PedestrianSystem(world.root); // Parented to world.root -> auto-occluded indoors!
+const pedestrians = new PedestrianManager(world.root); // Independent 25-block crosswalk AI (paused indoors!)
 const weather = new WeatherManager(scene);
 const delivery = new DeliveryManager(world.locations);
 const dispatch = new OrderDispatchManager(world.locations, {
@@ -952,13 +952,6 @@ function animate(now: number): void {
 
   if (!inCorridor) {
     world.updateLobbyDoors(dt);
-    pedestrians.update(
-      dt,
-      playerCtrl.state.x,
-      playerCtrl.state.z,
-      scooterPhysics.state.x,
-      scooterPhysics.state.z
-    );
     traffic.step(
       dt,
       elapsed,
@@ -984,6 +977,15 @@ function animate(now: number): void {
         const hitSide = relX * leftX + relZ * leftZ >= 0 ? 1 : -1;
         scooterPhysics.triggerExternalCrash(hitSide);
       }
+    );
+    pedestrians.update(
+      dt,
+      traffic.signalState,
+      playerCtrl.state.x,
+      playerCtrl.state.z,
+      scooterPhysics.state.x,
+      scooterPhysics.state.z,
+      inCorridor
     );
   } else {
     corridorRoom.updateVisual(elapsed, dt);
