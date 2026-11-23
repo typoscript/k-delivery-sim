@@ -80,6 +80,12 @@
                   <span id="phone-status-pill" class="app-status-pill foot">🚶 도보 이동</span>
                   <span id="phone-earnings" class="earnings-tag">₩0 (0건)</span>
                 </div>
+                <!-- Baemin Connect Style Top 3-Tab Navigation Bar -->
+                <div id="phone-top-nav" class="bc-top-nav">
+                  <button class="bc-nav-btn active" data-topnav="calls">콜 목록</button>
+                  <button class="bc-nav-btn" data-topnav="nav">내비</button>
+                  <button class="bc-nav-btn" data-topnav="earnings">수익</button>
+                </div>
               </div>
               <div id="phone-pin-tooltip" class="phone-pin-tooltip hidden"></div>
               <div id="phone-cooking-banner" class="phone-cooking-banner hidden"></div>
@@ -361,13 +367,25 @@
 
       <!-- 9. Daily Comprehensive Earnings & Expenses Settlement Dashboard Modal -->
       <div id="daily-report-modal" class="modal-backdrop hidden">
-        <div class="report-card">
+        <div class="report-card bc-receipt-modal">
           <div class="keypad-header">
-            <span>📊 오늘의 일일 종합 정산 대시보드</span>
+            <span>🧾 배민커넥트 일일 정산 명세서</span>
             <button class="keypad-close" data-action="close">✕</button>
           </div>
           <div id="daily-report-body" class="report-body"></div>
           <button id="daily-report-ok-btn" class="st-ok-btn" data-action="close">확인 (Esc)</button>
+        </div>
+      </div>
+
+      <!-- 10. Daily Delivery Mission Bonus Celebration Popup -->
+      <div id="mission-bonus-modal" class="modal-backdrop hidden">
+        <div class="mission-bonus-card">
+          <div class="mb-trophy">🏆</div>
+          <div class="mb-badge">일일 배달 미션 달성!</div>
+          <div id="mb-title" class="mb-title">오늘 3건 배달 완료하기 (3/3)</div>
+          <div id="mb-amount" class="mb-amount">+₩5,000 보너스 지급!</div>
+          <div id="mb-wallet" class="mb-wallet">지갑 잔고에 즉시 반영되었습니다</div>
+          <button class="st-ok-btn mb-ok-btn" data-action="close">보너스 받기 (Enter)</button>
         </div>
       </div>
     </div>

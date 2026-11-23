@@ -2864,3 +2864,312 @@ kbd {
   background: #10b981;
   color: #ffffff;
 }
+
+/* ======================== Baemin Connect Style Top Tabs, Receipt & Daily Mission Widget ======================== */
+.bc-top-nav {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.phone-device.night .bc-top-nav {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.bc-nav-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.phone-device.night .bc-nav-btn {
+  color: #94a3b8;
+}
+
+.bc-nav-btn.active {
+  background: #2ac1bc;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(42, 193, 188, 0.42);
+}
+
+.app-bottom-sheet.earnings-expanded {
+  max-height: 67%;
+}
+
+.bc-sub-pills {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bc-sub-btn {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  padding: 5px 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  background: rgba(15, 23, 42, 0.05);
+  color: #475569;
+  cursor: pointer;
+}
+
+.phone-device.night .bc-sub-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+.bc-sub-btn.active {
+  background: rgba(42, 193, 188, 0.16);
+  border-color: #2ac1bc;
+  color: #0f766e;
+}
+
+.phone-device.night .bc-sub-btn.active {
+  background: rgba(42, 193, 188, 0.24);
+  color: #5eead4;
+}
+
+/* Daily Delivery Mission Widget */
+.bc-mission-card {
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, rgba(42, 193, 188, 0.14) 0%, rgba(16, 185, 129, 0.1) 100%);
+  border: 1.5px solid rgba(42, 193, 188, 0.48);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bc-mission-card.done {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(250, 204, 21, 0.14) 100%);
+  border-color: #10b981;
+}
+
+.bc-mission-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.8px;
+  font-weight: 800;
+}
+
+.bc-mission-reward {
+  font-size: 9.8px;
+  font-weight: 900;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #2ac1bc;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.bc-mission-card.done .bc-mission-reward {
+  background: #059669;
+}
+
+.bc-mission-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+}
+
+.phone-device.night .bc-mission-track {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.bc-mission-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2ac1bc 0%, #10b981 100%);
+  transition: width 0.25s ease;
+}
+
+.bc-mission-sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.8px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.phone-device.night .bc-mission-sub {
+  color: #cbd5e1;
+}
+
+/* Baemin Connect Receipt Card inside [수익] Tab */
+.bc-receipt {
+  border-radius: 13px;
+  padding: 10px 11px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.phone-device.night .bc-receipt {
+  background: #172033;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+
+.bc-receipt-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 6px;
+  border-bottom: 1.5px dashed rgba(100, 116, 139, 0.35);
+}
+
+.bc-receipt-brand {
+  font-size: 11px;
+  font-weight: 900;
+  color: #0f766e;
+  letter-spacing: -0.02em;
+}
+
+.phone-device.night .bc-receipt-brand {
+  color: #2ac1bc;
+}
+
+.bc-receipt-date {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.bc-rcpt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bc-rcpt-row.inc span:last-child {
+  color: #059669;
+  font-weight: 800;
+}
+
+.phone-device.night .bc-rcpt-row.inc span:last-child {
+  color: #34d399;
+}
+
+.bc-rcpt-row.ded span:last-child {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+.phone-device.night .bc-rcpt-row.ded span:last-child {
+  color: #f87171;
+}
+
+.bc-rcpt-divider {
+  border-top: 1px dashed rgba(100, 116, 139, 0.32);
+  margin: 2px 0;
+}
+
+.bc-rcpt-total {
+  border-top: 2px solid #2ac1bc;
+  padding-top: 6px;
+  margin-top: 2px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11.5px;
+  font-weight: 900;
+}
+
+.bc-rcpt-net {
+  font-size: 17px;
+  font-weight: 900;
+  color: #0d9488;
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-device.night .bc-rcpt-net {
+  color: #2dd4bf;
+}
+
+.bc-rcpt-net.neg {
+  color: #ef4444;
+}
+
+/* Mission Bonus Celebration Modal */
+.mission-bonus-card {
+  width: min(360px, 90vw);
+  padding: 24px 20px 20px;
+  border-radius: 24px;
+  background: linear-gradient(160deg, #0f172a 0%, #0b2d2b 100%);
+  border: 2px solid #2ac1bc;
+  box-shadow: 0 28px 68px rgba(0, 0, 0, 0.72), 0 0 40px rgba(42, 193, 188, 0.25);
+  color: #f8fafc;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: phoneZoomIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.mb-trophy {
+  font-size: 48px;
+  line-height: 1;
+  filter: drop-shadow(0 6px 16px rgba(250, 204, 21, 0.45));
+}
+
+.mb-badge {
+  font-size: 12px;
+  font-weight: 900;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #2ac1bc;
+  color: #042f2e;
+}
+
+.mb-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+.mb-amount {
+  font-size: 28px;
+  font-weight: 900;
+  color: #4ade80;
+  letter-spacing: -0.02em;
+}
+
+.mb-wallet {
+  font-size: 12.5px;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.mb-ok-btn {
+  width: 100%;
+  margin-top: 6px;
+  background: #2ac1bc;
+  color: #042f2e;
+}
+
+.mb-ok-btn:hover {
+  background: #5eead4;
+}

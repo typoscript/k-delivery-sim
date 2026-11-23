@@ -338,6 +338,27 @@ export class GameAudio {
     osc.stop(now + 0.03);
   }
 
+  /** Celebratory fanfare chime for completing the Daily Delivery Mission (+₩5,000 bonus!) */
+  public playMissionBonusFanfare(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98];
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = idx >= 4 ? 'triangle' : 'sine';
+      osc.frequency.value = freq;
+      const t = now + idx * 0.08;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.26, t + 0.014);
+      g.gain.exponentialRampToValueAtTime(0.001, t + (idx === notes.length - 1 ? 0.55 : 0.22));
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.58);
+    });
+  }
+
   /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
   public playFoodReadyDingDong(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

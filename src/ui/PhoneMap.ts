@@ -16,6 +16,7 @@ import { TurnDirection } from '../world/RoadNavigator';
 import { clamp } from '../types';
 
 export type PhonePlacement = 'pocket' | 'in_hand' | 'mounted';
+export type PhoneTopNav = 'calls' | 'nav' | 'earnings';
 export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance';
 
 export interface PhoneCallbacks {
@@ -54,6 +55,8 @@ export class PhoneMap {
   private readonly statusPillEl = document.getElementById('phone-status-pill')!;
   private readonly pinTooltipEl = document.getElementById('phone-pin-tooltip')!;
   private readonly cookingBannerEl = document.getElementById('phone-cooking-banner')!;
+  private readonly topNavEl = document.getElementById('phone-top-nav')!;
+  private readonly bottomSheetEl = document.querySelector('.app-bottom-sheet') as HTMLElement;
   private readonly sheetBodyEl = document.getElementById('phone-sheet-body')!;
 
   private readonly zoomInBtn = document.getElementById('map-zoom-in')!;
@@ -77,6 +80,7 @@ export class PhoneMap {
   private readonly callbacks: PhoneCallbacks;
   public placement: PhonePlacement = 'pocket';
   public isZoomed = false;
+  public topNav: PhoneTopNav = 'calls';
   public activeTab: PhoneTab = 'calls';
 
   private followPlayer = true;
@@ -141,6 +145,15 @@ export class PhoneMap {
       }
     });
 
+    this.topNavEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const target = e.target as HTMLElement;
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      const nextTop = btn?.dataset.topnav as PhoneTopNav | undefined;
+      if (!nextTop) return;
+      this.setTopNav(nextTop);
+    });
+
     this.sheetBodyEl.addEventListener('click', (e) => {
       e.stopPropagation();
       const target = e.target as HTMLElement;
@@ -150,6 +163,10 @@ export class PhoneMap {
       const action = btn.dataset.action;
       if (action === 'tab' && btn.dataset.tab) {
         this.activeTab = btn.dataset.tab as PhoneTab;
+        if (this.activeTab === 'calls' || this.activeTab === 'accepted') this.topNav = 'calls';
+        else if (this.activeTab === 'route' || this.activeTab === 'checklist') this.topNav = 'nav';
+        else this.topNav = 'earnings';
+        this.syncTopNavHighlight();
         this.lastSheetFingerprint = '';
       } else if (action === 'accept' && btn.dataset.id) {
         this.callbacks.onAcceptOrder(btn.dataset.id);
@@ -187,6 +204,28 @@ export class PhoneMap {
 
     this.followBtn.classList.add('active');
     this.setPlacement('pocket');
+  }
+
+  private setTopNav(next: PhoneTopNav): void {
+    this.topNav = next;
+    if (next === 'calls') {
+      if (this.activeTab !== 'calls' && this.activeTab !== 'accepted') this.activeTab = 'calls';
+    } else if (next === 'nav') {
+      if (this.activeTab !== 'route' && this.activeTab !== 'checklist') this.activeTab = 'route';
+    } else {
+      this.activeTab = 'finance';
+    }
+    this.syncTopNavHighlight();
+    this.lastSheetFingerprint = '';
+  }
+
+  private syncTopNavHighlight(): void {
+    const btns = this.topNavEl.querySelectorAll('button[data-topnav]');
+    btns.forEach((b) => {
+      const el = b as HTMLButtonElement;
+      el.classList.toggle('active', el.dataset.topnav === this.topNav);
+    });
+    this.bottomSheetEl.classList.toggle('earnings-expanded', this.topNav === 'earnings');
   }
 
   public setPlacement(next: PhonePlacement): void {
@@ -1242,7 +1281,14 @@ export class PhoneMap {
       ctx.fillStyle = isNight ? '#38bdf8' : '#0284c7';
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('[V] 확대: 수락 목록 · 완료 체크 · 추천 동선 가이드', w / 2, sheetY + 160);
+      const ms = delivery.getDailyMissionStatus();
+      ctx.fillText(
+        ms.completed
+          ? '🏆 일일 미션 달성! (+₩5,000 지급 완료) · [V] 확대'
+          : `🏆 오늘 미션 ${ms.current}/${ms.target}건 (+₩${ms.bonus.toLocaleString()}) · [V] 확대`,
+        w / 2,
+        sheetY + 160
+      );
     }
   }
 
@@ -1299,30 +1345,37 @@ export class PhoneMap {
     const activeCnt = delivery.activeMissions.length;
     const doneCnt = delivery.completedMissions.length;
     const stopsCnt = navPlan.recommendedStops.length;
+    this.syncTopNavHighlight();
 
-    const tabsHtml = `
-      <div class="phone-tabs">
-        <button class="phone-tab-btn ${this.activeTab === 'calls' ? 'active' : ''}" data-action="tab" data-tab="calls">
-          콜<span class="phone-tab-badge">${delivery.availableOrders.length}</span>
-        </button>
-        <button class="phone-tab-btn ${this.activeTab === 'accepted' ? 'active' : ''}" data-action="tab" data-tab="accepted">
-          수락<span class="phone-tab-badge">${activeCnt}</span>
-        </button>
-        <button class="phone-tab-btn ${this.activeTab === 'checklist' ? 'active' : ''}" data-action="tab" data-tab="checklist">
-          체크<span class="phone-tab-badge">${doneCnt}</span>
-        </button>
-        <button class="phone-tab-btn ${this.activeTab === 'route' ? 'active' : ''}" data-action="tab" data-tab="route">
-          동선<span class="phone-tab-badge">${stopsCnt}</span>
-        </button>
-        <button class="phone-tab-btn ${this.activeTab === 'finance' ? 'active' : ''}" data-action="tab" data-tab="finance">
-          수익/지출
-        </button>
-      </div>
-    `;
+    // Context sub-pills matching the Baemin Connect top 3-tab structure ([콜 목록] / [내비] / [수익])
+    let subNavHtml = '';
+    if (this.topNav === 'calls') {
+      subNavHtml = `
+        <div class="bc-sub-pills">
+          <button class="bc-sub-btn ${this.activeTab === 'calls' ? 'active' : ''}" data-action="tab" data-tab="calls">
+            🔔 신규 콜 (${delivery.availableOrders.length})
+          </button>
+          <button class="bc-sub-btn ${this.activeTab === 'accepted' ? 'active' : ''}" data-action="tab" data-tab="accepted">
+            📋 수락 주문 (${activeCnt}/${MAX_CONCURRENT_ORDERS})
+          </button>
+        </div>
+      `;
+    } else if (this.topNav === 'nav') {
+      subNavHtml = `
+        <div class="bc-sub-pills">
+          <button class="bc-sub-btn ${this.activeTab === 'route' ? 'active' : ''}" data-action="tab" data-tab="route">
+            🧭 추천 동선 (${stopsCnt})
+          </button>
+          <button class="bc-sub-btn ${this.activeTab === 'checklist' ? 'active' : ''}" data-action="tab" data-tab="checklist">
+            ☑ 완료 체크 (${doneCnt})
+          </button>
+        </div>
+      `;
+    }
 
     let bodyHtml = '';
     if (this.activeTab === 'calls') {
-      bodyHtml = this.renderCallsTab(player, delivery);
+      bodyHtml = this.renderDailyMissionWidget(delivery) + this.renderCallsTab(player, delivery);
     } else if (this.activeTab === 'accepted') {
       bodyHtml = this.renderAcceptedTab(player, delivery, navPlan);
     } else if (this.activeTab === 'checklist') {
@@ -1333,7 +1386,7 @@ export class PhoneMap {
       bodyHtml = this.renderFinanceTab(delivery);
     }
 
-    this.sheetBodyEl.innerHTML = tabsHtml + bodyHtml;
+    this.sheetBodyEl.innerHTML = subNavHtml + bodyHtml;
   }
 
   private renderCallsTab(player: PlayerState, delivery: DeliveryManager): string {
@@ -1578,29 +1631,53 @@ export class PhoneMap {
     `;
   }
 
+  private renderDailyMissionWidget(delivery: DeliveryManager): string {
+    const ms = delivery.getDailyMissionStatus();
+    return `
+      <div class="bc-mission-card ${ms.completed ? 'done' : ''}">
+        <div class="bc-mission-top">
+          <span>🏆 ${ms.title} (현재 ${ms.current}/${ms.target})</span>
+          <span class="bc-mission-reward">${ms.completed ? '✓ 지급완료' : `+₩${ms.bonus.toLocaleString()}`}</span>
+        </div>
+        <div class="bc-mission-track">
+          <div class="bc-mission-fill" style="width:${ms.progressPct}%"></div>
+        </div>
+        <div class="bc-mission-sub">
+          <span>${ms.completed ? '🎉 일일 보너스 +₩5,000 지갑 반영 완료!' : `앞으로 ${ms.target - ms.current}건 더 완료 시 보너스 지급`}</span>
+          <span>${ms.progressPct}%</span>
+        </div>
+      </div>
+    `;
+  }
+
   private renderFinanceTab(delivery: DeliveryManager): string {
     const l = delivery.getDailyLedger();
     const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
-    const netSign = l.netProfit < 0 ? '-' : '+';
+    const netSign = l.netProfit < 0 ? '-' : '';
+    const today = new Date();
+    const dateStr = `${today.getMonth() + 1}월 ${today.getDate()}일 · ${l.completedCount}건`;
 
     return `
-      <div class="fin-kpi-grid">
-        <div class="fin-kpi">
-          <div class="fin-kpi-label">오늘 순수익 (${l.completedCount}건)</div>
-          <div class="fin-kpi-val ${l.netProfit < 0 ? 'neg' : 'pos'}">${netSign}${fmt(l.netProfit)}</div>
+      ${this.renderDailyMissionWidget(delivery)}
+      <div class="bc-receipt">
+        <div class="bc-receipt-hdr">
+          <span class="bc-receipt-brand">🧾 배민커넥트 일일 정산 명세서</span>
+          <span class="bc-receipt-date">${dateStr}</span>
         </div>
-        <div class="fin-kpi">
-          <div class="fin-kpi-label">총 지출 (유류·정비·과태료)</div>
-          <div class="fin-kpi-val neg">-${fmt(l.totalExpenses)}</div>
+        <div class="bc-rcpt-row inc"><span>기본 배달료 합계</span><span>+${fmt(l.baseFeeTotal)}</span></div>
+        <div class="bc-rcpt-row inc"><span>거리 할증 합계</span><span>+${fmt(l.distanceBonusTotal)}</span></div>
+        <div class="bc-rcpt-row inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(l.rainBonusTotal)}</span></div>
+        <div class="bc-rcpt-row inc"><span>안전 배달 팁 / 미션 보너스</span><span>+${fmt(l.tipTotal + l.missionBonusTotal)}</span></div>
+        <div class="bc-rcpt-divider"></div>
+        <div class="bc-rcpt-row ded"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(l.fineExpense)}</span></div>
+        <div class="bc-rcpt-row ded"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(l.damageDeductionTotal)}</span></div>
+        <div class="bc-rcpt-row ded"><span>⛽ 유류비 · 🔧 수리비</span><span>-${fmt(l.fuelExpense + l.repairExpense)}</span></div>
+        <div class="bc-rcpt-total">
+          <span>최종 실수령액 (Net Earnings)</span>
+          <span class="bc-rcpt-net ${l.netProfit < 0 ? 'neg' : ''}">${netSign}${fmt(l.netProfit)}</span>
         </div>
       </div>
-      <div class="fin-mini-list">
-        <div class="fin-row inc"><span>기본 배달료 + 거리할증</span><span>+${fmt(l.baseFeeTotal + l.distanceBonusTotal)}</span></div>
-        <div class="fin-row inc"><span>🌧️ 우천할증 + 안전팁</span><span>+${fmt(l.rainBonusTotal + l.tipTotal)}</span></div>
-        <div class="fin-row exp"><span>⛽ 유류비 / 🔧 수리비</span><span>-${fmt(l.fuelExpense + l.repairExpense)}</span></div>
-        <div class="fin-row exp"><span>🚨 신호위반 과태료</span><span>-${fmt(l.fineExpense)}</span></div>
-      </div>
-      <button class="fin-open-btn" data-action="open_report">📊 일일 종합 정산 대시보드 크게 보기</button>
+      <button class="fin-open-btn" data-action="open_report">📊 전체 화면 정산 명세서 크게 보기</button>
     `;
   }
 

@@ -12,6 +12,17 @@ export const ALTTLE_FLAT_FEE = 2800; // 알뜰배달 기본 2,800원 x 2건
 export const ALTTLE_TIME_LIMIT_SEC = 500; // 알뜰배달 제한시간 500초
 export const FUEL_PRICE_PER_PERCENT = 40; // full 0->100% fill = ₩4,000
 export const REPAIR_COST_PER_DAMAGE_STAGE = 2500; // stage 1..3 = ₩2,500..₩7,500
+export const DAILY_MISSION_TARGET = 3; // 오늘 3건 배달 완료하기
+export const DAILY_MISSION_BONUS = 5000; // +₩5,000 미션 달성 보너스
+
+export interface DailyMissionStatus {
+  title: string;
+  current: number;
+  target: number;
+  bonus: number;
+  completed: boolean;
+  progressPct: number;
+}
 
 export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';
 export type DeliveryInstruction = 'PHOTO_DOOR' | 'KNOCK_DOOR' | 'MEET_FACE';
@@ -79,6 +90,7 @@ export interface DailyFinanceLedger {
   distanceBonusTotal: number;
   rainBonusTotal: number;
   tipTotal: number;
+  missionBonusTotal: number;
   damageDeductionTotal: number;
   fuelExpense: number;
   repairExpense: number;
@@ -155,6 +167,8 @@ export interface SettlementResult {
   earned: number;
   totalEarnings: number;
   completedCount: number;
+  missionJustCompleted: boolean;
+  missionBonusAwarded: number;
 }
 
 export interface RecommendedStop {
@@ -198,11 +212,13 @@ export class DeliveryManager {
   public completedCount = 0;
   public isWeatherRaining = false;
 
-  // Daily comprehensive finance ledger
+  // Daily comprehensive finance ledger & mission state
   public baseFeeTotal = 0;
   public distanceBonusTotal = 0;
   public rainBonusTotal = 0;
   public tipTotal = 0;
+  public missionBonusTotal = 0;
+  public dailyMissionClaimed = false;
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
@@ -708,6 +724,17 @@ export class DeliveryManager {
     this.totalEarnings += earned;
     this.completedCount += 1;
 
+    // Check daily 3-delivery mission completion (+₩5,000 instant wallet bonus!)
+    let missionJustCompleted = false;
+    let missionBonusAwarded = 0;
+    if (!this.dailyMissionClaimed && this.completedCount >= DAILY_MISSION_TARGET) {
+      this.dailyMissionClaimed = true;
+      this.missionBonusTotal += DAILY_MISSION_BONUS;
+      this.totalEarnings += DAILY_MISSION_BONUS;
+      missionJustCompleted = true;
+      missionBonusAwarded = DAILY_MISSION_BONUS;
+    }
+
     const now = new Date();
     const completedAt = `${String(now.getHours()).padStart(2, '0')}:${String(
       now.getMinutes()
@@ -733,6 +760,8 @@ export class DeliveryManager {
       earned,
       totalEarnings: this.totalEarnings,
       completedCount: this.completedCount,
+      missionJustCompleted,
+      missionBonusAwarded,
     };
 
     m.phase = 'corridor_exit';
@@ -830,20 +859,34 @@ export class DeliveryManager {
     this.totalEarnings -= rounded;
   }
 
+  public getDailyMissionStatus(): DailyMissionStatus {
+    const current = Math.min(this.completedCount, DAILY_MISSION_TARGET);
+    return {
+      title: `오늘 ${DAILY_MISSION_TARGET}건 배달 완료하기`,
+      current,
+      target: DAILY_MISSION_TARGET,
+      bonus: DAILY_MISSION_BONUS,
+      completed: this.dailyMissionClaimed,
+      progressPct: Math.min(100, Math.round((current / DAILY_MISSION_TARGET) * 100)),
+    };
+  }
+
   public getDailyLedger(): DailyFinanceLedger {
     const grossIncome =
       this.baseFeeTotal +
       this.distanceBonusTotal +
       this.rainBonusTotal +
-      this.tipTotal -
-      this.damageDeductionTotal;
-    const totalExpenses = this.fuelExpense + this.repairExpense + this.fineExpense;
+      this.tipTotal +
+      this.missionBonusTotal;
+    const totalExpenses =
+      this.damageDeductionTotal + this.fuelExpense + this.repairExpense + this.fineExpense;
     return {
       completedCount: this.completedCount,
       baseFeeTotal: this.baseFeeTotal,
       distanceBonusTotal: this.distanceBonusTotal,
       rainBonusTotal: this.rainBonusTotal,
       tipTotal: this.tipTotal,
+      missionBonusTotal: this.missionBonusTotal,
       damageDeductionTotal: this.damageDeductionTotal,
       fuelExpense: this.fuelExpense,
       repairExpense: this.repairExpense,

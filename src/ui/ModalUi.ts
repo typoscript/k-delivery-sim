@@ -19,6 +19,7 @@ export type ActiveModalType =
   | 'fuel'
   | 'repair'
   | 'daily_report'
+  | 'mission_bonus'
   | 'camera'
   | 'settlement'
   | 'transition';
@@ -97,6 +98,12 @@ export class ModalUi {
   // Daily Comprehensive Settlement Dashboard Modal
   private readonly reportBackdrop = document.getElementById('daily-report-modal')!;
   private readonly reportBody = document.getElementById('daily-report-body')!;
+
+  // Daily Mission Bonus Celebration Modal
+  private readonly missionBonusBackdrop = document.getElementById('mission-bonus-modal')!;
+  private readonly mbTitleEl = document.getElementById('mb-title')!;
+  private readonly mbAmountEl = document.getElementById('mb-amount')!;
+  private readonly mbWalletEl = document.getElementById('mb-wallet')!;
 
   // Camera Viewfinder
   private readonly cameraOverlay = document.getElementById('camera-viewfinder')!;
@@ -240,6 +247,19 @@ export class ModalUi {
         this.closeAll();
       }
     });
+
+    // Mission Bonus Celebration modal actions
+    this.missionBonusBackdrop.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target === this.missionBonusBackdrop) {
+        this.closeAll();
+        return;
+      }
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (btn?.dataset.action === 'close') {
+        this.closeAll();
+      }
+    });
   }
 
   public isBlockingMovement(): boolean {
@@ -250,6 +270,7 @@ export class ModalUi {
       this.activeModal === 'fuel' ||
       this.activeModal === 'repair' ||
       this.activeModal === 'daily_report' ||
+      this.activeModal === 'mission_bonus' ||
       this.activeModal === 'settlement' ||
       this.activeModal === 'transition'
     );
@@ -269,6 +290,7 @@ export class ModalUi {
     this.fuelBackdrop.classList.add('hidden');
     this.repairBackdrop.classList.add('hidden');
     this.reportBackdrop.classList.add('hidden');
+    this.missionBonusBackdrop.classList.add('hidden');
     this.cameraOverlay.classList.add('hidden');
     this.settlementBackdrop.classList.add('hidden');
   }
@@ -497,29 +519,35 @@ export class ModalUi {
       </div>
 
       <div class="rep-section">
-        <div class="rep-sec-title">💰 배달 수입 내역</div>
-        <div class="rep-line inc"><span>기본 배달료 (${ledger.completedCount}건)</span><span>+${fmt(ledger.baseFeeTotal)}</span></div>
-        <div class="rep-line inc"><span>거리 할증</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>🌧️ 우천 할증 보너스</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
+        <div class="rep-sec-title">💰 배달 수입 명세</div>
+        <div class="rep-line inc"><span>기본 배달료 합계 (${ledger.completedCount}건)</span><span>+${fmt(ledger.baseFeeTotal)}</span></div>
+        <div class="rep-line inc"><span>거리 할증 합계</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
+        <div class="rep-line inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
         <div class="rep-line inc"><span>안전 배달 팁</span><span>+${fmt(ledger.tipTotal)}</span></div>
-        ${
-          ledger.damageDeductionTotal > 0
-            ? `<div class="rep-line exp"><span>음식 파손 차감</span><span>-${fmt(ledger.damageDeductionTotal)}</span></div>`
-            : ''
-        }
-        <div class="rep-line sub inc"><span>수입 소계</span><span>+${fmt(ledger.grossIncome)}</span></div>
+        <div class="rep-line inc"><span>🏆 일일 배달 미션 보너스</span><span>+${fmt(ledger.missionBonusTotal)}</span></div>
+        <div class="rep-line sub inc"><span>총 수입 소계</span><span>+${fmt(ledger.grossIncome)}</span></div>
       </div>
 
       <div class="rep-section">
-        <div class="rep-sec-title">🧾 운영 지출 내역</div>
+        <div class="rep-sec-title">🧾 차감 및 운영 지출 명세</div>
+        <div class="rep-line exp"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(ledger.fineExpense)}</span></div>
+        <div class="rep-line exp"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(ledger.damageDeductionTotal)}</span></div>
         <div class="rep-line exp"><span>⛽ 유류비 지출</span><span>-${fmt(ledger.fuelExpense)}</span></div>
         <div class="rep-line exp"><span>🔧 오토바이 수리비</span><span>-${fmt(ledger.repairExpense)}</span></div>
-        <div class="rep-line exp"><span>🚨 신호위반 과태료</span><span>-${fmt(ledger.fineExpense)}</span></div>
-        <div class="rep-line sub exp"><span>지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
+        <div class="rep-line sub exp"><span>총 차감/지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
       </div>
     `;
 
     this.reportBackdrop.classList.remove('hidden');
+  }
+
+  public showMissionBonusPopup(targetCount: number, bonusAmount: number, totalWallet: number): void {
+    this.closeAll();
+    this.activeModal = 'mission_bonus';
+    this.mbTitleEl.textContent = `오늘 ${targetCount}건 배달 완료하기 (${targetCount}/${targetCount})`;
+    this.mbAmountEl.textContent = `+₩${bonusAmount.toLocaleString()} 보너스 지급!`;
+    this.mbWalletEl.textContent = `지갑 잔고에 즉시 반영되었습니다 (현재 ₩${totalWallet.toLocaleString()})`;
+    this.missionBonusBackdrop.classList.remove('hidden');
   }
 
   public openCameraViewfinder(order: DeliveryOrder): void {
@@ -684,7 +712,7 @@ export class ModalUi {
       return true;
     }
 
-    if (this.activeModal === 'daily_report') {
+    if (this.activeModal === 'daily_report' || this.activeModal === 'mission_bonus') {
       if (e.key === 'Escape' || e.key === 'Enter' || e.code === 'Space') {
         e.preventDefault();
         this.closeAll();

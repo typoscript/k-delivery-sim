@@ -178,6 +178,7 @@ const exitCorridorToStreet = () => {
 };
 
 let npcTookFoodBag = false;
+let pendingMissionBonusPopup: { target: number; bonus: number; totalWallet: number } | null = null;
 
 const finalizeCorridorSettlement = () => {
   renderer.render(scene, camera);
@@ -185,6 +186,13 @@ const finalizeCorridorSettlement = () => {
   const result = delivery.completePhotoSettlement();
   if (result) {
     audio.playChime('complete');
+    if (result.missionJustCompleted) {
+      pendingMissionBonusPopup = {
+        target: delivery.getDailyMissionStatus().target,
+        bonus: result.missionBonusAwarded,
+        totalWallet: result.totalEarnings,
+      };
+    }
     window.setTimeout(() => {
       modalUi.showSettlement(result, photoDataUrl);
     }, 200);
@@ -307,6 +315,14 @@ const modalUi = new ModalUi({
   },
   onTakePhoto: handleTakeDeliveryPhoto,
   onSettlementClose: () => {
+    if (pendingMissionBonusPopup) {
+      const info = pendingMissionBonusPopup;
+      pendingMissionBonusPopup = null;
+      audio.playMissionBonusFanfare();
+      modalUi.showMissionBonusPopup(info.target, info.bonus, info.totalWallet);
+      hud.showToast(`🏆 일일 배달 미션 달성! +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
+      return;
+    }
     hud.showToast('배달 완료! 복도 엘리베이터 앞에서 [E]를 눌러 1층으로 내려가세요', 3600);
   },
   onKeypadBeep: (ok) => audio.playKeypadBeep(ok),
