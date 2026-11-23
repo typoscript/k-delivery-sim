@@ -338,6 +338,31 @@ export class GameAudio {
     osc.stop(now + 0.03);
   }
 
+  /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
+  public playFoodReadyDingDong(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const tones = [
+      { t: 0, f: 783.99, dur: 0.24 }, // G5
+      { t: 0.16, f: 659.25, dur: 0.28 }, // E5
+      { t: 0.36, f: 1046.5, dur: 0.45 }, // C6 bright finish
+    ];
+    for (const n of tones) {
+      const t = now + n.t;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = n.f;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.28, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+      osc.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + n.dur + 0.02);
+    }
+  }
+
   /** Realistic hollow wooden apartment door knock sound ("똑! 똑! 똑!") */
   public playDoorKnockSound(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

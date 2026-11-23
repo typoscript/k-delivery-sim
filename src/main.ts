@@ -243,11 +243,18 @@ const handleCargoSlotAction = (slotIndex: number) => {
 
 const modalUi = new ModalUi({
   onPosSuccess: (missionId) => {
-    const picked = delivery.completePosPickup(missionId);
-    if (picked) {
+    const res = delivery.completePosPickup(missionId);
+    if (!res) return;
+    if (res.status === 'cooking') {
+      audio.playKeypadBeep(true);
+      hud.showToast(
+        `🍳 ${res.mission.order.shop.name} [#${res.mission.order.orderNumber}] 조리 중 (남은 시간: ${res.waitSec}초) — 대기 중 탑승·휴대폰 조작 가능!`,
+        4200
+      );
+    } else {
       audio.playChime('pickup');
       hud.showToast(
-        `🛍️ [#${picked.order.orderNumber}] 픽업 완료! 오토바이 뒤편 배달통 [E]로 슬롯에 적재하세요`,
+        `🛍️ [#${res.mission.order.orderNumber}] 픽업 완료! 오토바이 뒤편 배달통 [E]로 슬롯에 적재하세요`,
         3800
       );
     }
@@ -420,9 +427,18 @@ const handleContextInteract = () => {
   const carrying = delivery.getCarryingMission();
   const hasPhone = playerHasPhonePhysically();
 
-  // 1. Outdoor Shop Pickup POS
+  // 1. Outdoor Shop Pickup POS / Cooking Wait / Ready Tray Collection
   const shopMission = delivery.getMissionNearShopPickup(playerCtrl.state.x, playerCtrl.state.z);
   if (shopMission) {
+    if (shopMission.phase === 'cooking_wait') {
+      const rem = Math.max(1, Math.ceil(shopMission.cookingRemainingSec));
+      hud.showToast(
+        `🍳 ${shopMission.order.shop.name} [#${shopMission.order.orderNumber}] 조리 중입니다 (남은 시간: ${rem}초)`,
+        2600
+      );
+      return;
+    }
+
     if (carrying) {
       hud.showToast(
         `🛍️ 이미 [#${carrying.order.orderNumber}] 음식을 손에 들고 있습니다! 먼저 오토바이 배달통에 [E]로 적재하세요`,
@@ -430,6 +446,19 @@ const handleContextInteract = () => {
       );
       return;
     }
+
+    if (shopMission.phase === 'pickup_ready') {
+      const collected = delivery.collectReadyPickup(shopMission.order.id);
+      if (collected) {
+        audio.playChime('pickup');
+        hud.showToast(
+          `🛍️ [#${collected.order.orderNumber}] 픽업대 트레이에서 음식 수령 완료! 오토바이 뒤편 배달통 [E]로 적재하세요`,
+          3800
+        );
+      }
+      return;
+    }
+
     if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
     else hud.phoneMap.setZoomed(false);
     modalUi.openPosKeypad(shopMission.order, hasPhone);
@@ -981,8 +1010,14 @@ function animate(now: number): void {
     );
   }
 
-  // Step active mission delivery countdowns & 20s incoming dispatch offer state machine
-  delivery.stepTimers(dt);
+  // Step active mission delivery countdowns, peak-time cooking timers, & 20s dispatch state machine
+  delivery.stepTimers(dt, (readyMission) => {
+    audio.playFoodReadyDingDong();
+    hud.showToast(
+      `🔔 ${readyMission.order.shop.emoji} ${readyMission.order.shop.name} [#${readyMission.order.orderNumber}]: "음식이 준비되었습니다!" 픽업대 트레이에서 [E]로 수령하세요`,
+      4600
+    );
+  });
   dispatch.step(dt, delivery, inCorridor, modalUi.isBlockingMovement());
 
   // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
@@ -997,9 +1032,17 @@ function animate(now: number): void {
     roadNavigator
   );
 
-  // Outdoor 3D Beacon + Fluorescent Neon-Green A* Road Navigation Line + 3-Slot Scooter Cargo Visuals
+  // Outdoor 3D Beacon + Shop Pickup Trays + Fluorescent Neon-Green A* Road Nav Line + 3-Slot Scooter Visuals
   if (!inCorridor) {
     world.updateBeacon(navPlan.target, navPlan.isPickupTarget, elapsed);
+
+    const cookingShopIds = new Set<string>();
+    const readyShopIds = new Set<string>();
+    for (const m of delivery.activeMissions) {
+      if (m.phase === 'cooking_wait') cookingShopIds.add(m.order.shop.id);
+      else if (m.phase === 'pickup_ready') readyShopIds.add(m.order.shop.id);
+    }
+    world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
 
     const routeFor3D = navPlan.isCargoBoxTarget ? [] : navPlan.route;
     if (routeFor3D !== lastRenderedRouteRef) {

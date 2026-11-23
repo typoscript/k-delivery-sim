@@ -53,6 +53,7 @@ export class PhoneMap {
   private readonly earningsEl = document.getElementById('phone-earnings')!;
   private readonly statusPillEl = document.getElementById('phone-status-pill')!;
   private readonly pinTooltipEl = document.getElementById('phone-pin-tooltip')!;
+  private readonly cookingBannerEl = document.getElementById('phone-cooking-banner')!;
   private readonly sheetBodyEl = document.getElementById('phone-sheet-body')!;
 
   private readonly zoomInBtn = document.getElementById('map-zoom-in')!;
@@ -413,6 +414,7 @@ export class PhoneMap {
 
       this.syncDeliverySheet(player, delivery, navPlan);
       this.syncPinTooltip(delivery, navPlan);
+      this.syncCookingBanner(delivery);
       this.syncDispatchPopup(activeOffer);
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -464,6 +466,40 @@ export class PhoneMap {
     const inst = getInstructionMeta(focus.order.deliveryInstruction);
     this.pinTooltipEl.innerHTML = `🔑 공동현관 <b>${focus.order.doorPinLabel}</b> · ${inst.badge}`;
     this.pinTooltipEl.classList.remove('hidden');
+  }
+
+  /** Shows yellow cooking delay gauge (or emerald ready banner) inside zoomed smartphone topbar */
+  private syncCookingBanner(delivery: DeliveryManager): void {
+    const cm = delivery.getPrimaryCookingMission();
+    if (!cm) {
+      this.cookingBannerEl.classList.add('hidden');
+      return;
+    }
+    this.cookingBannerEl.classList.remove('hidden');
+    if (cm.phase === 'cooking_wait') {
+      const rem = Math.max(1, Math.ceil(cm.cookingRemainingSec));
+      const pct =
+        cm.cookingDurationSec > 0
+          ? clamp((cm.cookingRemainingSec / cm.cookingDurationSec) * 100, 0, 100)
+          : 0;
+      this.cookingBannerEl.className = 'phone-cooking-banner';
+      this.cookingBannerEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:6px">
+          <span>🍳 ${cm.order.shop.name} [#${cm.order.orderNumber}] 조리 중</span>
+          <span>남은 ${rem}초</span>
+        </div>
+        <div class="phone-ck-track"><div class="phone-ck-fill" style="width:${pct.toFixed(1)}%"></div></div>
+      `;
+    } else {
+      this.cookingBannerEl.className = 'phone-cooking-banner ready';
+      this.cookingBannerEl.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:6px">
+          <span>🔔 ${cm.order.shop.name} [#${cm.order.orderNumber}] 조리 완료!</span>
+          <span>트레이 [E] 수령</span>
+        </div>
+        <div class="phone-ck-track"><div class="phone-ck-fill" style="width:100%"></div></div>
+      `;
+    }
   }
 
   /** Syncs the interactive 20s circular progress call popup inside the zoomed smartphone UI */
@@ -794,6 +830,53 @@ export class PhoneMap {
       );
     }
 
+    // Yellow Cooking Delay Countdown Gauge Strip on 3D Mounted Handlebar Smartphone!
+    const cookM = delivery.getPrimaryCookingMission();
+    if (cookM) {
+      const barY = g && fm ? 184 : 122;
+      const isWaiting = cookM.phase === 'cooking_wait';
+      const frac =
+        isWaiting && cookM.cookingDurationSec > 0
+          ? clamp(cookM.cookingRemainingSec / cookM.cookingDurationSec, 0, 1)
+          : 1;
+      const remSec = Math.max(1, Math.ceil(cookM.cookingRemainingSec));
+
+      ctx.fillStyle = isWaiting ? 'rgba(28, 22, 6, 0.94)' : 'rgba(6, 52, 36, 0.95)';
+      ctx.strokeStyle = isWaiting ? '#facc15' : '#34d399';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(12, barY, w - 24, 54, 14);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isWaiting ? '#fef08a' : '#a7f3d0';
+      ctx.font = 'bold 13.5px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        isWaiting
+          ? `🍳 ${cookM.order.shop.name} [#${cookM.order.orderNumber}] 조리 중`
+          : `🔔 ${cookM.order.shop.name} [#${cookM.order.orderNumber}] 준비 완료!`,
+        22,
+        barY + 18
+      );
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = isWaiting ? '#fde047' : '#34d399';
+      ctx.font = '900 14px sans-serif';
+      ctx.fillText(isWaiting ? `${remSec}초` : '[E] 수령', w - 22, barY + 18);
+
+      // Yellow countdown progress bar
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      ctx.roundRect(22, barY + 34, w - 44, 10, 5);
+      ctx.fill();
+      ctx.fillStyle = isWaiting ? '#facc15' : '#34d399';
+      ctx.beginPath();
+      ctx.roundRect(22, barY + 34, (w - 44) * frac, 10, 5);
+      ctx.fill();
+    }
+
     // --- Bottom Compact Riding Telemetry + Cargo Slots Strip ---
     const botY = h - 126;
     ctx.fillStyle = isNight ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.95)';
@@ -1000,6 +1083,46 @@ export class PhoneMap {
       );
     }
 
+    // Yellow Cooking Delay Gauge on 3D Handheld Phone when waiting on foot
+    const cookOnFoot = delivery.getPrimaryCookingMission();
+    if (cookOnFoot) {
+      const cy = focusOnFoot ? 148 : 112;
+      const isWaiting = cookOnFoot.phase === 'cooking_wait';
+      const frac =
+        isWaiting && cookOnFoot.cookingDurationSec > 0
+          ? clamp(cookOnFoot.cookingRemainingSec / cookOnFoot.cookingDurationSec, 0, 1)
+          : 1;
+      const remSec = Math.max(1, Math.ceil(cookOnFoot.cookingRemainingSec));
+
+      ctx.fillStyle = isWaiting ? 'rgba(28, 22, 6, 0.95)' : 'rgba(6, 52, 36, 0.96)';
+      ctx.strokeStyle = isWaiting ? '#facc15' : '#34d399';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(14, cy, w - 28, 48, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isWaiting ? '#fef08a' : '#a7f3d0';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(
+        isWaiting
+          ? `🍳 ${cookOnFoot.order.shop.name} 조리 중 (${remSec}초)`
+          : `🔔 ${cookOnFoot.order.shop.name} 음식이 준비되었습니다!`,
+        24,
+        cy + 16
+      );
+
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      ctx.roundRect(24, cy + 30, w - 48, 9, 4.5);
+      ctx.fill();
+      ctx.fillStyle = isWaiting ? '#facc15' : '#34d399';
+      ctx.beginPath();
+      ctx.roundRect(24, cy + 30, (w - 48) * frac, 9, 4.5);
+      ctx.fill();
+    }
+
     // Bottom sheet card
     const sheetY = h - 196;
     ctx.fillStyle = isNight ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.96)';
@@ -1123,10 +1246,14 @@ export class PhoneMap {
     }
   }
 
-  private getPhaseShortLabel(phase: string, cargoSlot: number | null): string {
+  private getPhaseShortLabel(phase: string, cargoSlot: number | null, cookSec = 0): string {
     switch (phase) {
       case 'to_pickup':
         return '픽업 대기 · POS 입력';
+      case 'cooking_wait':
+        return `🍳 조리 중 (${Math.max(1, Math.ceil(cookSec))}초)`;
+      case 'pickup_ready':
+        return '🔔 조리 완료 · 수령 대기';
       case 'carrying_to_box':
         return '음식 휴대 · 배달통 적재';
       case 'cargo_loaded':
@@ -1158,7 +1285,7 @@ export class PhoneMap {
     const activeFp = delivery.activeMissions
       .map(
         (m) =>
-          `${m.order.id}:${m.phase}:${m.cargoSlot}:${m.foodIntegrity}:${this.activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
+          `${m.order.id}:${m.phase}:${m.cargoSlot}:${m.foodIntegrity}:${Math.ceil(m.cookingRemainingSec)}:${this.activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
       )
       .join(',');
     const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}`).join(',');
@@ -1264,7 +1391,19 @@ export class PhoneMap {
     const focusId = navPlan.focusMission?.order.id ?? null;
     const cards = delivery.activeMissions
       .map((m: ActiveMission) => {
-        const isPickupStage = m.phase === 'to_pickup' || m.phase === 'carrying_to_box';
+        const isPickupStage =
+          m.phase === 'to_pickup' ||
+          m.phase === 'cooking_wait' ||
+          m.phase === 'pickup_ready' ||
+          m.phase === 'carrying_to_box';
+        const stepCls =
+          m.phase === 'cooking_wait'
+            ? 'cooking'
+            : m.phase === 'pickup_ready'
+              ? 'ready'
+              : isPickupStage
+                ? 'pickup'
+                : 'dropoff';
         const isFocused = m.order.id === focusId;
         const isPinned = delivery.selectedMissionId === m.order.id;
         const inCorridorPhase =
@@ -1301,7 +1440,7 @@ export class PhoneMap {
           <div class="accepted-card ${isFocused ? 'focused' : ''}">
             <div class="accepted-top">
               ${typeBadge}
-              <span class="step-badge ${isPickupStage ? 'pickup' : 'dropoff'}">${this.getPhaseShortLabel(m.phase, m.cargoSlot)}</span>
+              <span class="step-badge ${stepCls}">${this.getPhaseShortLabel(m.phase, m.cargoSlot, m.cookingRemainingSec)}</span>
               <span class="mission-timer-pill ${timerCls}">⏱ ${remMin}:${remS}</span>
               <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus).toLocaleString()}</span>
             </div>

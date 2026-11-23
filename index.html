@@ -82,6 +82,7 @@
                 </div>
               </div>
               <div id="phone-pin-tooltip" class="phone-pin-tooltip hidden"></div>
+              <div id="phone-cooking-banner" class="phone-cooking-banner hidden"></div>
             </div>
 
             <div class="map-controls">
@@ -125,6 +126,15 @@
 
       <!-- Center Notifications & Prompts -->
       <div id="toast" class="toast hidden"></div>
+      <div id="cooking-hud-bar" class="cooking-hud-bar hidden">
+        <div class="ck-top">
+          <span id="cooking-hud-title">🍳 조리 중 (남은 시간: 8초)</span>
+          <span id="cooking-hud-sub" class="ck-sub">대기 중 이동·탑승(F)·폰(Tab/V) 자유</span>
+        </div>
+        <div class="ck-track">
+          <div id="cooking-hud-fill" class="ck-fill" style="width: 100%"></div>
+        </div>
+      </div>
       <div id="slip-warning" class="slip-warning hidden">⚠ 코너 기울기 과다! 감속하지 않으면 넘어집니다!</div>
       <div id="interact-prompt" class="interact-prompt hidden">
         <kbd>F</kbd> 배달 오토바이 탑승

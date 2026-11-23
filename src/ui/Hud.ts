@@ -32,6 +32,10 @@ export class Hud {
   private readonly interactPrompt = document.getElementById('interact-prompt')!;
   private readonly slipWarningEl = document.getElementById('slip-warning')!;
   private readonly toast = document.getElementById('toast')!;
+  private readonly cookingHudBar = document.getElementById('cooking-hud-bar')!;
+  private readonly cookingHudTitle = document.getElementById('cooking-hud-title')!;
+  private readonly cookingHudSub = document.getElementById('cooking-hud-sub')!;
+  private readonly cookingHudFill = document.getElementById('cooking-hud-fill')!;
 
   private readonly ridingCluster = document.getElementById('riding-cluster')!;
   private readonly speedVal = document.getElementById('speed-val')!;
@@ -146,6 +150,30 @@ export class Hud {
     } else {
       this.modeBadge.textContent = '🚶 1인칭 도보';
       this.modeBadge.className = 'mode-pill foot';
+    }
+
+    // Top HUD Yellow Cooking Delay Countdown Gauge (visible outdoors & non-blocking!)
+    const cookM = !player.inCorridor ? delivery.getPrimaryCookingMission() : null;
+    if (cookM) {
+      this.cookingHudBar.classList.remove('hidden');
+      if (cookM.phase === 'cooking_wait') {
+        const rem = Math.max(1, Math.ceil(cookM.cookingRemainingSec));
+        const pct =
+          cookM.cookingDurationSec > 0
+            ? Math.max(0, Math.min(100, (cookM.cookingRemainingSec / cookM.cookingDurationSec) * 100))
+            : 0;
+        this.cookingHudBar.classList.remove('ready');
+        this.cookingHudTitle.textContent = `🍳 ${cookM.order.shop.name} [#${cookM.order.orderNumber}] 조리 중 (남은 시간: ${rem}초)`;
+        this.cookingHudSub.textContent = '이동·탑승(F)·폰(Tab/V) 자유 조작';
+        this.cookingHudFill.style.width = `${pct.toFixed(1)}%`;
+      } else {
+        this.cookingHudBar.classList.add('ready');
+        this.cookingHudTitle.textContent = `🔔 ${cookM.order.shop.name} [#${cookM.order.orderNumber}] 음식이 준비되었습니다!`;
+        this.cookingHudSub.textContent = '픽업대 트레이 [E] 수령';
+        this.cookingHudFill.style.width = '100%';
+      }
+    } else {
+      this.cookingHudBar.classList.add('hidden');
     }
 
     this.ridingCluster.classList.toggle('hidden', !isRiding);
@@ -284,11 +312,18 @@ export class Hud {
           : '🔧 오토바이 상태 양호 (수리 불필요)';
       }
 
-      // 1. Outdoor Shop Pickup POS
+      // 1. Outdoor Shop Pickup POS / Cooking Wait / Ready Tray Pickup
       const shopM = delivery.getMissionNearShopPickup(player.x, player.z);
       if (shopM) {
+        if (shopM.phase === 'cooking_wait') {
+          const sec = Math.max(1, Math.ceil(shopM.cookingRemainingSec));
+          return `🍳 ${shopM.order.shop.name} [#${shopM.order.orderNumber}] 조리 중 (남은 시간: ${sec}초) — 대기 중 자유 이동·탑승 가능`;
+        }
         if (carrying) {
           return `🛍️ [#${carrying.order.orderNumber}] 휴대 중 — 먼저 오토바이 배달통에 <kbd>E</kbd> 적재`;
+        }
+        if (shopM.phase === 'pickup_ready') {
+          return `<kbd>E</kbd> 🛍️ 픽업대 트레이에서 [#${shopM.order.orderNumber}] 음식 수령하기`;
         }
         return `<kbd>E</kbd> ${shopM.order.shop.emoji} 야외 픽업 POS 열기 (주문번호: ${shopM.order.orderNumber})`;
       }
@@ -317,6 +352,12 @@ export class Hud {
     if (isRiding && Math.abs(scooter.speed) <= 4.2) {
       const shopM = delivery.getMissionNearShopPickup(player.x, player.z);
       if (shopM) {
+        if (shopM.phase === 'pickup_ready') {
+          return `<kbd>F</kbd> 하차 후 트레이에서 [#${shopM.order.orderNumber}] 음식 수령`;
+        }
+        if (shopM.phase === 'cooking_wait') {
+          return `🍳 ${shopM.order.shop.name} 조리 중 (${Math.ceil(shopM.cookingRemainingSec)}초) · <kbd>F</kbd> 하차`;
+        }
         return `<kbd>F</kbd> 하차 후 ${shopM.order.shop.name} 픽업 ([#${shopM.order.orderNumber}])`;
       }
       if (

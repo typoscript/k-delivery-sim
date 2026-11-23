@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
 import {
   BusStopPoint,
   CITY_BLOCK_CENTERS,
@@ -50,6 +51,10 @@ export class CityWorld {
   private readonly lobbyDoors = new Map<
     string,
     { leftDoor: THREE.Mesh; rightDoor: THREE.Mesh; open: boolean }
+  >();
+  private readonly shopTrays = new Map<
+    string,
+    { bag: THREE.Group; ledMat: THREE.MeshStandardMaterial }
   >();
 
   // 3D glowing waypoint beacon for active pickup / dropoff
@@ -1450,7 +1455,25 @@ export class CityWorld {
         const posScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.22), screenMat);
         posScreen.position.set(0.85, 1.21, 0.58);
         posScreen.rotation.x = -0.35;
-        g.add(posStand, posScreen);
+
+        // Outdoor Pickup Counter Tray + Spawnable 3D Food Bag + Cooking/Ready Status Lamp!
+        const tray = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.032, 0.42), darkMat);
+        tray.position.set(-0.35, 1.06, 0.36);
+        const trayLedMat = new THREE.MeshStandardMaterial({
+          color: 0x1e293b,
+          emissive: 0xfacc15,
+          emissiveIntensity: 0.05,
+        });
+        const trayLed = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.035, 0.03), trayLedMat);
+        trayLed.position.set(-0.35, 1.07, 0.57);
+
+        const trayBag = HandheldFoodBag3D.createFoodBagMesh();
+        trayBag.position.set(-0.35, 1.21, 0.36);
+        trayBag.scale.set(1.12, 1.12, 1.12);
+        trayBag.visible = false;
+
+        this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
+        g.add(posStand, posScreen, tray, trayLed, trayBag);
 
         this.root.add(g);
       } else {
@@ -1486,6 +1509,29 @@ export class CityWorld {
   public setLobbyDoorOpen(locationId: string | null): void {
     for (const [id, entry] of this.lobbyDoors.entries()) {
       entry.open = locationId === id;
+    }
+  }
+
+  /** Spawns 3D takeout bags on shop pickup trays when ready, and pulses amber/emerald status LEDs */
+  public syncShopPickupTrays(
+    cookingShopIds: Set<string>,
+    readyShopIds: Set<string>,
+    elapsedTime: number
+  ): void {
+    const pulse = 0.5 + 0.5 * Math.sin(elapsedTime * 5.5);
+    for (const [shopId, entry] of this.shopTrays.entries()) {
+      const isReady = readyShopIds.has(shopId);
+      const isCooking = cookingShopIds.has(shopId);
+      entry.bag.visible = isReady;
+      if (isReady) {
+        entry.ledMat.emissive.setHex(0x22c55e);
+        entry.ledMat.emissiveIntensity = 1.6 + pulse * 1.4;
+      } else if (isCooking) {
+        entry.ledMat.emissive.setHex(0xfacc15);
+        entry.ledMat.emissiveIntensity = 1.0 + pulse * 1.6;
+      } else {
+        entry.ledMat.emissiveIntensity = 0.05;
+      }
     }
   }
 

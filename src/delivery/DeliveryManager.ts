@@ -108,6 +108,8 @@ export interface DeliveryOrder {
 
 export type MissionPhase =
   | 'to_pickup' // Go to outdoor store pickup counter & enter order number on POS
+  | 'cooking_wait' // Peak-time cooking delay (5~10s countdown) -> player is FREE to move/ride/use phone!
+  | 'pickup_ready' // Cooking finished! 3D food bag spawned on outdoor tray -> press [E] to pick up into hand
   | 'carrying_to_box' // Food bag in hand (CARRYING_FOOD, cannot drive!) -> load into scooter cargo slot
   | 'cargo_loaded' // Food inside scooter cargo box slot (0..2) -> ride to residence & unload from slot
   | 'carrying_to_lobby' // Food bag back in hand -> enter apartment lobby keypad pattern at 1st-floor glass door
@@ -124,8 +126,16 @@ export interface ActiveMission {
   foodIntegrity: number; // 0..100
   startedAt: number;
   remainingTimeSec: number; // counts down from order.timeLimitSec (300s / 500s)
+  cookingDurationSec: number; // total cooking delay assigned (5..10s, 0 if instant)
+  cookingRemainingSec: number; // live countdown while in 'cooking_wait'
   cargoSlot: number | null; // 0 | 1 | 2 when inside top-box
   pickedUp: boolean;
+}
+
+export interface PosPickupResult {
+  mission: ActiveMission;
+  status: 'cooking' | 'picked_up';
+  waitSec: number;
 }
 
 export interface CompletedMissionRecord {
@@ -396,6 +406,8 @@ export class DeliveryManager {
       foodIntegrity: 100,
       startedAt: performance.now(),
       remainingTimeSec: found.timeLimitSec,
+      cookingDurationSec: 0,
+      cookingRemainingSec: 0,
       cargoSlot: null,
       pickedUp: false,
     });
@@ -423,6 +435,8 @@ export class DeliveryManager {
         foodIntegrity: 100,
         startedAt: now,
         remainingTimeSec: o.timeLimitSec,
+        cookingDurationSec: 0,
+        cookingRemainingSec: 0,
         cargoSlot: null,
         pickedUp: false,
       });
@@ -431,12 +445,38 @@ export class DeliveryManager {
     return true;
   }
 
-  /** Steps active mission delivery countdown timers (300s SINGLE / 500s ALTTLE_BUNDLE) */
-  public stepTimers(dt: number): void {
+  /** Steps active mission delivery countdowns & peak-time cooking delay timers */
+  public stepTimers(dt: number, onCookingReady?: (mission: ActiveMission) => void): void {
     for (const m of this.activeMissions) {
       if (m.phase === 'corridor_exit') continue;
       m.remainingTimeSec = Math.max(0, m.remainingTimeSec - dt);
+
+      if (m.phase === 'cooking_wait') {
+        m.cookingRemainingSec = Math.max(0, m.cookingRemainingSec - dt);
+        if (m.cookingRemainingSec <= 0) {
+          m.phase = 'pickup_ready';
+          m.cookingRemainingSec = 0;
+          this.invalidateNavCache();
+          if (onCookingReady) {
+            onCookingReady(m);
+          }
+        }
+      }
     }
+  }
+
+  public getCookingMissions(): ActiveMission[] {
+    return this.activeMissions.filter(
+      (m) => m.phase === 'cooking_wait' || m.phase === 'pickup_ready'
+    );
+  }
+
+  public getPrimaryCookingMission(): ActiveMission | null {
+    return (
+      this.activeMissions.find((m) => m.phase === 'cooking_wait') ??
+      this.activeMissions.find((m) => m.phase === 'pickup_ready') ??
+      null
+    );
   }
 
   private replenishAvailableOrders(): void {
@@ -517,11 +557,50 @@ export class DeliveryManager {
     return m;
   }
 
-  /** Complete POS pickup for a specific `to_pickup` mission (only when hands are free) */
-  public completePosPickup(missionId: string): ActiveMission | null {
+  /**
+   * Complete POS order-number check at an outdoor store counter.
+   * Peak-time / busy cooked-food restaurants enter a 5~10s 'cooking_wait' state
+   * (leaving rider completely free to move, ride, or use smartphone until ready!).
+   */
+  public completePosPickup(missionId: string, forceCookingDelay?: boolean): PosPickupResult | null {
     if (this.isCarryingFood()) return null;
     const m = this.getMissionById(missionId);
     if (!m || m.phase !== 'to_pickup') return null;
+
+    // Peak-time cooked food shops (chicken, pizza, burger, bunsik, katsu, mara, gukbap) have high delay chance
+    const busyCookShops = new Set([
+      'shop-chicken',
+      'shop-bunsik',
+      'shop-burger',
+      'shop-pizza',
+      'shop-katsu',
+      'shop-mara',
+      'shop-gukbap',
+    ]);
+    const sameShopCount = this.activeMissions.filter((x) => x.order.shop.id === m.order.shop.id).length;
+    const delayProb = busyCookShops.has(m.order.shop.id) || sameShopCount > 1 ? 0.8 : 0.45;
+    const hasDelay = forceCookingDelay !== undefined ? forceCookingDelay : Math.random() < delayProb;
+
+    if (hasDelay) {
+      const waitSec = 5 + Math.floor(Math.random() * 6); // 5 ~ 10 seconds random
+      m.phase = 'cooking_wait';
+      m.cookingDurationSec = waitSec;
+      m.cookingRemainingSec = waitSec;
+      this.invalidateNavCache();
+      return { mission: m, status: 'cooking', waitSec };
+    }
+
+    m.phase = 'carrying_to_box';
+    m.pickedUp = true;
+    this.invalidateNavCache();
+    return { mission: m, status: 'picked_up', waitSec: 0 };
+  }
+
+  /** Collects the spawned 3D takeout food bag from the shop pickup tray into the rider's left hand */
+  public collectReadyPickup(missionId: string): ActiveMission | null {
+    if (this.isCarryingFood()) return null;
+    const m = this.getMissionById(missionId);
+    if (!m || m.phase !== 'pickup_ready') return null;
     m.phase = 'carrying_to_box';
     m.pickedUp = true;
     this.invalidateNavCache();
@@ -672,18 +751,24 @@ export class DeliveryManager {
     this.invalidateNavCache();
   }
 
-  /** Returns the nearest `to_pickup` mission whose outdoor shop counter is within interact radius */
+  /** Returns the highest-priority shop mission near the player's outdoor pickup counter (pickup_ready > to_pickup > cooking_wait) */
   public getMissionNearShopPickup(x: number, z: number): ActiveMission | null {
+    const priority = (phase: MissionPhase) =>
+      phase === 'pickup_ready' ? 3 : phase === 'to_pickup' ? 2 : phase === 'cooking_wait' ? 1 : 0;
+
     let best: ActiveMission | null = null;
+    let bestPri = 0;
     let bestDist = INTERACT_ZONE_RADIUS;
     for (const m of this.activeMissions) {
-      if (m.phase !== 'to_pickup') continue;
+      const pri = priority(m.phase);
+      if (pri === 0) continue;
       const d = Math.hypot(x - m.order.shop.x, z - m.order.shop.z);
-      if (d <= bestDist) {
-        // Prefer pinned mission if tied at the same shop
-        if (best && d === bestDist && best.order.id === this.selectedMissionId) continue;
-        best = m;
-        bestDist = d;
+      if (d <= INTERACT_ZONE_RADIUS) {
+        if (pri > bestPri || (pri === bestPri && d < bestDist)) {
+          best = m;
+          bestPri = pri;
+          bestDist = d;
+        }
       }
     }
     return best;
@@ -913,7 +998,7 @@ export class DeliveryManager {
 
     // 0 = needs pickup then dropoff, 1 = needs dropoff only, 2 = already handled/done
     const initialStage: number[] = missions.map((m) => {
-      if (m.phase === 'to_pickup') return 0;
+      if (m.phase === 'to_pickup' || m.phase === 'cooking_wait' || m.phase === 'pickup_ready') return 0;
       if (m.phase === 'carrying_to_box') {
         forcedFirst.push({
           mission: m,
