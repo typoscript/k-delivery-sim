@@ -34,6 +34,7 @@ export class Hud {
   private readonly slipWarningEl = document.getElementById('slip-warning')!;
   private readonly accidentBanner = document.getElementById('accident-banner')!;
   private readonly accidentBannerDetail = document.getElementById('accident-banner-detail')!;
+  private readonly speedCamFlash = document.getElementById('speed-cam-flash')!;
   private readonly toast = document.getElementById('toast')!;
   private readonly cookingHudBar = document.getElementById('cooking-hud-bar')!;
   private readonly cookingHudTitle = document.getElementById('cooking-hud-title')!;
@@ -113,6 +114,17 @@ export class Hud {
       this.accidentBanner.classList.add('hidden');
       this.accidentBannerTimer = null;
     }, durationMs);
+  }
+
+  /** Brief white strobe flash when caught by a roadside speed/red-light enforcement camera */
+  public triggerSpeedCameraFlash(): void {
+    this.speedCamFlash.classList.remove('hidden', 'active');
+    void this.speedCamFlash.offsetWidth;
+    this.speedCamFlash.classList.add('active');
+    window.setTimeout(() => {
+      this.speedCamFlash.classList.remove('active');
+      this.speedCamFlash.classList.add('hidden');
+    }, 390);
   }
 
   public update(

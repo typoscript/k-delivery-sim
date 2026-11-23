@@ -52,6 +52,13 @@ export interface ServiceStationInfo {
   interactRadius: number;
 }
 
+export interface SpeedCameraMarker {
+  id: string;
+  x: number;
+  z: number;
+  limitKmh: number;
+}
+
 export function wrapAngle(angle: number): number {
   let a = angle;
   while (a > Math.PI) a -= Math.PI * 2;

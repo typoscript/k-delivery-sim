@@ -364,6 +364,35 @@ export class GameAudio {
     });
   }
 
+  /** Sharp roadside speed/red-light enforcement camera strobe click + penalty warning beep */
+  public playSpeedCameraFlash(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+
+    // 1. Crisp camera shutter snap
+    this.playCameraShutter();
+
+    // 2. Two-tone Korean enforcement alert chime (high-low)
+    [1046.5, 783.99].forEach((freq, i) => {
+      const t = now + 0.08 + i * 0.15;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const filt = this.ctx!.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 2100;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.16, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      osc.connect(filt);
+      filt.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.16);
+    });
+  }
+
   /** Subtle tactile capacitive glass tap click when touching the smartphone screen */
   public playPhoneScreenTap(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;

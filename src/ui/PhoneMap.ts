@@ -94,6 +94,8 @@ export class PhoneMap {
   private camZ = -34;
   private lastSheetFingerprint = '';
   private last3DRenderTime = -1;
+  private ripple3D: { x: number; y: number; bornAt: number } | null = null;
+  private lastElapsed = 0;
 
   constructor(callbacks: PhoneCallbacks) {
     this.callbacks = callbacks;
@@ -268,6 +270,67 @@ export class PhoneMap {
     });
   }
 
+  /**
+   * Drives the 1st-person touching hand when hovering over the in-world 3D phone
+   * (mounted on scooter handlebar or held in 3D hand) without zooming!
+   */
+  public setExternal3DHandHover(active: boolean, clientX: number, clientY: number): void {
+    if (this.isZoomed) return;
+    if (active) {
+      this.touchHandEl.style.transform = `translate3d(${clientX}px, ${clientY}px, 0)`;
+      this.touchHandEl.classList.add('active');
+      document.body.classList.add('phone-3d-hover');
+    } else {
+      this.touchHandEl.classList.remove('active', 'tapping');
+      document.body.classList.remove('phone-3d-hover');
+    }
+  }
+
+  /** Triggers a brief tap-down press on the 1st-person touching hand over the 3D phone */
+  public triggerExternal3DHandTap(clientX: number, clientY: number): void {
+    this.touchHandEl.style.transform = `translate3d(${clientX}px, ${clientY}px, 0)`;
+    this.touchHandEl.classList.add('active', 'tapping');
+    if (this.touchTapTimer !== null) {
+      window.clearTimeout(this.touchTapTimer);
+    }
+    this.touchTapTimer = window.setTimeout(() => {
+      this.touchHandEl.classList.remove('tapping');
+      this.touchTapTimer = null;
+    }, 170);
+  }
+
+  /**
+   * Direct in-world UV touch hit-testing on the 360x680 3D phone screen canvas!
+   * Allows riders to tap [👆 콜 수락] / [거절] right on the 3D handlebar or handheld phone
+   * without opening the full-screen zoom modal.
+   */
+  public handle3DScreenTouch(
+    u: number,
+    v: number,
+    hasActiveOffer: boolean
+  ): 'accept_offer' | 'reject_offer' | 'zoom' {
+    const cx = clamp(u, 0, 1) * this.texCanvas.width;
+    const cy = clamp(1 - v, 0, 1) * this.texCanvas.height;
+
+    // Show expanding touch ripple directly on the 3D phone canvas texture!
+    this.ripple3D = { x: cx, y: cy, bornAt: this.lastElapsed };
+    this.last3DRenderTime = -1;
+    this.callbacks.onScreenTap?.();
+
+    if (hasActiveOffer) {
+      // Match split CTA button row drawn in render3DDispatchCallCard (y = 452..502, padded slightly for touch)
+      if (cy >= 438 && cy <= 518) {
+        if (cx >= 134 && cx <= 336) {
+          return 'accept_offer';
+        }
+        if (cx >= 24 && cx < 134) {
+          return 'reject_offer';
+        }
+      }
+    }
+    return 'zoom';
+  }
+
   private setTopNav(next: PhoneTopNav): void {
     this.topNav = next;
     if (next === 'calls') {
@@ -435,6 +498,7 @@ export class PhoneMap {
     elapsedTime: number,
     mapInfo: CityMapInfo
   ): void {
+    this.lastElapsed = elapsedTime;
     const isRiding = player.mode === 'riding';
 
     if (!this.isZoomed) {
@@ -718,6 +782,26 @@ export class PhoneMap {
       this.render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
     }
 
+    // Expanding capacitive glass touch ripple rendered directly onto the 3D phone screen!
+    if (this.ripple3D) {
+      const age = elapsedTime - this.ripple3D.bornAt;
+      if (age >= 0 && age < 0.42) {
+        const p = age / 0.42;
+        const radius = 10 + p * 36;
+        ctx.save();
+        ctx.strokeStyle = `rgba(45, 212, 191, ${(1 - p) * 0.95})`;
+        ctx.fillStyle = `rgba(45, 212, 191, ${(1 - p) * 0.3})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(this.ripple3D.x, this.ripple3D.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        this.ripple3D = null;
+      }
+    }
+
     ctx.restore();
   }
 
@@ -823,16 +907,27 @@ export class PhoneMap {
       ctx.fillText(`→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}`, cardX + 28, oy + 23);
     });
 
-    // Bottom Accept CTA Button (Mouse Click / Touch ONLY!)
+    // Bottom Split Touch Buttons on 3D Phone: [거절] (left) & [👆 콜 수락] (right) — directly clickable in 3D!
+    // Reject button (x: 34..128, y: cardY+276..cardY+326)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.beginPath();
+    ctx.roundRect(cardX + 16, cardY + 276, 94, 50, 14);
+    ctx.fill();
+    ctx.fillStyle = '#cbd5e1';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('거절', cardX + 63, cardY + 301);
+
+    // Accept button (x: 138..326, y: cardY+276..cardY+326)
     ctx.fillStyle = isSingle ? '#0d9488' : '#7c3aed';
     ctx.beginPath();
-    ctx.roundRect(cardX + 16, cardY + 276, cardW - 32, 50, 14);
+    ctx.roundRect(cardX + 120, cardY + 276, cardW - 136, 50, 14);
     ctx.fill();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '900 16.5px sans-serif';
+    ctx.font = '900 17.5px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('👆 폰 클릭 후 터치하여 콜 수락', cardX + cardW / 2, cardY + 301);
+    ctx.fillText('👆 바로 터치 수락', cardX + 120 + (cardW - 136) / 2, cardY + 301);
 
     ctx.restore();
   }
@@ -1930,6 +2025,31 @@ export class PhoneMap {
       ctx.textBaseline = 'middle';
       ctx.fillText(st.kind === 'gas' ? '⛽' : '🔧', 0, 0.5);
       ctx.restore();
+    }
+
+    // Fixed Speed / Red-Light Enforcement Camera Markers (📷50) on Smartphone GPS Map!
+    if (mapInfo.speedCameras) {
+      for (const cam of mapInfo.speedCameras) {
+        const cx = toX(cam.x);
+        const cy = toY(cam.z);
+        ctx.fillStyle = '#dc2626';
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 7.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (rotateHeadingUp) ctx.rotate(-player.heading);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(cam.limitKmh), 0, 0.5);
+        ctx.restore();
+      }
     }
 
     const sigHex = (c: 'green' | 'yellow' | 'red') =>

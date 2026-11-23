@@ -3346,3 +3346,33 @@ kbd {
   transform: scale(1.45);
   opacity: 1;
 }
+
+body.phone-3d-hover canvas {
+  cursor: none;
+}
+
+/* Roadside Speed / Red-Light Enforcement Camera Strobe Flash */
+.speed-cam-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 25%, rgba(255, 255, 255, 0.96) 0%, rgba(254, 240, 138, 0.55) 48%, rgba(239, 68, 68, 0.25) 100%);
+  opacity: 0;
+}
+
+.speed-cam-flash.active {
+  animation: speedCamStrobe 0.36s ease-out forwards;
+}
+
+@keyframes speedCamStrobe {
+  0% {
+    opacity: 0.95;
+  }
+  30% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+  }
+}

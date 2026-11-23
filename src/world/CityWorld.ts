@@ -10,6 +10,7 @@ import {
   ObstacleBox,
   ServiceStationInfo,
   SlipSurfaceType,
+  SpeedCameraMarker,
   WeatherMode,
 } from '../types';
 
@@ -29,6 +30,7 @@ export interface CityMapInfo {
   zones: CityZoneMarker[];
   busStops: BusStopPoint[];
   serviceStations: ServiceStationInfo[];
+  speedCameras?: SpeedCameraMarker[];
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
 }

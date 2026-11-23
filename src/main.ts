@@ -5,7 +5,8 @@ import { TrafficSystem } from './world/TrafficSystem';
 import { CORRIDOR_ORIGIN_Y, CorridorRoom } from './world/CorridorRoom';
 import { RoadNavigator } from './world/RoadNavigator';
 import { WeatherManager } from './world/WeatherManager';
-import { PedestrianManager } from './world/PedestrianManager';
+import { PedestrianCollisionEvent, PedestrianManager } from './world/PedestrianManager';
+import { RoadHazardManager } from './world/RoadHazardManager';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import { OnFootInput, PlayerController } from './player/PlayerController';
@@ -48,6 +49,8 @@ const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const roadNavigator = new RoadNavigator();
 const pedestrians = new PedestrianManager(world.root); // Independent 25-block crosswalk AI (paused indoors!)
+const roadHazards = new RoadHazardManager(world.root); // Speed cameras, illegal parked trucks & blind-spot pop-outs!
+world.mapInfo.speedCameras = roadHazards.cameraMarkers;
 const weather = new WeatherManager(scene);
 const delivery = new DeliveryManager(world.locations);
 const dispatch = new OrderDispatchManager(world.locations, {
@@ -56,10 +59,10 @@ const dispatch = new OrderDispatchManager(world.locations, {
     const label = offer.type === 'SINGLE' ? '🚀 한집배달' : '🛵 알뜰배달 (2건 묶음)';
     const hint =
       hud.phoneMap.placement === 'pocket'
-        ? '[Tab]으로 휴대폰을 꺼낸 뒤 화면을 클릭·터치해 20초 내 수락하세요!'
+        ? '[Tab]으로 휴대폰을 꺼낸 뒤 화면을 터치해 20초 내 수락하세요!'
         : hud.phoneMap.isZoomed
           ? '스마트폰 화면의 [콜 수락] 버튼을 클릭해 터치하세요!'
-          : '휴대폰을 클릭(또는 [V])해 확대 후 화면을 터치해 수락하세요!';
+          : '3D 휴대폰 화면의 [👆 바로 터치 수락]을 직접 클릭하세요!';
     hud.showToast(`🔔 신규 콜 도착! ${label} · ₩${offer.totalFee.toLocaleString()} — ${hint}`, 4500);
   },
   onOfferUrgentTick: () => {
@@ -539,10 +542,10 @@ const handleContextInteract = () => {
   }
 };
 
-const tryAcceptIncomingOffer = (): boolean => {
+const tryAcceptIncomingOffer = (fromDirect3DTouch = false): boolean => {
   if (!dispatch.activeOffer) return false;
-  // Touch-only smartphone interaction: accept ONLY when clicking the smartphone screen button!
-  if (!hud.phoneMap.isZoomed) return false;
+  // Touch-only smartphone interaction: accept ONLY via zoomed screen click OR direct 3D phone screen UV touch!
+  if (!hud.phoneMap.isZoomed && !fromDirect3DTouch) return false;
 
   const accepted = dispatch.acceptCurrentOffer(delivery);
   if (!accepted) return false;
@@ -682,39 +685,86 @@ handheldPhone3D.setOnMountClick((mounting) => {
   audio.playPhoneMountClick(mounting);
 });
 
-// Click-to-zoom raycast on the 3D phone (in hand or on scooter mount)
+// In-world 3D Smartphone Hover Hand & Direct UV Touch Raycaster (no zoom needed for 3D call accept/reject!)
 const raycaster = new THREE.Raycaster();
 const clickNdc = new THREE.Vector2();
 let downX = 0;
 let downY = 0;
 
-renderer.domElement.addEventListener('pointerdown', (e) => {
-  downX = e.clientX;
-  downY = e.clientY;
-});
-
-renderer.domElement.addEventListener('pointerup', (e) => {
+const getVisible3DPhoneTargets = (): THREE.Object3D[] => {
+  const targets: THREE.Object3D[] = [];
   if (
-    e.button !== 0 ||
     modalUi.activeModal !== 'none' ||
     hud.phoneMap.placement === 'pocket' ||
     hud.phoneMap.isZoomed
   ) {
+    return targets;
+  }
+  if (hud.phoneMap.placement === 'in_hand') targets.push(handheldPhone3D.hitMesh);
+  if (hud.phoneMap.placement === 'mounted' && playerCtrl.state.mode === 'riding') {
+    targets.push(scooterMesh.mountedPhoneHitMesh);
+  }
+  return targets;
+};
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  const targets = getVisible3DPhoneTargets();
+  if (targets.length === 0) {
+    hud.phoneMap.setExternal3DHandHover(false, e.clientX, e.clientY);
     return;
   }
+  clickNdc.x = (e.clientX / window.innerWidth) * 2 - 1;
+  clickNdc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(clickNdc, camera);
+  const hits = raycaster.intersectObjects(targets, false);
+  hud.phoneMap.setExternal3DHandHover(hits.length > 0, e.clientX, e.clientY);
+});
+
+renderer.domElement.addEventListener('pointerleave', () => {
+  hud.phoneMap.setExternal3DHandHover(false, 0, 0);
+});
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  downX = e.clientX;
+  downY = e.clientY;
+  if (e.button !== 0) return;
+  const targets = getVisible3DPhoneTargets();
+  if (targets.length === 0) return;
+  clickNdc.x = (e.clientX / window.innerWidth) * 2 - 1;
+  clickNdc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(clickNdc, camera);
+  if (raycaster.intersectObjects(targets, false).length > 0) {
+    hud.phoneMap.triggerExternal3DHandTap(e.clientX, e.clientY);
+  }
+});
+
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (e.button !== 0) return;
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+
+  const targets = getVisible3DPhoneTargets();
+  if (targets.length === 0) return;
 
   clickNdc.x = (e.clientX / window.innerWidth) * 2 - 1;
   clickNdc.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(clickNdc, camera);
 
-  const targets: THREE.Object3D[] = [];
-  if (hud.phoneMap.placement === 'in_hand') targets.push(handheldPhone3D.hitMesh);
-  if (hud.phoneMap.placement === 'mounted' && playerCtrl.state.mode === 'riding') {
-    targets.push(scooterMesh.mountedPhoneHitMesh);
-  }
-
-  if (targets.length > 0 && raycaster.intersectObjects(targets, false).length > 0) {
+  const hits = raycaster.intersectObjects(targets, false);
+  if (hits.length > 0) {
+    audio.ensureStarted();
+    const uv = hits[0].uv;
+    if (uv) {
+      const action = hud.phoneMap.handle3DScreenTouch(uv.x, uv.y, dispatch.activeOffer !== null);
+      if (action === 'accept_offer') {
+        tryAcceptIncomingOffer(true);
+        return;
+      }
+      if (action === 'reject_offer') {
+        handleRejectIncomingOffer();
+        return;
+      }
+    }
+    hud.phoneMap.setExternal3DHandHover(false, e.clientX, e.clientY);
     handleTogglePhoneZoom();
   }
 });
@@ -981,6 +1031,25 @@ function animate(now: number): void {
         hud.showToast('📢 빵빵! 차량 차선 끼어들기 주의!', 1800);
       }
     );
+    const handlePedestrianHit = (hitEvent: PedestrianCollisionEvent) => {
+      // 1. Immediate scooter slip crash (triggers heavy food damage '-55%' + rider ejection!)
+      scooterPhysics.triggerExternalCrash(hitEvent.hitSide, 'pedestrian_hit');
+      // 2. Immediate -₩50,000 fine/settlement & -1.0 Rider Trust Rating deduction
+      const penalty = delivery.applyPedestrianAccidentPenalty();
+      // 3. Emergency audio + prominent top banner ("보행자 접촉 사고 발생!")
+      audio.playPedestrianAccidentAlert();
+      hud.showAccidentBanner(penalty.fine, penalty.ratingLoss, penalty.newRating);
+    };
+
+    const scooterProx = {
+      x: scooterPhysics.state.x,
+      z: scooterPhysics.state.z,
+      heading: scooterPhysics.state.heading,
+      speedMps: scooterPhysics.state.speed,
+      isRiding,
+      crashed: scooterPhysics.state.crashed,
+    };
+
     pedestrians.update(
       dt,
       traffic.signalState,
@@ -989,26 +1058,34 @@ function animate(now: number): void {
       scooterPhysics.state.x,
       scooterPhysics.state.z,
       inCorridor,
-      {
-        x: scooterPhysics.state.x,
-        z: scooterPhysics.state.z,
-        heading: scooterPhysics.state.heading,
-        speedMps: scooterPhysics.state.speed,
-        isRiding,
-        crashed: scooterPhysics.state.crashed,
-      },
-      (hitEvent) => {
-        // 1. Immediate scooter slip crash (triggers heavy food damage '-55%' + rider ejection!)
-        scooterPhysics.triggerExternalCrash(hitEvent.hitSide, 'pedestrian_hit');
-        // 2. Immediate -₩50,000 fine/settlement & -1.0 Rider Trust Rating deduction
-        const penalty = delivery.applyPedestrianAccidentPenalty();
-        // 3. Emergency audio + prominent top banner ("보행자 접촉 사고 발생!")
-        audio.playPedestrianAccidentAlert();
-        hud.showAccidentBanner(penalty.fine, penalty.ratingLoss, penalty.newRating);
-      },
+      scooterProx,
+      handlePedestrianHit,
       () => {
         audio.playPedestrianStartle();
       }
+    );
+
+    roadHazards.step(
+      dt,
+      elapsed,
+      inCorridor,
+      scooterProx,
+      traffic.signalState,
+      (camEv) => {
+        delivery.applyFine(camEv.fine);
+        audio.playSpeedCameraFlash();
+        hud.triggerSpeedCameraFlash();
+        const reason =
+          camEv.kind === 'speeding'
+            ? `📸 무인 과속 단속! (${camEv.measuredKmh}km/h / 제한 ${camEv.limitKmh}km/h · ${camEv.label})`
+            : `📸 무인 신호위반 단속 카메라 적발! (${camEv.label})`;
+        hud.showToast(`${reason} 과태료 -₩${camEv.fine.toLocaleString()}`, 4400);
+      },
+      (popEv) => {
+        audio.playPedestrianStartle();
+        hud.showToast(`⚠️ 사각지대 돌발 주의! ${popEv.hazardName} 뒤에서 보행자 갑툭튀!`, 3200);
+      },
+      handlePedestrianHit
     );
   } else {
     corridorRoom.updateVisual(elapsed, dt);
@@ -1016,7 +1093,7 @@ function animate(now: number): void {
 
   const allObstacles = inCorridor
     ? []
-    : [...world.obstacles, ...traffic.getCarObstacleBoxes()];
+    : [...world.obstacles, ...traffic.getCarObstacleBoxes(), ...roadHazards.obstacles];
 
   const roadCondition = inCorridor
     ? { isRaining: false, surface: 'none' as const }
