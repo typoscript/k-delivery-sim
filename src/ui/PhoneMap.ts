@@ -14,6 +14,7 @@ import { DispatchOffer } from '../delivery/OrderDispatchManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { TurnDirection } from '../world/RoadNavigator';
 import { clamp } from '../types';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 
 export type PhonePlacement = 'pocket' | 'in_hand' | 'mounted';
 export type PhoneTopNav = 'calls' | 'nav' | 'earnings';
@@ -90,9 +91,9 @@ export class PhoneMap {
   public activeTab: PhoneTab = 'calls';
 
   private followPlayer = true;
-  private zoomLevel = 1.5;
-  private camX = -62;
-  private camZ = -34;
+  private zoomLevel = 1.4;
+  private camX = SUWON_INGYE_DATA.meta.playerSpawn.x;
+  private camZ = SUWON_INGYE_DATA.meta.playerSpawn.z;
   private lastSheetFingerprint = '';
   private last3DRenderTime = -1;
   private ripple3D: { x: number; y: number; bornAt: number } | null = null;
@@ -1903,9 +1904,10 @@ export class PhoneMap {
   }
 
   private resolveAreaName(px: number, pz: number, mapInfo: CityMapInfo): string {
-    if (Math.abs(px) < 33 && Math.abs(pz) < 33) return '중앙 공원 광장';
-    let nearest = '시내 도로';
-    let bestDist = 62;
+    const st = SUWON_INGYE_DATA.meta.station;
+    if (Math.hypot(px - st.x, pz - st.z) < 68) return '수원시청역 · 인계동';
+    let nearest = '수원 인계동';
+    let bestDist = 95;
     for (const z of mapInfo.zones) {
       const d = Math.hypot(px - z.x, pz - z.z);
       if (d < bestDist) {
@@ -1987,55 +1989,81 @@ export class PhoneMap {
     const toX = (wx: number) => -(wx - viewCamX) * scale;
     const toY = (wz: number) => -(wz - viewCamZ) * scale;
 
-    // 1. Blocks & Central Park
-    for (const bx of mapInfo.blockCenters) {
-      for (const bz of mapInfo.blockCenters) {
-        const bw = 65.6 * scale;
-        ctx.fillStyle = bx === 0 && bz === 0 ? theme.park : theme.block;
-        ctx.beginPath();
-        ctx.roundRect(toX(bx) - bw / 2, toY(bz) - bw / 2, bw, bw, 4 * effectiveZoom);
-        ctx.fill();
-      }
-    }
-    ctx.fillStyle = theme.water;
-    ctx.beginPath();
-    ctx.arc(toX(0), toY(0), 5.6 * scale, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 2. Road Grid (6x6 boulevards)
-    const roadW = mapInfo.roadWidth * scale;
-    const drawRoads = () => {
+    // 1. Real Suwon Ingye-dong Parks (효원공원 etc.)
+    for (const park of SUWON_INGYE_DATA.parks) {
+      if (park.pts.length < 3) continue;
+      ctx.fillStyle = theme.park;
       ctx.beginPath();
-      for (const c of mapInfo.roadLines) {
-        ctx.moveTo(toX(-234), toY(c));
-        ctx.lineTo(toX(234), toY(c));
-        ctx.moveTo(toX(c), toY(-234));
-        ctx.lineTo(toX(c), toY(234));
+      ctx.moveTo(toX(park.pts[0][0]), toY(park.pts[0][1]));
+      for (let i = 1; i < park.pts.length; i++) {
+        ctx.lineTo(toX(park.pts[i][0]), toY(park.pts[i][1]));
       }
-    };
-    ctx.lineCap = 'square';
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 1.5. Pedestrian Plazas (나혜석거리)
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = isNight ? '#3d332a' : '#e9d8c8';
+    for (const pl of SUWON_INGYE_DATA.pedestrianPlazas) {
+      if (pl.pts.length < 2) continue;
+      ctx.lineWidth = Math.max(2.5, pl.width * scale);
+      ctx.beginPath();
+      ctx.moveTo(toX(pl.pts[0][0]), toY(pl.pts[0][1]));
+      for (let i = 1; i < pl.pts.length; i++) {
+        ctx.lineTo(toX(pl.pts[i][0]), toY(pl.pts[i][1]));
+      }
+      ctx.stroke();
+    }
+
+    // 2. Real Suwon Ingye-dong OSM Road Network (218 segments!)
+    const osmNodes = SUWON_INGYE_DATA.nodes;
+    const osmEdges = SUWON_INGYE_DATA.edges;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Road outlines
     ctx.strokeStyle = theme.roadOutline;
-    ctx.lineWidth = roadW + 2.4;
-    drawRoads();
-    ctx.stroke();
+    for (const e of osmEdges) {
+      const na = osmNodes[e.a];
+      const nb = osmNodes[e.b];
+      ctx.lineWidth = Math.max(2.5, e.width * scale + 2.0);
+      ctx.beginPath();
+      ctx.moveTo(toX(na.x), toY(na.z));
+      ctx.lineTo(toX(nb.x), toY(nb.z));
+      ctx.stroke();
+    }
 
+    // Road fills
     ctx.strokeStyle = theme.roadFill;
-    ctx.lineWidth = roadW;
-    drawRoads();
-    ctx.stroke();
+    for (const e of osmEdges) {
+      const na = osmNodes[e.a];
+      const nb = osmNodes[e.b];
+      ctx.lineWidth = Math.max(1.8, e.width * scale);
+      ctx.beginPath();
+      ctx.moveTo(toX(na.x), toY(na.z));
+      ctx.lineTo(toX(nb.x), toY(nb.z));
+      ctx.stroke();
+    }
 
+    // Yellow center lines on major Suwon boulevards (효원로, 권광로, 경수대로, 권선로)
     ctx.save();
     ctx.strokeStyle = theme.roadCenter;
-    ctx.lineWidth = Math.max(1, 1.1 * effectiveZoom);
+    ctx.lineWidth = Math.max(1, 1.0 * effectiveZoom);
     ctx.setLineDash([4 * effectiveZoom, 5 * effectiveZoom]);
-    drawRoads();
+    ctx.beginPath();
+    for (const e of osmEdges) {
+      if (!e.isMajor) continue;
+      const na = osmNodes[e.a];
+      const nb = osmNodes[e.b];
+      ctx.moveTo(toX(na.x), toY(na.z));
+      ctx.lineTo(toX(nb.x), toY(nb.z));
+    }
     ctx.stroke();
     ctx.restore();
 
-    // 3. Building Footprints
+    // 3. Real Suwon Building Polygon Footprints (322 OSM buildings!)
     for (const b of mapInfo.buildings) {
-      const rw = b.w * scale;
-      const rd = b.d * scale;
       ctx.fillStyle =
         b.kind === 'shop'
           ? theme.bldgShop
@@ -2043,19 +2071,52 @@ export class PhoneMap {
             ? theme.bldgRes
             : theme.bldgPublic;
       ctx.strokeStyle = theme.bldgStroke;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.85;
       ctx.beginPath();
-      ctx.roundRect(toX(b.x) - rw / 2, toY(b.z) - rd / 2, rw, rd, 2.5);
+      if (b.pts && b.pts.length >= 3) {
+        ctx.moveTo(toX(b.pts[0][0]), toY(b.pts[0][1]));
+        for (let i = 1; i < b.pts.length; i++) {
+          ctx.lineTo(toX(b.pts[i][0]), toY(b.pts[i][1]));
+        }
+        ctx.closePath();
+      } else {
+        const rw = b.w * scale;
+        const rd = b.d * scale;
+        ctx.roundRect(toX(b.x) - rw / 2, toY(b.z) - rd / 2, rw, rd, 2);
+      }
       ctx.fill();
       ctx.stroke();
 
-      if (b.label && !rotateHeadingUp && effectiveZoom >= 1.15 && rw > 12) {
-        ctx.font = `700 ${Math.round(clamp(10 * Math.sqrt(effectiveZoom), 10, 13))}px sans-serif`;
+      if (b.label && !rotateHeadingUp && effectiveZoom >= 1.1 && b.w * scale > 10) {
+        ctx.font = `700 ${Math.round(clamp(9.5 * Math.sqrt(effectiveZoom), 9, 12))}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = theme.labelText;
         ctx.fillText(b.label, toX(b.x), toY(b.z));
       }
+    }
+
+    // 3.2. Suwon City Hall Station Subway Marker (🚇 수원시청역)
+    {
+      const st = SUWON_INGYE_DATA.meta.station;
+      const sx = toX(st.x);
+      const sy = toY(st.z);
+      ctx.fillStyle = '#f59e0b';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 8.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(sx, sy);
+      if (rotateHeadingUp) ctx.rotate(-player.heading);
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '900 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('역', 0, 0.5);
+      ctx.restore();
     }
 
     // 3.5. Bus stop icons, Service Station pins (⛽ Gas / 🔧 Repair), & Intersection signal status dots
@@ -2183,20 +2244,19 @@ export class PhoneMap {
     const sigHex = (c: 'green' | 'yellow' | 'red') =>
       c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
 
-    for (const ix of mapInfo.roadLines) {
-      for (const iz of mapInfo.roadLines) {
-        const mx = toX(ix);
-        const my = toY(iz);
-        ctx.fillStyle = sigHex(signalState.ns);
-        ctx.beginPath();
-        ctx.arc(mx, my - 2.6, 2.2, 0, Math.PI * 2);
-        ctx.fill();
+    for (const sn of SUWON_INGYE_DATA.nodes) {
+      if (!sn.isSignal) continue;
+      const mx = toX(sn.x);
+      const my = toY(sn.z);
+      ctx.fillStyle = sigHex(signalState.ns);
+      ctx.beginPath();
+      ctx.arc(mx, my - 2.6, 2.2, 0, Math.PI * 2);
+      ctx.fill();
 
-        ctx.fillStyle = sigHex(signalState.ew);
-        ctx.beginPath();
-        ctx.arc(mx + 2.6, my, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.fillStyle = sigHex(signalState.ew);
+      ctx.beginPath();
+      ctx.arc(mx + 2.6, my, 2.2, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // 4. Secondary Bundled Stops Preview Dashed Line

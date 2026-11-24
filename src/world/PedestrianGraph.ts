@@ -1,4 +1,4 @@
-import { CITY_BLOCK_CENTERS } from '../types';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 
 export type PedestrianNodeKind = 'corner_tactile' | 'sidewalk_mid';
 export type PedestrianEdgeKind = 'sidewalk' | 'crosswalk';
@@ -20,92 +20,105 @@ export interface PedestrianEdge {
   distance: number;
 }
 
-const BLOCK_COUNT = CITY_BLOCK_CENTERS.length; // 5x5 = 25 blocks
-const TACTILE_OFFSET = 30.8; // matches yellow tactile paving blocks (점자블록) in CityWorld!
-
 /**
- * 25-Block Sidewalk Centerline & Crosswalk Tactile Entry Waypoint Graph.
- * Connects all 25 city blocks via:
- *  - 100 corner tactile nodes (점자블록 횡단보도 진입 지점)
- *  - 100 sidewalk midpoint nodes (인도 중심선 경유지)
- *  - 200 bidirectional sidewalk edges + 80 signalized crosswalk edges
+ * Real Suwon Ingye-dong Sidewalk & Signalized Crosswalk Waypoint Graph!
+ * Generates paired left/right roadside sidewalk edges along the real OSM road network
+ * and connects both curbs at road junctions with traffic-signal-synced crosswalks.
  */
 export class PedestrianGraph {
   public readonly nodes: PedestrianNode[] = [];
   public readonly adjacency: PedestrianEdge[][] = [];
 
-  // Lookup corner node ID by (blockIx, blockIz, cornerIndex: 0=SW, 1=SE, 2=NE, 3=NW)
-  private readonly cornerIds: number[][][] = [];
-
   constructor() {
-    for (let ix = 0; ix < BLOCK_COUNT; ix++) {
-      this.cornerIds[ix] = [];
-      for (let iz = 0; iz < BLOCK_COUNT; iz++) {
-        this.cornerIds[ix][iz] = [];
-        const bx = CITY_BLOCK_CENTERS[ix];
-        const bz = CITY_BLOCK_CENTERS[iz];
+    const osmNodes = SUWON_INGYE_DATA.nodes;
+    const osmEdges = SUWON_INGYE_DATA.edges;
 
-        // 4 tactile corner nodes (SW, SE, NE, NW) matching CityWorld's yellow tactile blocks
-        const corners: Array<[number, number]> = [
-          [bx - TACTILE_OFFSET, bz - TACTILE_OFFSET], // 0: SW (-X, -Z)
-          [bx + TACTILE_OFFSET, bz - TACTILE_OFFSET], // 1: SE (+X, -Z)
-          [bx + TACTILE_OFFSET, bz + TACTILE_OFFSET], // 2: NE (+X, +Z)
-          [bx - TACTILE_OFFSET, bz + TACTILE_OFFSET], // 3: NW (-X, +Z)
-        ];
-        const cIds: number[] = [];
-        for (const [cx, cz] of corners) {
-          cIds.push(this.addNode(cx, cz, 'corner_tactile', ix, iz));
-        }
-        this.cornerIds[ix][iz] = cIds;
+    // Track sidewalk endpoint nodes created near each OSM junction so sidewalks connect smoothly!
+    const junctionSidewalkNodes: number[][] = Array.from({ length: osmNodes.length }, () => []);
 
-        // 4 sidewalk centerline midpoint nodes along South, East, North, West edges of the block
-        const mids: Array<[number, number, number, number]> = [
-          [bx, bz - TACTILE_OFFSET, cIds[0], cIds[1]], // South sidewalk
-          [bx + TACTILE_OFFSET, bz, cIds[1], cIds[2]], // East sidewalk
-          [bx, bz + TACTILE_OFFSET, cIds[2], cIds[3]], // North sidewalk
-          [bx - TACTILE_OFFSET, bz, cIds[3], cIds[0]], // West sidewalk
-        ];
-        for (const [mx, mz, a, b] of mids) {
-          const midId = this.addNode(mx, mz, 'sidewalk_mid', ix, iz);
-          this.addBidirectionalEdge(a, midId, 'sidewalk');
-          this.addBidirectionalEdge(midId, b, 'sidewalk');
-        }
+    for (const e of osmEdges) {
+      if (e.dist < 8) continue;
+      const na = osmNodes[e.a];
+      const nb = osmNodes[e.b];
+      const dx = nb.x - na.x;
+      const dz = nb.z - na.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 6) continue;
+
+      const ux = dx / len;
+      const uz = dz / len;
+      // Right-hand perpendicular normal
+      const rx = -uz;
+      const rz = ux;
+
+      const offset = e.width * 0.5 + 0.9;
+      const trim = Math.min(4.2, len * 0.22);
+
+      // Left & right sidewalk rails parallel to the real Suwon road segment
+      const pairA: number[] = [];
+      const pairB: number[] = [];
+
+      for (const side of [-1, 1]) {
+        const ax = na.x + ux * trim + rx * side * offset;
+        const az = na.z + uz * trim + rz * side * offset;
+        const bx = nb.x - ux * trim + rx * side * offset;
+        const bz = nb.z - uz * trim + rz * side * offset;
+
+        const idA = this.addNode(ax, az, na.isSignal ? 'corner_tactile' : 'sidewalk_mid');
+        const idB = this.addNode(bx, bz, nb.isSignal ? 'corner_tactile' : 'sidewalk_mid');
+        this.addBidirectionalEdge(idA, idB, 'sidewalk');
+
+        pairA.push(idA);
+        pairB.push(idB);
+        junctionSidewalkNodes[e.a].push(idA);
+        junctionSidewalkNodes[e.b].push(idB);
       }
+
+      // Crosswalk across road at ends (signalized if junction has traffic signals)
+      const crossAxis: CrosswalkAxis = Math.abs(rz) >= Math.abs(rx) ? 'ns' : 'ew';
+      this.addBidirectionalEdge(
+        pairA[0],
+        pairA[1],
+        na.isSignal ? 'crosswalk' : 'sidewalk',
+        na.isSignal ? crossAxis : undefined
+      );
+      this.addBidirectionalEdge(
+        pairB[0],
+        pairB[1],
+        nb.isSignal ? 'crosswalk' : 'sidewalk',
+        nb.isSignal ? crossAxis : undefined
+      );
     }
 
-    // Connect adjacent blocks across roads via signalized crosswalk edges!
-    for (let ix = 0; ix < BLOCK_COUNT; ix++) {
-      for (let iz = 0; iz < BLOCK_COUNT; iz++) {
-        const cur = this.cornerIds[ix][iz];
-
-        // Cross NS road (walking along X -> uses EW traffic green!) to block (ix + 1, iz)
-        if (ix + 1 < BLOCK_COUNT) {
-          const eastBlk = this.cornerIds[ix + 1][iz];
-          // SE (1) <-> SW (0) & NE (2) <-> NW (3)
-          this.addBidirectionalEdge(cur[1], eastBlk[0], 'crosswalk', 'ew');
-          this.addBidirectionalEdge(cur[2], eastBlk[3], 'crosswalk', 'ew');
-        }
-
-        // Cross EW road (walking along Z -> uses NS traffic green!) to block (ix, iz + 1)
-        if (iz + 1 < BLOCK_COUNT) {
-          const northBlk = this.cornerIds[ix][iz + 1];
-          // NW (3) <-> SW (0) & NE (2) <-> SE (1)
-          this.addBidirectionalEdge(cur[3], northBlk[0], 'crosswalk', 'ns');
-          this.addBidirectionalEdge(cur[2], northBlk[1], 'crosswalk', 'ns');
+    // Stitch sidewalk corner nodes belonging to the same OSM intersection within reasonable curb gap
+    for (let j = 0; j < junctionSidewalkNodes.length; j++) {
+      const list = junctionSidewalkNodes[j];
+      const isSig = osmNodes[j].isSignal;
+      for (let i = 0; i < list.length; i++) {
+        for (let k = i + 1; k < list.length; k++) {
+          const a = this.nodes[list[i]];
+          const b = this.nodes[list[k]];
+          const d = Math.hypot(b.x - a.x, b.z - a.z);
+          if (d >= 1.5 && d <= 22) {
+            // Avoid duplicate edges
+            if (this.adjacency[a.id].some((ed) => ed.to === b.id)) continue;
+            const crossesRoad = d > 9.0 && isSig;
+            const axis: CrosswalkAxis = Math.abs(b.z - a.z) >= Math.abs(b.x - a.x) ? 'ns' : 'ew';
+            this.addBidirectionalEdge(
+              a.id,
+              b.id,
+              crossesRoad ? 'crosswalk' : 'sidewalk',
+              crossesRoad ? axis : undefined
+            );
+          }
         }
       }
     }
   }
 
-  private addNode(
-    x: number,
-    z: number,
-    kind: PedestrianNodeKind,
-    blockIx: number,
-    blockIz: number
-  ): number {
+  private addNode(x: number, z: number, kind: PedestrianNodeKind): number {
     const id = this.nodes.length;
-    this.nodes.push({ id, x, z, kind, blockIx, blockIz });
+    this.nodes.push({ id, x, z, kind, blockIx: 0, blockIz: 0 });
     this.adjacency.push([]);
     return id;
   }
@@ -119,6 +132,7 @@ export class PedestrianGraph {
     const na = this.nodes[a];
     const nb = this.nodes[b];
     const dist = Math.hypot(nb.x - na.x, nb.z - na.z);
+    if (dist < 0.2) return;
     this.adjacency[a].push({ to: b, kind, crossingAxis, distance: dist });
     this.adjacency[b].push({ to: a, kind, crossingAxis, distance: dist });
   }

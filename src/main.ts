@@ -28,6 +28,7 @@ import { ModalUi } from './ui/ModalUi';
 import { VisorRainOverlay } from './ui/VisorRainOverlay';
 import { OnboardingAndSettings } from './ui/OnboardingAndSettings';
 import { GameSettings, collidesWithWorld } from './types';
+import { SUWON_INGYE_DATA } from './data/suwonIngyeData';
 
 const app = document.getElementById('app')!;
 
@@ -1027,7 +1028,7 @@ window.addEventListener('keydown', (e) => {
       } else {
         scooterPhysics.reset();
         playerCtrl.reset();
-        camController.onFootYaw = Math.PI - 0.65;
+        camController.onFootYaw = SUWON_INGYE_DATA.meta.playerSpawn.heading;
       }
       hud.stowPhoneToPocket();
       scooterMesh.setPhoneMounted(false);

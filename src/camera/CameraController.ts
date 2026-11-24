@@ -3,6 +3,7 @@ import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { ScooterMesh } from '../vehicle/ScooterMesh';
 import { clamp, wrapAngle } from '../types';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 
 /**
  * Always First-Person Camera Controller:
@@ -12,7 +13,7 @@ import { clamp, wrapAngle } from '../types';
  */
 export class CameraController {
   // World-space look yaw when on-foot (0 = +Z)
-  public onFootYaw = Math.PI - 0.65;
+  public onFootYaw = SUWON_INGYE_DATA.meta.playerSpawn.heading;
   public sensitivity = 1.0;
   private onFootPitch = -0.06;
 

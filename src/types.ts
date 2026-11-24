@@ -1,6 +1,6 @@
 export const CITY_ROAD_LINES = [-200, -120, -40, 40, 120, 200] as const;
 export const CITY_BLOCK_CENTERS = [-160, -80, 0, 80, 160] as const;
-export const CITY_WORLD_LIMIT = 285;
+export const CITY_WORLD_LIMIT = 410;
 
 export type WeatherMode = 'clear' | 'cloudy' | 'rain';
 export type SlipSurfaceType = 'none' | 'manhole' | 'crosswalk_paint';
@@ -11,9 +11,10 @@ export interface SpeedBumpInfo {
   id: string;
   x: number;
   z: number;
-  axis: 'ew' | 'ns'; // 'ew' spans road along X (bar along Z), 'ns' spans road along Z (bar along X)
-  halfLength: number; // half width across road (~6.4m)
-  halfWidth: number; // half depth along travel direction (~1.15m)
+  axis: 'ew' | 'ns';
+  angle?: number; // road travel heading in radians (0 = +Z)
+  halfLength: number; // half width across road
+  halfWidth: number; // half depth along travel direction
   label: string;
 }
 
@@ -22,6 +23,7 @@ export interface ObstacleBox {
   maxX: number;
   minZ: number;
   maxZ: number;
+  pts?: Array<[number, number]>; // Optional exact 2D footprint polygon for rotated/L-shaped OSM buildings!
 }
 
 export interface CityZoneMarker {
@@ -41,16 +43,17 @@ export interface DeliveryLocation {
   menus?: string[];
   emoji: string;
   facesNorth?: boolean;
+  facingHeading?: number;
 }
 
 export interface BusStopPoint {
   name: string;
-  x: number; // stop point along road or bus bay center
+  x: number; // stop point along road
   z: number;
   shelterX: number;
   shelterZ: number;
-  dir: 0 | 1 | 2 | 3; // CardinalDir of bus stopping here (1 = +X East, 3 = -X West, etc.)
-  roadIndex: number; // index into CITY_ROAD_LINES
+  facingHeading: number;
+  edgeIndex: number;
 }
 
 export interface ServiceStationInfo {
@@ -123,6 +126,45 @@ export function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
 
+function circleIntersectsPolygon(
+  cx: number,
+  cz: number,
+  radius: number,
+  pts: Array<[number, number]>
+): boolean {
+  const n = pts.length;
+  if (n < 3) return false;
+  const rSq = radius * radius;
+
+  // 1. Point-in-polygon (ray casting)
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = pts[i][0];
+    const zi = pts[i][1];
+    const xj = pts[j][0];
+    const zj = pts[j][1];
+    if ((zi > cz) !== (zj > cz) && cx < ((xj - xi) * (cz - zi)) / (zj - zi + 1e-12) + xi) {
+      inside = !inside;
+    }
+
+    // 2. Circle-vs-segment distance check along each polygon edge
+    const vx = xj - xi;
+    const vz = zj - zi;
+    const lenSq = vx * vx + vz * vz;
+    let t = lenSq > 1e-6 ? ((cx - xi) * vx + (cz - zi) * vz) / lenSq : 0;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    const px = xi + vx * t;
+    const pz = zi + vz * t;
+    const dx = cx - px;
+    const dz = cz - pz;
+    if (dx * dx + dz * dz < rSq) {
+      return true;
+    }
+  }
+  return inside;
+}
+
 export function collidesWithWorld(
   x: number,
   z: number,
@@ -140,7 +182,10 @@ export function collidesWithWorld(
       z + radius > box.minZ &&
       z - radius < box.maxZ
     ) {
-      return true;
+      if (!box.pts) return true;
+      if (circleIntersectsPolygon(x, z, radius, box.pts)) {
+        return true;
+      }
     }
   }
   return false;

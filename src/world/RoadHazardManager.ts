@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import {
-  CITY_ROAD_LINES,
   ConstructionZoneMarker,
   ObstacleBox,
   PolicePatrolMarker,
   RivalRiderMarker,
   SpeedCameraMarker,
   UpcomingCameraAlert,
+  clamp,
+  wrapAngle,
 } from '../types';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
 import {
@@ -29,7 +31,12 @@ export interface PopOutWarningEvent {
   hazardName: string;
 }
 
-type PatrolDir = 0 | 1 | 2 | 3; // 0:+Z, 1:+X, 2:-Z, 3:-X
+interface OsmAdjEdge {
+  to: number;
+  dist: number;
+  width: number;
+  isMajor: boolean;
+}
 
 interface PolicePatrolUnit {
   id: string;
@@ -37,11 +44,14 @@ interface PolicePatrolUnit {
   group: THREE.Group;
   redBarMat: THREE.MeshStandardMaterial;
   blueBarMat: THREE.MeshStandardMaterial;
+  fromNode: number;
+  toNode: number;
+  edgeDist: number;
+  edgeWidth: number;
+  progress: number;
   x: number;
   z: number;
   heading: number;
-  dir: PatrolDir;
-  roadIndex: number;
   speed: number;
   cruiseSpeed: number;
   sirenTimer: number;
@@ -60,14 +70,16 @@ interface RivalRiderUnit {
   id: string;
   group: THREE.Group;
   color: string;
+  fromNode: number;
+  toNode: number;
+  edgeDist: number;
+  edgeWidth: number;
+  progress: number;
   x: number;
   z: number;
   heading: number;
-  dir: PatrolDir;
-  roadIndex: number;
   speed: number;
   cruiseSpeed: number;
-  turnCooldown: number;
 }
 
 interface SpeedCameraUnit {
@@ -75,7 +87,7 @@ interface SpeedCameraUnit {
   label: string;
   x: number;
   z: number;
-  axis: 'ns' | 'ew'; // road travel axis monitored
+  axis: 'ns' | 'ew';
   limitKmh: number;
   ledMat: THREE.MeshStandardMaterial;
   flashMat: THREE.MeshBasicMaterial;
@@ -94,7 +106,6 @@ interface ParkedHazardUnit {
   heading: number;
   isTruck: boolean;
   hazardMat: THREE.MeshStandardMaterial;
-  // Blind-spot pop-out pedestrian anchored behind this illegally parked vehicle
   popRig: PedestrianRig;
   popState: PopOutState;
   popStartX: number;
@@ -110,40 +121,21 @@ interface ParkedHazardUnit {
 }
 
 export const SPEED_CAMERA_LIMIT_KMH = 50;
-export const SPEED_CAMERA_GRACE_KMH = 2; // triggers at > 52 km/h
-export const SPEED_CAMERA_WARN_DIST = 80; // 80m ahead navi warning zone!
-export const SPEED_CAMERA_FINE = 40000; // 무인 과속/신호 단속 과태료 ₩40,000
-export const PATROL_ENFORCEMENT_FINE = 50000; // 순찰차 현장 단속 과태료 ₩50,000
-export const PATROL_SPEED_LIMIT_KMH = 60; // 순찰차 반경 22m 내 60km/h 초과 주행 시 현장 단속!
+export const SPEED_CAMERA_GRACE_KMH = 2;
+export const SPEED_CAMERA_WARN_DIST = 80;
+export const SPEED_CAMERA_FINE = 40000;
+export const PATROL_ENFORCEMENT_FINE = 50000;
+export const PATROL_SPEED_LIMIT_KMH = 60;
 const POPOUT_GLOBAL_COOLDOWN_SEC = 18.0;
 const POPOUT_COLLISION_RADIUS = 1.14;
-const PATROL_LANE_OFFSET = 3.5;
-
-function patrolDirVec(dir: PatrolDir): [number, number] {
-  if (dir === 0) return [0, 1];
-  if (dir === 1) return [1, 0];
-  if (dir === 2) return [0, -1];
-  return [-1, 0];
-}
-
-function patrolDirHeading(dir: PatrolDir): number {
-  if (dir === 0) return 0;
-  if (dir === 1) return Math.PI / 2;
-  if (dir === 2) return Math.PI;
-  return -Math.PI / 2;
-}
-
-function patrolLaneCoord(roadCoord: number, dir: PatrolDir): number {
-  return dir === 0 || dir === 3 ? roadCoord - PATROL_LANE_OFFSET : roadCoord + PATROL_LANE_OFFSET;
-}
 
 /**
- * Manages Korean Roadside Enforcement & Urban Delivery Hazards:
- * 1. Fixed Speed & Red-Light Enforcement Cameras (50 km/h limit, 80m navi approach warning, strobe flash, ₩40,000 fine)
- * 2. Patrolling Korean Police Cars ("POLICE 112" with alternating red/blue lightbars & live patrol enforcement)
- * 3. Illegally Double-Parked Hazard Vehicles (blinking 4-way K-택배 parcel trucks & sedans with collision boxes)
- * 4. Blind-Spot Pedestrian Pop-Out Events darting out from behind double-parked trucks!
- * Parented to world.root -> automatically hidden when player enters underground apartment corridors (y = -500).
+ * Suwon Ingye-dong Roadside Enforcement, Construction & Urban Delivery Hazards Manager:
+ * 1. 6 Fixed Speed/Red-Light Enforcement Cameras (50 km/h, 80m navi warning, ₩40,000 fine)
+ * 2. 2 Patrolling Gyeonggi Southern Police Cars ("경기남부경찰 POLICE 112", live >60km/h enforcement)
+ * 3. 6 Illegally Double-Parked K-택배 Trucks & Sedans + Blind-Spot Pedestrian Pop-Outs
+ * 4. 3 Road Construction Zones (traffic cones, barricade, blinking amber strobe)
+ * 5. 4 Rival AI Delivery Scooter Riders roaming real Suwon OSM roads!
  */
 export class RoadHazardManager {
   public readonly root = new THREE.Group();
@@ -154,6 +146,8 @@ export class RoadHazardManager {
   public readonly rivalRiderMarkers: RivalRiderMarker[] = [];
   public upcomingCamera: UpcomingCameraAlert | null = null;
 
+  private readonly adj: OsmAdjEdge[][];
+  private readonly majorNodeIds: number[] = [];
   private readonly cameras: SpeedCameraUnit[] = [];
   private readonly parkedHazards: ParkedHazardUnit[] = [];
   private readonly patrolCars: PolicePatrolUnit[] = [];
@@ -165,6 +159,18 @@ export class RoadHazardManager {
   private overSpeedBeepTimer = 0;
 
   constructor(parent: THREE.Object3D) {
+    const nodes = SUWON_INGYE_DATA.nodes;
+    this.adj = Array.from({ length: nodes.length }, () => []);
+    for (const e of SUWON_INGYE_DATA.edges) {
+      this.adj[e.a].push({ to: e.b, dist: e.dist, width: e.width, isMajor: e.isMajor });
+      this.adj[e.b].push({ to: e.a, dist: e.dist, width: e.width, isMajor: e.isMajor });
+    }
+    for (const n of nodes) {
+      if (this.adj[n.id].some((ed) => ed.isMajor)) {
+        this.majorNodeIds.push(n.id);
+      }
+    }
+
     this.buildSpeedCameras();
     this.buildParkedHazards();
     this.buildPolicePatrols();
@@ -173,18 +179,14 @@ export class RoadHazardManager {
     parent.add(this.root);
   }
 
-  /** Returns static parked/construction obstacles + live moving police & rival rider obstacle boxes */
   public getAllObstacleBoxes(): ObstacleBox[] {
     const list: ObstacleBox[] = [...this.obstacles];
     for (const p of this.patrolCars) {
-      const ns = Math.abs(Math.cos(p.heading)) > 0.7;
-      const rx = ns ? 1.0 : 2.25;
-      const rz = ns ? 2.25 : 1.0;
       list.push({
-        minX: p.x - rx,
-        maxX: p.x + rx,
-        minZ: p.z - rz,
-        maxZ: p.z + rz,
+        minX: p.x - 1.5,
+        maxX: p.x + 1.5,
+        minZ: p.z - 1.5,
+        maxZ: p.z + 1.5,
       });
     }
     for (const r of this.rivalRiders) {
@@ -198,68 +200,92 @@ export class RoadHazardManager {
     return list;
   }
 
-  private createSignTexture(title: string, limit: string): THREE.CanvasTexture {
-    const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 160;
-    const ctx = c.getContext('2d')!;
-
-    // Korean speed enforcement yellow/white signboard
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(0, 0, 256, 160);
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 10;
-    ctx.strokeRect(5, 5, 246, 150);
-
-    // Top banner
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(10, 10, 236, 44);
-    ctx.fillStyle = '#fef08a';
-    ctx.font = '900 24px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(title, 128, 33);
-
-    // Red circle speed limit badge
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#dc2626';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.arc(128, 104, 42, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '900 40px sans-serif';
-    ctx.fillText(limit, 128, 107);
-
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
+  private computeEdgePose(
+    fromId: number,
+    toId: number,
+    progress: number,
+    edgeDist: number,
+    edgeWidth: number,
+    laneFrac = 0.25
+  ): { x: number; z: number; heading: number } {
+    const a = SUWON_INGYE_DATA.nodes[fromId];
+    const b = SUWON_INGYE_DATA.nodes[toId];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const len = Math.max(0.1, edgeDist);
+    const fx = dx / len;
+    const fz = dz / len;
+    const rx = -fz;
+    const rz = fx;
+    const off = clamp(edgeWidth * laneFrac, 1.6, 3.3);
+    const t = clamp(progress / len, 0, 1);
+    return {
+      x: a.x + dx * t + rx * off,
+      z: a.z + dz * t + rz * off,
+      heading: Math.atan2(fx, fz),
+    };
   }
 
-  private createTruckLiveryTexture(label: string): THREE.CanvasTexture {
+  private pickNextGraphEdge(fromNode: number, toNode: number, preferMajor: boolean): OsmAdjEdge {
+    const outs = this.adj[toNode];
+    const nodes = SUWON_INGYE_DATA.nodes;
+    const prev = nodes[fromNode];
+    const cur = nodes[toNode];
+    const inDx = cur.x - prev.x;
+    const inDz = cur.z - prev.z;
+    const inLen = Math.hypot(inDx, inDz) || 1;
+    const inUx = inDx / inLen;
+    const inUz = inDz / inLen;
+
+    let cands = outs.filter((e) => e.to !== fromNode);
+    if (preferMajor) {
+      const maj = cands.filter((e) => e.isMajor);
+      if (maj.length > 0) cands = maj;
+    }
+    if (cands.length === 0) cands = outs;
+
+    const straight = cands.filter((e) => {
+      const nb = nodes[e.to];
+      const dx = nb.x - cur.x;
+      const dz = nb.z - cur.z;
+      const l = Math.hypot(dx, dz) || 1;
+      return (dx / l) * inUx + (dz / l) * inUz > 0.4;
+    });
+    if (straight.length > 0 && Math.random() < 0.65) {
+      return straight[Math.floor(Math.random() * straight.length)];
+    }
+    return cands[Math.floor(Math.random() * cands.length)];
+  }
+
+  private createCameraSignTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 256;
     c.height = 128;
     const ctx = c.getContext('2d')!;
-
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = '#fef08a';
     ctx.fillRect(0, 0, 256, 128);
-    ctx.fillStyle = '#1d4ed8';
-    ctx.fillRect(0, 86, 256, 42);
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(0, 78, 256, 8);
-
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '900 34px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, 128, 44);
+    ctx.strokeStyle = '#dc2626';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, 246, 118);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('신속안전 · 비상등 정차중', 128, 108);
+    ctx.beginPath();
+    ctx.arc(62, 64, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '900 40px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('50', 62, 66);
+
+    ctx.font = '900 26px sans-serif';
+    ctx.fillStyle = '#b91c1c';
+    ctx.fillText('과속·신호', 175, 48);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText('단속 중', 175, 84);
 
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -267,111 +293,66 @@ export class RoadHazardManager {
   }
 
   private buildSpeedCameras(): void {
-    // 6 strategic Korean arterial speed & red-light enforcement camera gantries
-    const specs: Array<{
-      id: string;
-      label: string;
-      x: number;
-      z: number;
-      axis: 'ns' | 'ew';
-      poleSide: number;
-    }> = [
-      { id: 'cam-central-e', label: '중앙대로 동측 단속', x: 0, z: -40, axis: 'ew', poleSide: 1 },
-      { id: 'cam-central-w', label: '상가대로 서측 단속', x: -80, z: 40, axis: 'ew', poleSide: -1 },
-      { id: 'cam-park-n', label: '중앙공원 북측 단속', x: 40, z: 0, axis: 'ns', poleSide: 1 },
-      { id: 'cam-apt-s', label: '한빛아파트 앞 단속', x: -40, z: 80, axis: 'ns', poleSide: -1 },
-      { id: 'cam-dept-e', label: '백화점 사거리 단속', x: 80, z: 40, axis: 'ew', poleSide: 1 },
-      { id: 'cam-hosp-n', label: '시립병원 앞 단속', x: -40, z: -80, axis: 'ns', poleSide: 1 },
-    ];
+    const nodes = SUWON_INGYE_DATA.nodes;
+    const majorEdges = SUWON_INGYE_DATA.edges
+      .filter((e) => e.isMajor && e.dist >= 26)
+      .sort((a, b) => b.dist - a.dist);
 
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.45, metalness: 0.4 });
-    const stripeMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6 });
-    const housingMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.35, metalness: 0.4 });
-    const lensMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, metalness: 0.8 });
-    const signTex = this.createSignTexture('신호·과속 단속', '50');
-    const signMat = new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.35 });
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.65, roughness: 0.35 });
+    const housingMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
+    const signMat = new THREE.MeshBasicMaterial({ map: this.createCameraSignTexture() });
 
-    for (const sp of specs) {
-      const group = new THREE.Group();
-      group.position.set(sp.x, 0, sp.z);
-      if (sp.axis === 'ew') {
-        group.rotation.y = Math.PI / 2;
-      }
+    for (const e of majorEdges) {
+      if (this.cameras.length >= 6) break;
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const mx = (na.x + nb.x) * 0.5;
+      const mz = (na.z + nb.z) * 0.5;
+      if (this.cameras.some((c) => Math.hypot(c.x - mx, c.z - mz) < 95)) continue;
 
-      const poleX = sp.poleSide * 8.2;
-      // Vertical steel pole with yellow/black hazard bands
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 6.2, 10), poleMat);
-      pole.position.set(poleX, 3.1, 0);
-      pole.castShadow = true;
-      group.add(pole);
+      const angle = Math.atan2(nb.x - na.x, nb.z - na.z);
+      const axis: 'ns' | 'ew' = Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle)) ? 'ns' : 'ew';
+      const id = `cam-${this.cameras.length + 1}`;
+      const label = e.name ? `${e.name} 단속 구간` : `인계동 간선도로 단속 ${this.cameras.length + 1}`;
 
-      for (let b = 0; b < 4; b++) {
-        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.32, 10), stripeMat);
-        band.position.set(poleX, 0.9 + b * 0.72, 0);
-        group.add(band);
-      }
+      const g = new THREE.Group();
+      const rx = -Math.cos(angle);
+      const rz = Math.sin(angle);
+      const poleX = mx + rx * (e.width * 0.5 + 1.2);
+      const poleZ = mz + rz * (e.width * 0.5 + 1.2);
+      g.position.set(poleX, 0, poleZ);
+      g.rotation.y = angle;
 
-      // Cantilevered horizontal gantry arm spanning above the traffic lanes
-      const armLen = 9.2;
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.2, 0.2), poleMat);
-      arm.position.set(poleX - sp.poleSide * (armLen * 0.48), 5.85, 0);
-      group.add(arm);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 6.1, 8), poleMat);
+      pole.position.y = 3.05;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.14, 0.14), poleMat);
+      arm.position.set(-2.1, 5.85, 0);
+      const camBox = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.38, 0.68), housingMat);
+      camBox.position.set(-3.4, 5.55, 0);
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.7, 0.08), signMat);
+      sign.position.set(-1.6, 5.42, 0);
 
       const ledMat = new THREE.MeshStandardMaterial({
-        color: 0x7f1d1d,
+        color: 0xef4444,
         emissive: 0xef4444,
-        emissiveIntensity: 2.2,
+        emissiveIntensity: 1.5,
       });
-      const flashMat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0,
-      });
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), ledMat);
+      led.position.set(-3.4, 5.55, 0.38);
 
-      // Twin camera housings overlooking both lane directions
-      for (const offset of [-2.4, 2.4]) {
-        const cx = offset;
-        const box = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.36, 0.62), housingMat);
-        box.position.set(cx, 5.55, 0);
-        group.add(box);
+      const flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+      const flash = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), flashMat);
+      flash.position.set(-3.4, 5.55, 0.4);
 
-        for (const zDir of [-1, 1]) {
-          const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.08, 10), lensMat);
-          lens.rotation.x = Math.PI / 2;
-          lens.position.set(cx, 5.55, zDir * 0.33);
-          group.add(lens);
-
-          const led = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), ledMat);
-          led.position.set(cx + 0.14, 5.64, zDir * 0.33);
-          group.add(led);
-        }
-      }
-
-      // Overhead strobe flash bulb
-      const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 10), flashMat);
-      strobe.position.set(0, 5.5, 0);
-      group.add(strobe);
-
-      // Double-sided "신호·과속 단속 50" enforcement signboard
-      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.96, 0.08), [
-        stripeMat,
-        stripeMat,
-        stripeMat,
-        stripeMat,
-        signMat,
-        signMat,
-      ]);
-      signBoard.position.set(poleX - sp.poleSide * 2.1, 5.05, 0);
-      group.add(signBoard);
-
-      this.root.add(group);
+      g.add(pole, arm, camBox, sign, led, flash);
+      this.root.add(g);
 
       this.cameras.push({
-        id: sp.id,
-        label: sp.label,
-        x: sp.x,
-        z: sp.z,
-        axis: sp.axis,
+        id,
+        label,
+        x: mx,
+        z: mz,
+        axis,
         limitKmh: SPEED_CAMERA_LIMIT_KMH,
         ledMat,
         flashMat,
@@ -379,186 +360,145 @@ export class RoadHazardManager {
         cooldown: 0,
         wasInZone: false,
       });
-
-      this.cameraMarkers.push({
-        id: sp.id,
-        x: sp.x,
-        z: sp.z,
-        limitKmh: SPEED_CAMERA_LIMIT_KMH,
-      });
+      this.cameraMarkers.push({ id, x: mx, z: mz, limitKmh: SPEED_CAMERA_LIMIT_KMH });
     }
   }
 
+  private createParcelLogoTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(0, 0, 256, 30);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '900 38px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('K-택배', 128, 76);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
   private buildParkedHazards(): void {
-    // 6 illegally double-parked hazard vehicles (4 parcel box trucks + 2 sedans) along commercial street curbs
-    const specs: Array<{
-      id: string;
-      name: string;
-      x: number;
-      z: number;
-      heading: number;
-      isTruck: boolean;
-      sidewalkSide: number; // +1 = left (+X local), -1 = right (-X local) -> pop-out runs into road!
-    }> = [
-      { id: 'park-1', name: 'K-택배 불법정차 탑차', x: -16, z: -34.8, heading: Math.PI / 2, isTruck: true, sidewalkSide: -1 },
-      { id: 'park-2', name: '번개물류 택배탑차', x: 64, z: -45.2, heading: -Math.PI / 2, isTruck: true, sidewalkSide: -1 },
-      { id: 'park-3', name: '상가 앞 비상등 승용차', x: -34.8, z: 16, heading: Math.PI, isTruck: false, sidewalkSide: -1 },
-      { id: 'park-4', name: 'K-택배 불법정차 탑차', x: 34.8, z: -18, heading: 0, isTruck: true, sidewalkSide: -1 },
-      { id: 'park-5', name: '식자재 납품 탑차', x: 18, z: 45.2, heading: Math.PI / 2, isTruck: true, sidewalkSide: -1 },
-      { id: 'park-6', name: '골목 비상등 불법주차', x: -45.2, z: -64, heading: 0, isTruck: false, sidewalkSide: -1 },
-    ];
+    const nodes = SUWON_INGYE_DATA.nodes;
+    const spawn = SUWON_INGYE_DATA.meta.scooterSpawn;
+    const logoTex = this.createParcelLogoTexture();
+    const cargoMat = new THREE.MeshStandardMaterial({ map: logoTex, roughness: 0.55 });
+    const cabMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.42 });
+    const sedanMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
 
-    const truckTex = this.createTruckLiveryTexture('K-택배');
-    const cabMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.42 });
-    const boxSideMat = new THREE.MeshStandardMaterial({ map: truckTex, roughness: 0.5 });
-    const boxPlainMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.55 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.55 });
-    const sedanMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35, metalness: 0.45 });
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9 });
-    const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.24, 12);
-    wheelGeo.rotateZ(Math.PI / 2);
+    const candidates = SUWON_INGYE_DATA.edges
+      .filter((e) => e.width >= 8.4 && e.dist >= 24)
+      .sort((a, b) => b.dist - a.dist);
 
-    for (const sp of specs) {
-      const group = new THREE.Group();
-      group.position.set(sp.x, 0, sp.z);
-      group.rotation.y = sp.heading;
+    for (const e of candidates) {
+      if (this.parkedHazards.length >= 6) break;
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const dx = nb.x - na.x;
+      const dz = nb.z - na.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const fx = dx / len;
+      const fz = dz / len;
+      const rx = -fz;
+      const rz = fx;
+      const heading = Math.atan2(fx, fz);
+
+      const mx = (na.x + nb.x) * 0.5 + rx * (e.width * 0.5 - 1.35);
+      const mz = (na.z + nb.z) * 0.5 + rz * (e.width * 0.5 - 1.35);
+
+      if (Math.hypot(mx - spawn.x, mz - spawn.z) < 42) continue;
+      if (this.cameras.some((c) => Math.hypot(c.x - mx, c.z - mz) < 28)) continue;
+      if (this.parkedHazards.some((h) => Math.hypot(h.x - mx, h.z - mz) < 68)) continue;
+
+      const isTruck = this.parkedHazards.length % 2 === 0;
+      const name = isTruck ? '불법주정차 K-택배 탑차' : '비상등 불법주정차 승용차';
+      const g = new THREE.Group();
+      g.position.set(mx, 0, mz);
+      g.rotation.y = heading;
 
       const hazardMat = new THREE.MeshStandardMaterial({
-        color: 0x78350f,
+        color: 0xd97706,
         emissive: 0xf59e0b,
         emissiveIntensity: 2.4,
       });
 
-      let halfW = 1.02;
-      let halfL = 2.25;
-
-      if (sp.isTruck) {
-        halfW = 1.08;
-        halfL = 2.75;
-        // White Korean 1-ton parcel delivery box truck ("탑차")
-        const cargoBox = new THREE.Mesh(new THREE.BoxGeometry(2.05, 1.95, 3.45), [
-          boxSideMat,
-          boxSideMat,
-          boxPlainMat,
-          boxPlainMat,
-          boxPlainMat,
-          boxPlainMat,
-        ]);
-        cargoBox.position.set(0, 1.65, -0.78);
-        cargoBox.castShadow = true;
-        cargoBox.receiveShadow = true;
-        group.add(cargoBox);
-
-        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.88, 1.45, 1.55), cabMat);
-        cab.position.set(0, 1.28, 1.72);
-        cab.castShadow = true;
-        group.add(cab);
-
-        const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.72, 0.08), glassMat);
-        windshield.position.set(0, 1.54, 2.5);
-        group.add(windshield);
-
-        // 4 flashing hazard lamps (front + rear corners)
-        for (const sx of [-0.82, 0.82]) {
-          const fl = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.08), hazardMat);
-          fl.position.set(sx, 0.95, 2.52);
-          const rl = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.08), hazardMat);
-          rl.position.set(sx, 0.78, -2.52);
-          group.add(fl, rl);
-        }
-
-        for (const [wx, wz] of [
-          [-0.96, 1.62],
-          [0.96, 1.62],
-          [-0.96, -1.45],
-          [0.96, -1.45],
-        ]) {
-          const w = new THREE.Mesh(wheelGeo, wheelMat);
-          w.position.set(wx, 0.35, wz);
-          group.add(w);
-        }
+      if (isTruck) {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(2.05, 1.95, 3.35), cargoMat);
+        box.position.set(0, 1.62, -0.55);
+        box.castShadow = true;
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(1.92, 1.4, 1.45), cabMat);
+        cab.position.set(0, 1.15, 1.78);
+        g.add(box, cab);
       } else {
-        // Double-parked hazard sedan
-        const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.72, 4.3), sedanMat);
-        body.position.set(0, 0.62, 0);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.72, 4.2), sedanMat);
+        body.position.set(0, 0.7, 0);
         body.castShadow = true;
-        group.add(body);
-
-        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.58, 2.15), sedanMat);
-        cabin.position.set(0, 1.22, -0.15);
-        group.add(cabin);
-
-        const win = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.45, 2.2), glassMat);
-        win.position.set(0, 1.22, -0.15);
-        group.add(win);
-
-        for (const sx of [-0.74, 0.74]) {
-          const fl = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.08), hazardMat);
-          fl.position.set(sx, 0.68, 2.16);
-          const rl = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.08), hazardMat);
-          rl.position.set(sx, 0.68, -2.16);
-          group.add(fl, rl);
-        }
-
-        for (const [wx, wz] of [
-          [-0.92, 1.32],
-          [0.92, 1.32],
-          [-0.92, -1.32],
-          [0.92, -1.32],
-        ]) {
-          const w = new THREE.Mesh(wheelGeo, wheelMat);
-          w.position.set(wx, 0.34, wz);
-          group.add(w);
-        }
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.58, 2.1), sedanMat);
+        cabin.position.set(0, 1.3, -0.15);
+        g.add(body, cabin);
       }
 
-      this.root.add(group);
+      for (const [wx, wz] of [
+        [-0.92, 1.4],
+        [0.92, 1.4],
+        [-0.92, -1.4],
+        [0.92, -1.4],
+      ]) {
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10), tireMat);
+        w.rotation.z = Math.PI / 2;
+        w.position.set(wx, 0.34, wz);
+        g.add(w);
+      }
 
-      // Register physical ObstacleBox aligned with world axes
-      const ns = Math.abs(Math.cos(sp.heading)) > 0.7;
-      const rx = ns ? halfW : halfL;
-      const rz = ns ? halfL : halfW;
+      for (const sx of [-0.82, 0.82]) {
+        for (const sz of [-2.18, 2.2]) {
+          const hz = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 0.08), hazardMat);
+          hz.position.set(sx, 0.85, sz);
+          g.add(hz);
+        }
+      }
+      this.root.add(g);
+
+      // Collision box
       this.obstacles.push({
-        minX: sp.x - rx,
-        maxX: sp.x + rx,
-        minZ: sp.z - rz,
-        maxZ: sp.z + rz,
+        minX: mx - 1.35,
+        maxX: mx + 1.35,
+        minZ: mz - 1.35,
+        maxZ: mz + 1.35,
       });
 
-      // Prepare blind-spot pop-out pedestrian positioned behind the vehicle's front bumper toward road center
-      const fwdX = Math.sin(sp.heading);
-      const fwdZ = Math.cos(sp.heading);
-      const leftX = Math.cos(sp.heading);
-      const leftZ = -Math.sin(sp.heading);
-      // Road center is opposite the curb/sidewalk side
-      const intoRoad = -sp.sidewalkSide;
-      const startX = sp.x + fwdX * (halfL + 0.7) + leftX * (sp.sidewalkSide * 0.4);
-      const startZ = sp.z + fwdZ * (halfL + 0.7) + leftZ * (sp.sidewalkSide * 0.4);
-      const outX = startX + leftX * (intoRoad * 2.15);
-      const outZ = startZ + leftZ * (intoRoad * 2.15);
-
+      // Blind-spot pop-out pedestrian darting into open lane from front of parked vehicle
+      const popStartX = mx + fx * 2.6 + rx * 0.6;
+      const popStartZ = mz + fz * 2.6 + rz * 0.6;
+      const popOutX = popStartX - rx * 2.75;
+      const popOutZ = popStartZ - rz * 2.75;
       const popRig = this.pedFactory.createPedestrian();
-      popRig.root.position.set(startX, 0.04, startZ);
       popRig.root.visible = false;
       this.root.add(popRig.root);
 
       this.parkedHazards.push({
-        id: sp.id,
-        name: sp.name,
-        x: sp.x,
-        z: sp.z,
-        heading: sp.heading,
-        isTruck: sp.isTruck,
+        id: `park-${this.parkedHazards.length + 1}`,
+        name,
+        x: mx,
+        z: mz,
+        heading,
+        isTruck,
         hazardMat,
         popRig,
         popState: 'hidden',
-        popStartX: startX,
-        popStartZ: startZ,
-        popOutX: outX,
-        popOutZ: outZ,
-        popX: startX,
-        popZ: startZ,
-        popHeading: Math.atan2(outX - startX, outZ - startZ),
+        popStartX,
+        popStartZ,
+        popOutX,
+        popOutZ,
+        popX: popStartX,
+        popZ: popStartZ,
+        popHeading: 0,
         popTimer: 0,
         popCooldown: 0,
         popFallSide: 1,
@@ -566,141 +506,319 @@ export class RoadHazardManager {
     }
   }
 
-  private createPoliceDoorTexture(): THREE.CanvasTexture {
+  private createPoliceSideTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 256;
     c.height = 96;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(0, 0, 256, 96);
-    // Korean Police blue + yellow diagonal livery stripes
-    ctx.fillStyle = '#1d4ed8';
-    ctx.fillRect(0, 58, 256, 26);
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(0, 50, 256, 8);
-    ctx.fillStyle = '#1e3a8a';
-    ctx.font = '900 26px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('경찰 POLICE', 128, 28);
     ctx.fillStyle = '#ffffff';
-    ctx.font = '900 18px sans-serif';
-    ctx.fillText('112 순찰차', 128, 72);
+    ctx.fillRect(0, 0, 256, 96);
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fillRect(0, 52, 256, 44);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(0, 48, 256, 6);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '900 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('경기남부경찰', 128, 30);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 26px sans-serif';
+    ctx.fillText('POLICE 112', 128, 82);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
   private buildPolicePatrols(): void {
-    const specs: Array<{ id: string; label: string; dir: PatrolDir; roadIdx: number; along: number }> = [
-      { id: 'patrol-1', label: '중앙지구대 112 순찰차', dir: 1, roadIdx: 2, along: -92 },
-      { id: 'patrol-2', label: '강남지구대 112 순찰차', dir: 0, roadIdx: 3, along: -95 },
-    ];
+    const sideTex = this.createPoliceSideTexture();
+    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35, metalness: 0.2 });
+    const sideMat = new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.35 });
+    const blueHoodMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.35 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.6 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
 
-    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.28, metalness: 0.25 });
-    const blueAccentMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.32, metalness: 0.35 });
-    const doorTex = this.createPoliceDoorTexture();
-    const doorMat = new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.35 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.14, metalness: 0.6 });
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9 });
-    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12);
-    wheelGeo.rotateZ(Math.PI / 2);
+    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : SUWON_INGYE_DATA.nodes.map((n) => n.id);
+    const labels = ['경기남부청 인계지구대 1호차', '수원남부서 효원로 순찰차'];
 
-    for (const sp of specs) {
-      const group = new THREE.Group();
+    for (let i = 0; i < 2; i++) {
+      const startNode = pool[Math.floor((i * pool.length) / 2) % pool.length];
+      const outs = this.adj[startNode];
+      const chosen = outs.find((e) => e.isMajor) ?? outs[0];
+      if (!chosen) continue;
 
-      // Lower chassis with Korean police side livery
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.68, 4.32), [
-        doorMat,
-        doorMat,
-        whiteMat,
-        whiteMat,
-        blueAccentMat,
-        blueAccentMat,
-      ]);
-      body.position.set(0, 0.62, 0);
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(1.92, 0.72, 4.32),
+        [sideMat, sideMat, whiteMat, whiteMat, blueHoodMat, blueHoodMat]
+      );
+      body.position.y = 0.7;
       body.castShadow = true;
-      group.add(body);
-
-      // Cabin & windows
-      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.58, 2.2), whiteMat);
-      cabin.position.set(0, 1.21, -0.14);
-      cabin.castShadow = true;
-      group.add(cabin);
-
-      const glass = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.44, 2.24), glassMat);
-      glass.position.set(0, 1.22, -0.14);
-      group.add(glass);
-
-      // Roof Red / Blue Alternating Police Lightbar
-      const barBase = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.08, 0.28), glassMat);
-      barBase.position.set(0, 1.54, -0.08);
-      group.add(barBase);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.58, 2.2), whiteMat);
+      cabin.position.set(0, 1.32, -0.14);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.44, 2.0), glassMat);
+      glass.position.set(0, 1.32, -0.14);
 
       const redBarMat = new THREE.MeshStandardMaterial({
-        color: 0x991b1b,
+        color: 0xef4444,
         emissive: 0xef4444,
-        emissiveIntensity: 3.0,
+        emissiveIntensity: 2.5,
       });
       const blueBarMat = new THREE.MeshStandardMaterial({
-        color: 0x1e3a8a,
+        color: 0x3b82f6,
         emissive: 0x3b82f6,
-        emissiveIntensity: 3.0,
+        emissiveIntensity: 0.2,
       });
-
-      const redLed = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.24), redBarMat);
-      redLed.position.set(0.3, 1.62, -0.08);
-      const blueLed = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.24), blueBarMat);
-      blueLed.position.set(-0.3, 1.62, -0.08);
-      group.add(redLed, blueLed);
+      const redBar = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.16, 0.28), redBarMat);
+      redBar.position.set(-0.32, 1.7, -0.1);
+      const blueBar = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.16, 0.28), blueBarMat);
+      blueBar.position.set(0.32, 1.7, -0.1);
 
       for (const [wx, wz] of [
-        [-0.92, 1.32],
-        [0.92, 1.32],
-        [-0.92, -1.32],
-        [0.92, -1.32],
+        [-0.92, 1.3],
+        [0.92, 1.3],
+        [-0.92, -1.3],
+        [0.92, -1.3],
       ]) {
-        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10), tireMat);
+        w.rotation.z = Math.PI / 2;
         w.position.set(wx, 0.34, wz);
-        group.add(w);
+        g.add(w);
       }
+      g.add(body, cabin, glass, redBar, blueBar);
 
-      const roadCoord = CITY_ROAD_LINES[sp.roadIdx];
-      const lane = patrolLaneCoord(roadCoord, sp.dir);
-      const isNS = sp.dir === 0 || sp.dir === 2;
-      const x = isNS ? lane : sp.along;
-      const z = isNS ? sp.along : lane;
-      const heading = patrolDirHeading(sp.dir);
+      const pose = this.computeEdgePose(startNode, chosen.to, chosen.dist * 0.4, chosen.dist, chosen.width);
+      g.position.set(pose.x, 0, pose.z);
+      g.rotation.y = pose.heading;
+      this.root.add(g);
 
-      group.position.set(x, 0, z);
-      group.rotation.y = heading;
-      this.root.add(group);
-
+      const id = `patrol-${i + 1}`;
       this.patrolCars.push({
-        id: sp.id,
-        label: sp.label,
-        group,
+        id,
+        label: labels[i],
+        group: g,
         redBarMat,
         blueBarMat,
-        x,
-        z,
-        heading,
-        dir: sp.dir,
-        roadIndex: sp.roadIdx,
-        speed: 8.5,
-        cruiseSpeed: 9.8,
+        fromNode: startNode,
+        toNode: chosen.to,
+        edgeDist: chosen.dist,
+        edgeWidth: chosen.width,
+        progress: chosen.dist * 0.4,
+        x: pose.x,
+        z: pose.z,
+        heading: pose.heading,
+        speed: 9.2,
+        cruiseSpeed: 9.6,
         sirenTimer: 0,
         citeCooldown: 0,
       });
-
       this.patrolMarkers.push({
-        id: sp.id,
-        x,
-        z,
-        heading,
+        id,
+        x: pose.x,
+        z: pose.z,
+        heading: pose.heading,
         sirenActive: false,
       });
     }
+  }
+
+  private createConstructionSignTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#f97316';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.fillStyle = '#0f172a';
+    for (let x = -40; x < 300; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 128);
+      ctx.lineTo(x + 18, 128);
+      ctx.lineTo(x + 36, 98);
+      ctx.lineTo(x + 18, 98);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(14, 14, 228, 76);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '900 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚧 도로 공사 중', 128, 42);
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = '#dc2626';
+    ctx.fillText('1차선 통제 · 서행', 128, 72);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private buildConstructionZones(): void {
+    const nodes = SUWON_INGYE_DATA.nodes;
+    const spawn = SUWON_INGYE_DATA.meta.scooterSpawn;
+    const coneOrangeMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45 });
+    const coneStripeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, emissive: 0xffffff, emissiveIntensity: 0.2 });
+    const coneBaseMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+    const dirtMat = new THREE.MeshStandardMaterial({ color: 0x5c4738, roughness: 0.96 });
+    const signMat = new THREE.MeshBasicMaterial({ map: this.createConstructionSignTexture() });
+
+    const coneGeo = new THREE.ConeGeometry(0.22, 0.72, 10);
+    const bandGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.14, 10);
+    const baseGeo = new THREE.BoxGeometry(0.46, 0.06, 0.46);
+
+    const candidates = SUWON_INGYE_DATA.edges
+      .filter((e) => e.isMajor && e.dist >= 32)
+      .sort((a, b) => b.dist - a.dist);
+
+    for (const e of candidates) {
+      if (this.constructionZones.length >= 3) break;
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const dx = nb.x - na.x;
+      const dz = nb.z - na.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const rx = -dz / len;
+      const rz = dx / len;
+      const heading = Math.atan2(dx, dz);
+
+      const cx = (na.x + nb.x) * 0.5 + rx * (e.width * 0.5 - 1.5);
+      const cz = (na.z + nb.z) * 0.5 + rz * (e.width * 0.5 - 1.5);
+
+      if (Math.hypot(cx - spawn.x, cz - spawn.z) < 55) continue;
+      if (this.cameras.some((c) => Math.hypot(c.x - cx, c.z - cz) < 35)) continue;
+      if (this.parkedHazards.some((h) => Math.hypot(h.x - cx, h.z - cz) < 35)) continue;
+      if (this.constructionZones.some((z) => Math.hypot(z.x - cx, z.z - cz) < 110)) continue;
+
+      const g = new THREE.Group();
+      g.position.set(cx, 0, cz);
+      g.rotation.y = heading;
+
+      const patch = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 6.2), dirtMat);
+      patch.position.set(0, 0.04, 0);
+      g.add(patch);
+
+      for (const [ox, oz] of [
+        [-0.7, -4.4],
+        [-1.3, -2.4],
+        [-1.3, 0],
+        [-1.3, 2.4],
+        [-0.7, 4.4],
+      ]) {
+        const b = new THREE.Mesh(baseGeo, coneBaseMat);
+        b.position.set(ox, 0.04, oz);
+        const c = new THREE.Mesh(coneGeo, coneOrangeMat);
+        c.position.set(ox, 0.41, oz);
+        const bd = new THREE.Mesh(bandGeo, coneStripeMat);
+        bd.position.set(ox, 0.48, oz);
+        g.add(b, c, bd);
+      }
+
+      const board = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.92, 0.12), signMat);
+      board.position.set(0, 0.72, -3.5);
+      const strobeMat = new THREE.MeshStandardMaterial({
+        color: 0xf59e0b,
+        emissive: 0xf59e0b,
+        emissiveIntensity: 3.0,
+      });
+      const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.22, 10), strobeMat);
+      strobe.position.set(0, 1.32, -3.5);
+      g.add(board, strobe);
+      this.root.add(g);
+
+      this.obstacles.push({
+        minX: cx - 1.5,
+        maxX: cx + 1.5,
+        minZ: cz - 1.5,
+        maxZ: cz + 1.5,
+      });
+
+      const id = `const-${this.constructionZones.length + 1}`;
+      const label = e.name ? `${e.name} 공사구간` : `인계동 도로 공사구간 ${this.constructionZones.length + 1}`;
+      this.constructionZones.push({ id, label, x: cx, z: cz, strobeMat });
+      this.constructionMarkers.push({ id, x: cx, z: cz, label });
+    }
+  }
+
+  private buildRivalRiders(): void {
+    const styles: Array<[number, string, number, number]> = [
+      [0x14b8a6, '#14b8a6', 0x0f766e, 11.4],
+      [0xf97316, '#f97316', 0xc2410c, 12.1],
+      [0x3b82f6, '#3b82f6', 0x1d4ed8, 10.9],
+      [0xeab308, '#eab308', 0x334155, 11.7],
+    ];
+
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4, metalness: 0.3 });
+    const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25 });
+    const visorMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.6 });
+    const headLightMat = new THREE.MeshStandardMaterial({ color: 0xfef9c3, emissive: 0xfef08a, emissiveIntensity: 2.2 });
+    const tailLightMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 1.8 });
+
+    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : SUWON_INGYE_DATA.nodes.map((n) => n.id);
+
+    styles.forEach(([boxHex, colorCss, jacketHex, cruiseSpeed], idx) => {
+      const startNode = pool[Math.floor((idx * pool.length) / styles.length + 3) % pool.length];
+      const outs = this.adj[startNode];
+      const chosen = outs[0];
+      if (!chosen) return;
+
+      const g = new THREE.Group();
+      const boxMat = new THREE.MeshStandardMaterial({ color: boxHex, roughness: 0.4 });
+      const jacketMat = new THREE.MeshStandardMaterial({ color: jacketHex, roughness: 0.78 });
+
+      for (const wz of [-0.62, 0.62]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.14, 10), tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(0, 0.26, wz);
+        g.add(wheel);
+      }
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 1.38), frameMat);
+      body.position.set(0, 0.56, 0);
+      const front = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.28), frameMat);
+      front.position.set(0, 0.84, 0.55);
+      const topBox = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.5, 0.52), boxMat);
+      topBox.position.set(0, 1.05, -0.58);
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.05), headLightMat);
+      hl.position.set(0, 0.94, 0.7);
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.05), tailLightMat);
+      tl.position.set(0, 0.74, -0.72);
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.54, 0.28), jacketMat);
+      torso.position.set(0, 1.15, -0.02);
+      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), helmetMat);
+      helmet.position.set(0, 1.56, 0.04);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.12), visorMat);
+      visor.position.set(0, 1.56, 0.16);
+      g.add(body, front, topBox, hl, tl, torso, helmet, visor);
+
+      const pose = this.computeEdgePose(startNode, chosen.to, chosen.dist * 0.3, chosen.dist, chosen.width, 0.22);
+      g.position.set(pose.x, 0, pose.z);
+      g.rotation.y = pose.heading;
+      this.root.add(g);
+
+      const id = `rival-${idx + 1}`;
+      this.rivalRiders.push({
+        id,
+        group: g,
+        color: colorCss,
+        fromNode: startNode,
+        toNode: chosen.to,
+        edgeDist: chosen.dist,
+        edgeWidth: chosen.width,
+        progress: chosen.dist * 0.3,
+        x: pose.x,
+        z: pose.z,
+        heading: pose.heading,
+        speed: cruiseSpeed,
+        cruiseSpeed,
+      });
+      this.rivalRiderMarkers.push({
+        id,
+        x: pose.x,
+        z: pose.z,
+        heading: pose.heading,
+        color: colorCss,
+      });
+    });
   }
 
   public step(
@@ -709,10 +827,10 @@ export class RoadHazardManager {
     inCorridor: boolean,
     scooter: ScooterProximityInfo,
     signalState: SignalStateSnapshot,
-    onSpeedCameraTrigger?: (ev: SpeedCameraTriggerEvent) => void,
+    onSpeedCameraTriggered?: (ev: SpeedCameraTriggerEvent) => void,
     onPopOutWarning?: (ev: PopOutWarningEvent) => void,
     onPopOutPedestrianHit?: (ev: PedestrianCollisionEvent) => void,
-    onCameraApproachBeep?: (overSpeed: boolean) => void,
+    onCameraApproachBeep?: (isOverSpeed: boolean) => void,
     onPolicePatrolCite?: (ev: SpeedCameraTriggerEvent) => void
   ): void {
     if (inCorridor) {
@@ -722,60 +840,50 @@ export class RoadHazardManager {
 
     const clampedDt = Math.min(dt, 0.05);
     const speedKmh = Math.abs(scooter.speedMps) * 3.6;
-    const blinkOn = Math.floor(elapsedTime * 2.6) % 2 === 0;
     const scFwdX = Math.sin(scooter.heading);
     const scFwdZ = Math.cos(scooter.heading);
+    const blinkOn = Math.floor(elapsedTime * 3.2) % 2 === 0;
+    const nodes = SUWON_INGYE_DATA.nodes;
 
-    // --- 1. Update Speed & Red-Light Enforcement Cameras + 80m Navi Approach Warning ---
-    let nearestAhead: UpcomingCameraAlert | null = null;
+    // --- 1. Fixed Speed & Red-Light Enforcement Cameras + 80m Navi Warning ---
+    let closestCam: UpcomingCameraAlert | null = null;
+    let closestCamDist = SPEED_CAMERA_WARN_DIST;
+
     for (const cam of this.cameras) {
       if (cam.cooldown > 0) cam.cooldown = Math.max(0, cam.cooldown - clampedDt);
       if (cam.flashTimer > 0) {
         cam.flashTimer = Math.max(0, cam.flashTimer - clampedDt);
-        cam.flashMat.opacity = Math.min(0.95, cam.flashTimer * 4.5);
-      } else {
-        cam.flashMat.opacity = 0;
+        cam.flashMat.opacity = clamp(cam.flashTimer / 0.25, 0, 1);
       }
-      cam.ledMat.emissiveIntensity = blinkOn ? 2.8 : 0.7;
+      cam.ledMat.emissiveIntensity = blinkOn ? 2.8 : 0.6;
 
-      // 80m forward approach detection along player travel corridor
-      if (scooter.isRiding && !scooter.crashed && speedKmh >= 6) {
-        const toCamX = cam.x - scooter.x;
-        const toCamZ = cam.z - scooter.z;
-        const dist = Math.hypot(toCamX, toCamZ);
-        if (dist >= 7 && dist <= SPEED_CAMERA_WARN_DIST) {
-          const alignment = (toCamX * scFwdX + toCamZ * scFwdZ) / dist;
-          const lateral = Math.abs(toCamX * -scFwdZ + toCamZ * scFwdX);
-          if (alignment > 0.65 && lateral < 13) {
-            if (!nearestAhead || dist < nearestAhead.distanceMeters) {
-              nearestAhead = {
-                cameraId: cam.id,
-                label: cam.label,
-                distanceMeters: Math.round(dist),
-                limitKmh: cam.limitKmh,
-                isOverSpeed: speedKmh > cam.limitKmh,
-              };
-            }
-          }
+      const toCamX = cam.x - scooter.x;
+      const toCamZ = cam.z - scooter.z;
+      const dist = Math.hypot(toCamX, toCamZ);
+
+      if (scooter.isRiding && !scooter.crashed && dist > 6 && dist <= closestCamDist) {
+        const align = (toCamX * scFwdX + toCamZ * scFwdZ) / dist;
+        if (align > 0.62) {
+          closestCamDist = dist;
+          closestCam = {
+            cameraId: cam.id,
+            label: cam.label,
+            distanceMeters: Math.round(dist),
+            limitKmh: cam.limitKmh,
+            isOverSpeed: speedKmh > cam.limitKmh + SPEED_CAMERA_GRACE_KMH,
+          };
         }
       }
 
-      const dx = Math.abs(scooter.x - cam.x);
-      const dz = Math.abs(scooter.z - cam.z);
-      const inZone =
-        cam.axis === 'ns' ? dx <= 7.2 && dz <= 4.5 : dz <= 7.2 && dx <= 4.5;
-
-      if (inZone && !cam.wasInZone && scooter.isRiding && !scooter.crashed && cam.cooldown <= 0) {
+      const inZone = dist <= 8.5;
+      if (inZone && !cam.wasInZone && cam.cooldown <= 0 && scooter.isRiding && !scooter.crashed) {
         const axisSignal = cam.axis === 'ns' ? signalState.ns : signalState.ew;
         const isSpeeding = speedKmh > cam.limitKmh + SPEED_CAMERA_GRACE_KMH;
-        const isRedLight = axisSignal === 'red' && speedKmh >= 15;
-
+        const isRedLight = axisSignal === 'red' && speedKmh > 18;
         if (isSpeeding || isRedLight) {
-          cam.cooldown = 12.0;
-          cam.flashTimer = 0.25;
-          cam.flashMat.opacity = 0.95;
-
-          onSpeedCameraTrigger?.({
+          cam.cooldown = 14.0;
+          cam.flashTimer = 0.28;
+          onSpeedCameraTriggered?.({
             cameraId: cam.id,
             label: cam.label,
             kind: isSpeeding ? 'speeding' : 'red_light',
@@ -788,83 +896,70 @@ export class RoadHazardManager {
       cam.wasInZone = inZone;
     }
 
-    this.upcomingCamera = nearestAhead;
-    if (nearestAhead) {
-      if (this.lastWarnedCameraId !== nearestAhead.cameraId) {
-        this.lastWarnedCameraId = nearestAhead.cameraId;
-        this.overSpeedBeepTimer = 0.55;
-        onCameraApproachBeep?.(nearestAhead.isOverSpeed);
-      } else if (nearestAhead.isOverSpeed) {
-        this.overSpeedBeepTimer -= clampedDt;
-        if (this.overSpeedBeepTimer <= 0) {
-          this.overSpeedBeepTimer = 0.55;
-          onCameraApproachBeep?.(true);
-        }
+    this.upcomingCamera = closestCam;
+    if (this.overSpeedBeepTimer > 0) this.overSpeedBeepTimer = Math.max(0, this.overSpeedBeepTimer - clampedDt);
+    if (closestCam) {
+      if (closestCam.cameraId !== this.lastWarnedCameraId) {
+        this.lastWarnedCameraId = closestCam.cameraId;
+        onCameraApproachBeep?.(closestCam.isOverSpeed);
+        this.overSpeedBeepTimer = 1.6;
+      } else if (closestCam.isOverSpeed && this.overSpeedBeepTimer <= 0) {
+        onCameraApproachBeep?.(true);
+        this.overSpeedBeepTimer = 1.4;
       }
     } else {
       this.lastWarnedCameraId = null;
-      this.overSpeedBeepTimer = 0;
     }
 
-    // --- 1.5. Update Patrolling Korean Police Cars ("POLICE 112") & Live Enforcement ---
+    // --- 2. Patrolling Police Cars (Graph Walking + Live >60km/h Enforcement!) ---
+    const policeBlink = Math.floor(elapsedTime * 7.0) % 2 === 0;
     for (let pi = 0; pi < this.patrolCars.length; pi++) {
       const p = this.patrolCars[pi];
       if (p.citeCooldown > 0) p.citeCooldown = Math.max(0, p.citeCooldown - clampedDt);
       if (p.sirenTimer > 0) p.sirenTimer = Math.max(0, p.sirenTimer - clampedDt);
 
-      // Alternating red/blue roof LED lightbar (faster strobe during active enforcement!)
-      const strobeHz = p.sirenTimer > 0 ? 9.5 : 3.2;
-      const redPhase = Math.floor(elapsedTime * strobeHz) % 2 === 0;
-      p.redBarMat.emissiveIntensity = redPhase ? 3.8 : 0.25;
-      p.blueBarMat.emissiveIntensity = redPhase ? 0.25 : 3.8;
+      p.redBarMat.emissiveIntensity = policeBlink ? (p.sirenTimer > 0 ? 4.5 : 2.6) : 0.15;
+      p.blueBarMat.emissiveIntensity = !policeBlink ? (p.sirenTimer > 0 ? 4.5 : 2.6) : 0.15;
 
-      // Cruise along city arterial roads, stopping smoothly at red lights & turning cleanly at edges
-      const [fx, fz] = patrolDirVec(p.dir);
-      const isNS = p.dir === 0 || p.dir === 2;
-      const along = isNS ? p.z : p.x;
-      const stepSign = isNS ? fz : fx;
-      const sig = isNS ? signalState.ns : signalState.ew;
+      const fx = Math.sin(p.heading);
+      const fz = Math.cos(p.heading);
+      const targetNode = nodes[p.toNode];
+      const distToNode = Math.max(0, p.edgeDist - p.progress);
 
       let mustStop = false;
-      for (let r = 0; r < CITY_ROAD_LINES.length; r++) {
-        const diff = (CITY_ROAD_LINES[r] - along) * stepSign;
-        if (diff > 9.5 && diff < 16.5 && sig !== 'green') {
-          mustStop = true;
-          break;
-        }
+      if (targetNode.isSignal && distToNode <= 13 && distToNode >= 6) {
+        const isNS = Math.abs(fz) >= Math.abs(fx);
+        const sig = isNS ? signalState.ns : signalState.ew;
+        if (sig === 'red' || sig === 'yellow') mustStop = true;
       }
 
-      // Stop if rider is directly in front of patrol car
       const toRiderX = scooter.x - p.x;
       const toRiderZ = scooter.z - p.z;
       const distRider = Math.hypot(toRiderX, toRiderZ);
       const aheadDot = distRider > 0.1 ? (toRiderX * fx + toRiderZ * fz) / distRider : 0;
-      if (distRider < 7.0 && aheadDot > 0.72) {
-        mustStop = true;
-      }
+      if (distRider < 6.8 && aheadDot > 0.72) mustStop = true;
 
       const targetSpd = mustStop ? 0 : p.cruiseSpeed;
       p.speed += (targetSpd - p.speed) * Math.min(1, clampedDt * (mustStop ? 8 : 3.5));
-      p.x += fx * p.speed * clampedDt;
-      p.z += fz * p.speed * clampedDt;
+      p.progress += p.speed * clampedDt;
 
-      // Turn 90° smoothly at outer city road perimeter to keep patrolling endlessly
-      const nextAlong = isNS ? p.z : p.x;
-      if ((stepSign > 0 && nextAlong >= 198) || (stepSign < 0 && nextAlong <= -198)) {
-        const nextDir = ((p.dir + 1) % 4) as PatrolDir;
-        const clampedEdgeIdx = stepSign > 0 ? CITY_ROAD_LINES.length - 1 : 0;
-        p.dir = nextDir;
-        p.roadIndex = clampedEdgeIdx;
-        p.heading = patrolDirHeading(nextDir);
-        const newLane = patrolLaneCoord(CITY_ROAD_LINES[p.roadIndex], nextDir);
-        if (nextDir === 0 || nextDir === 2) p.x = newLane;
-        else p.z = newLane;
+      if (p.progress >= p.edgeDist) {
+        const nextEd = this.pickNextGraphEdge(p.fromNode, p.toNode, true);
+        const carry = p.progress - p.edgeDist;
+        p.fromNode = p.toNode;
+        p.toNode = nextEd.to;
+        p.edgeDist = nextEd.dist;
+        p.edgeWidth = nextEd.width;
+        p.progress = Math.min(carry, Math.max(0, p.edgeDist - 0.2));
       }
 
+      const pose = this.computeEdgePose(p.fromNode, p.toNode, p.progress, p.edgeDist, p.edgeWidth);
+      p.x = pose.x;
+      p.z = pose.z;
+      p.heading = wrapAngle(p.heading + wrapAngle(pose.heading - p.heading) * Math.min(1, clampedDt * 8));
       p.group.position.set(p.x, 0, p.z);
       p.group.rotation.y = p.heading;
 
-      // Live Patrol Enforcement: speeding > 60 km/h within 22m of a police patrol car!
       if (
         scooter.isRiding &&
         !scooter.crashed &&
@@ -884,87 +979,55 @@ export class RoadHazardManager {
         });
       }
 
-      // Sync GPS marker for smartphone map (after citation so sirenActive reflects immediately!)
       this.patrolMarkers[pi].x = p.x;
       this.patrolMarkers[pi].z = p.z;
       this.patrolMarkers[pi].heading = p.heading;
       this.patrolMarkers[pi].sirenActive = p.sirenTimer > 0;
     }
 
-    // --- 2. Update Double-Parked Hazard Blinkers & Blind-Spot Pop-Out Pedestrians ---
-    // Also blink road construction amber strobes & drive rival AI delivery scooters!
+    // --- 3. Construction Strobes & Rival AI Delivery Scooters ---
     for (const cz of this.constructionZones) {
       cz.strobeMat.emissiveIntensity = blinkOn ? 3.8 : 0.25;
     }
 
     for (let ri = 0; ri < this.rivalRiders.length; ri++) {
       const r = this.rivalRiders[ri];
-      if (r.turnCooldown > 0) r.turnCooldown = Math.max(0, r.turnCooldown - clampedDt);
-
-      const [fx, fz] = patrolDirVec(r.dir);
-      const isNS = r.dir === 0 || r.dir === 2;
-      const axisSig = isNS ? signalState.ns : signalState.ew;
-      const stepSign = isNS ? fz : fx;
-      const posAlong = isNS ? r.z : r.x;
+      const fx = Math.sin(r.heading);
+      const fz = Math.cos(r.heading);
+      const targetNode = nodes[r.toNode];
+      const distToNode = Math.max(0, r.edgeDist - r.progress);
 
       let mustStop = false;
-      if (axisSig === 'red' || axisSig === 'yellow') {
-        for (const rc of CITY_ROAD_LINES) {
-          const stopLine = rc - stepSign * 10.5;
-          const distToStop = (stopLine - posAlong) * stepSign;
-          if (distToStop >= -0.4 && distToStop <= 9.5) {
-            mustStop = true;
-            break;
-          }
-        }
+      if (targetNode.isSignal && distToNode <= 12 && distToNode >= 5.5) {
+        const isNS = Math.abs(fz) >= Math.abs(fx);
+        const sig = isNS ? signalState.ns : signalState.ew;
+        if (sig === 'red' || sig === 'yellow') mustStop = true;
       }
 
-      // Yield cleanly if player scooter is directly ahead
       const toPlX = scooter.x - r.x;
       const toPlZ = scooter.z - r.z;
       const distPl = Math.hypot(toPlX, toPlZ);
       const aheadDot = distPl > 0.1 ? (toPlX * fx + toPlZ * fz) / distPl : 0;
-      if (distPl < 5.2 && aheadDot > 0.72) {
-        mustStop = true;
-      }
+      if (distPl < 5.2 && aheadDot > 0.72) mustStop = true;
 
       const targetSpd = mustStop ? 0 : r.cruiseSpeed;
       r.speed += (targetSpd - r.speed) * Math.min(1, clampedDt * (mustStop ? 9 : 4.2));
-      r.x += fx * r.speed * clampedDt;
-      r.z += fz * r.speed * clampedDt;
+      r.progress += r.speed * clampedDt;
 
-      // Turn at outer perimeter or occasionally at an interior intersection
-      const nextAlong = isNS ? r.z : r.x;
-      const hitPerimeter =
-        (stepSign > 0 && nextAlong >= 198) || (stepSign < 0 && nextAlong <= -198);
-      if (hitPerimeter) {
-        const nextDir = ((r.dir + 1) % 4) as PatrolDir;
-        const clampedEdgeIdx = stepSign > 0 ? CITY_ROAD_LINES.length - 1 : 0;
-        r.dir = nextDir;
-        r.roadIndex = clampedEdgeIdx;
-        r.heading = patrolDirHeading(nextDir);
-        const laneC = patrolLaneCoord(CITY_ROAD_LINES[r.roadIndex], nextDir);
-        if (nextDir === 0 || nextDir === 2) r.x = laneC;
-        else r.z = laneC;
-        r.turnCooldown = 2.0;
-      } else if (r.turnCooldown <= 0 && r.speed > 3) {
-        for (let idx = 1; idx < CITY_ROAD_LINES.length - 1; idx++) {
-          const rc = CITY_ROAD_LINES[idx];
-          if (Math.abs(nextAlong - rc) < 0.75 && Math.random() < 0.25) {
-            const turnDelta = Math.random() < 0.5 ? 1 : 3;
-            const nextDir = ((r.dir + turnDelta) % 4) as PatrolDir;
-            r.dir = nextDir;
-            r.roadIndex = idx;
-            r.heading = patrolDirHeading(nextDir);
-            const laneC = patrolLaneCoord(CITY_ROAD_LINES[r.roadIndex], nextDir);
-            if (nextDir === 0 || nextDir === 2) r.x = laneC;
-            else r.z = laneC;
-            r.turnCooldown = 4.0;
-            break;
-          }
-        }
+      if (r.progress >= r.edgeDist) {
+        const nextEd = this.pickNextGraphEdge(r.fromNode, r.toNode, false);
+        const carry = r.progress - r.edgeDist;
+        r.fromNode = r.toNode;
+        r.toNode = nextEd.to;
+        r.edgeDist = nextEd.dist;
+        r.edgeWidth = nextEd.width;
+        r.progress = Math.min(carry, Math.max(0, r.edgeDist - 0.2));
       }
 
+      const pose = this.computeEdgePose(r.fromNode, r.toNode, r.progress, r.edgeDist, r.edgeWidth, 0.22);
+      r.x = pose.x;
+      r.z = pose.z;
+      r.heading = wrapAngle(r.heading + wrapAngle(pose.heading - r.heading) * Math.min(1, clampedDt * 9));
       r.group.position.set(r.x, 0, r.z);
       r.group.rotation.y = r.heading;
 
@@ -973,6 +1036,7 @@ export class RoadHazardManager {
       this.rivalRiderMarkers[ri].heading = r.heading;
     }
 
+    // --- 4. Double-Parked Hazard Blinkers & Blind-Spot Pop-Out Pedestrians ---
     if (this.globalPopOutCooldown > 0) {
       this.globalPopOutCooldown = Math.max(0, this.globalPopOutCooldown - clampedDt);
     }
@@ -984,7 +1048,6 @@ export class RoadHazardManager {
       h.hazardMat.emissiveIntensity = blinkOn ? 2.8 : 0.12;
       if (h.popCooldown > 0) h.popCooldown = Math.max(0, h.popCooldown - clampedDt);
 
-      // Check trigger for blind-spot pedestrian darting out from behind parked hazard vehicle
       if (
         h.popState === 'hidden' &&
         h.popCooldown <= 0 &&
@@ -1014,7 +1077,6 @@ export class RoadHazardManager {
 
       if (h.popState === 'hidden') continue;
 
-      // Check direct collision (>= 5 km/h riding only!)
       if (canHitPopOut && h.popState !== 'fallen') {
         const dHit = Math.hypot(h.popX - scooter.x, h.popZ - scooter.z);
         if (dHit <= POPOUT_COLLISION_RADIUS) {
@@ -1088,245 +1150,6 @@ export class RoadHazardManager {
           h.popRig.root.visible = false;
         }
       }
-    }
-  }
-
-  /** Creates a Korean "🚧 도로 공사 중 · 서행" barricade canvas texture */
-  private createConstructionSignTexture(): THREE.CanvasTexture {
-    const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 128;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#f97316';
-    ctx.fillRect(0, 0, 256, 128);
-    ctx.fillStyle = '#0f172a';
-    for (let x = -40; x < 300; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 128);
-      ctx.lineTo(x + 18, 128);
-      ctx.lineTo(x + 36, 98);
-      ctx.lineTo(x + 18, 98);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 4;
-    ctx.fillRect(14, 14, 228, 76);
-    ctx.strokeRect(14, 14, 228, 76);
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '900 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🚧 도로 공사 중', 128, 42);
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillStyle = '#dc2626';
-    ctx.fillText('1차선 통제 · 서행', 128, 72);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  /** Builds 3 Korean 1-lane road construction zones with traffic cones, A-frame barricade & strobe */
-  private buildConstructionZones(): void {
-    const specs: Array<{ id: string; label: string; x: number; z: number; axis: 'ew' | 'ns' }> = [
-      { id: 'const-1', label: '중앙로 동측 공사구간', x: 80, z: -36.5, axis: 'ew' },
-      { id: 'const-2', label: '리버뷰 서측 공사구간', x: -36.5, z: 0, axis: 'ns' },
-      { id: 'const-3', label: '남부 간선도로 공사구간', x: -80, z: 123.5, axis: 'ew' },
-    ];
-
-    const coneOrangeMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45 });
-    const coneStripeMat = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
-      emissive: 0xffffff,
-      emissiveIntensity: 0.25,
-      roughness: 0.35,
-    });
-    const coneBaseMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
-    const dirtMat = new THREE.MeshStandardMaterial({ color: 0x5c4738, roughness: 0.96 });
-    const signMat = new THREE.MeshBasicMaterial({ map: this.createConstructionSignTexture() });
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.5, roughness: 0.5 });
-
-    const coneGeo = new THREE.ConeGeometry(0.22, 0.72, 10);
-    const bandGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.14, 10);
-    const baseGeo = new THREE.BoxGeometry(0.46, 0.06, 0.46);
-
-    for (const sp of specs) {
-      const g = new THREE.Group();
-      g.position.set(sp.x, 0, sp.z);
-      if (sp.axis === 'ns') {
-        g.rotation.y = Math.PI / 2;
-      }
-
-      // Excavated asphalt / gravel work patch (7.5m x 2.6m inside right lane)
-      const patch = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, 2.5), dirtMat);
-      patch.position.set(0, 0.04, 0);
-      patch.receiveShadow = true;
-      g.add(patch);
-
-      // 6 Orange/White Reflective Traffic Cones tapering traffic cleanly into the open lane
-      const coneOffsets: Array<[number, number]> = [
-        [-4.8, 0.65],
-        [-3.2, 1.35],
-        [-0.8, 1.35],
-        [1.6, 1.35],
-        [3.6, 1.35],
-        [5.0, 0.65],
-      ];
-      for (const [cx, cz] of coneOffsets) {
-        const cBase = new THREE.Mesh(baseGeo, coneBaseMat);
-        cBase.position.set(cx, 0.04, cz);
-        const cone = new THREE.Mesh(coneGeo, coneOrangeMat);
-        cone.position.set(cx, 0.41, cz);
-        cone.castShadow = true;
-        const band = new THREE.Mesh(bandGeo, coneStripeMat);
-        band.position.set(cx, 0.48, cz);
-        g.add(cBase, cone, band);
-      }
-
-      // Two-sided A-Frame Construction Warning Signboard + Amber Blinking Strobe Lamp
-      const board = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.95, 1.85), signMat);
-      board.position.set(-3.9, 0.72, 0);
-      board.castShadow = true;
-      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.15, 0.08), poleMat);
-      legL.position.set(-3.9, 0.58, -0.78);
-      const legR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.15, 0.08), poleMat);
-      legR.position.set(-3.9, 0.58, 0.78);
-
-      const strobeMat = new THREE.MeshStandardMaterial({
-        color: 0xf59e0b,
-        emissive: 0xf59e0b,
-        emissiveIntensity: 3.0,
-      });
-      const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.22, 10), strobeMat);
-      strobe.position.set(-3.9, 1.32, 0);
-      g.add(board, legL, legR, strobe);
-
-      this.root.add(g);
-
-      // Physical collision box blocking the closed lane so player must steer around cones
-      const halfX = sp.axis === 'ew' ? 4.2 : 1.45;
-      const halfZ = sp.axis === 'ew' ? 1.45 : 4.2;
-      this.obstacles.push({
-        minX: sp.x - halfX,
-        maxX: sp.x + halfX,
-        minZ: sp.z - halfZ,
-        maxZ: sp.z + halfZ,
-      });
-
-      this.constructionZones.push({ id: sp.id, label: sp.label, x: sp.x, z: sp.z, strobeMat });
-      this.constructionMarkers.push({ id: sp.id, x: sp.x, z: sp.z, label: sp.label });
-    }
-  }
-
-  /** Builds 4 Rival AI Korean Delivery Scooter Riders roaming the 6x6 road grid */
-  private buildRivalRiders(): void {
-    const configs: Array<{
-      id: string;
-      colorHex: number;
-      colorCss: string;
-      jacketHex: number;
-      dir: PatrolDir;
-      roadIndex: number;
-      along: number;
-      cruiseSpeed: number;
-    }> = [
-      { id: 'rival-1', colorHex: 0x14b8a6, colorCss: '#14b8a6', jacketHex: 0x0f766e, dir: 1, roadIndex: 2, along: -95, cruiseSpeed: 11.4 },
-      { id: 'rival-2', colorHex: 0xf97316, colorCss: '#f97316', jacketHex: 0xc2410c, dir: 0, roadIndex: 3, along: -65, cruiseSpeed: 12.2 },
-      { id: 'rival-3', colorHex: 0x3b82f6, colorCss: '#3b82f6', jacketHex: 0x1d4ed8, dir: 3, roadIndex: 3, along: 90, cruiseSpeed: 10.8 },
-      { id: 'rival-4', colorHex: 0xeab308, colorCss: '#eab308', jacketHex: 0x334155, dir: 2, roadIndex: 1, along: 85, cruiseSpeed: 11.8 },
-    ];
-
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4, metalness: 0.3 });
-    const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25 });
-    const visorMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.6 });
-    const headLightMat = new THREE.MeshStandardMaterial({
-      color: 0xfef9c3,
-      emissive: 0xfef08a,
-      emissiveIntensity: 2.2,
-    });
-    const tailLightMat = new THREE.MeshStandardMaterial({
-      color: 0xef4444,
-      emissive: 0xef4444,
-      emissiveIntensity: 1.8,
-    });
-
-    for (const cfg of configs) {
-      const g = new THREE.Group();
-      const boxMat = new THREE.MeshStandardMaterial({ color: cfg.colorHex, roughness: 0.4 });
-      const jacketMat = new THREE.MeshStandardMaterial({ color: cfg.jacketHex, roughness: 0.78 });
-
-      // Wheels
-      for (const wz of [-0.62, 0.62]) {
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.14, 10), tireMat);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(0, 0.26, wz);
-        g.add(wheel);
-      }
-
-      // Scooter body & front shield
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 1.38), frameMat);
-      body.position.set(0, 0.56, 0);
-      body.castShadow = true;
-      const frontFairing = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.28), frameMat);
-      frontFairing.position.set(0, 0.84, 0.55);
-      const handlebar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.07, 0.08), tireMat);
-      handlebar.position.set(0, 1.12, 0.48);
-
-      // Colorful Korean delivery top-box on rear rack!
-      const topBox = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.5, 0.52), boxMat);
-      topBox.position.set(0, 1.05, -0.58);
-      topBox.castShadow = true;
-
-      // Headlight & Taillight
-      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.05), headLightMat);
-      hl.position.set(0, 0.94, 0.7);
-      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.05), tailLightMat);
-      tl.position.set(0, 0.74, -0.72);
-
-      // Stylized seated rider + white helmet
-      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.54, 0.28), jacketMat);
-      torso.position.set(0, 1.15, -0.02);
-      torso.rotation.x = 0.14;
-      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), helmetMat);
-      helmet.position.set(0, 1.56, 0.04);
-      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.12), visorMat);
-      visor.position.set(0, 1.56, 0.16);
-
-      g.add(body, frontFairing, handlebar, topBox, hl, tl, torso, helmet, visor);
-
-      const isNS = cfg.dir === 0 || cfg.dir === 2;
-      const laneC = patrolLaneCoord(CITY_ROAD_LINES[cfg.roadIndex], cfg.dir);
-      const sx = isNS ? laneC : cfg.along;
-      const sz = isNS ? cfg.along : laneC;
-      const heading = patrolDirHeading(cfg.dir);
-
-      g.position.set(sx, 0, sz);
-      g.rotation.y = heading;
-      this.root.add(g);
-
-      this.rivalRiders.push({
-        id: cfg.id,
-        group: g,
-        color: cfg.colorCss,
-        x: sx,
-        z: sz,
-        heading,
-        dir: cfg.dir,
-        roadIndex: cfg.roadIndex,
-        speed: cfg.cruiseSpeed,
-        cruiseSpeed: cfg.cruiseSpeed,
-        turnCooldown: 1.5,
-      });
-
-      this.rivalRiderMarkers.push({
-        id: cfg.id,
-        x: sx,
-        z: sz,
-        heading,
-        color: cfg.colorCss,
-      });
     }
   }
 }

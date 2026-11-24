@@ -89,6 +89,10 @@ export function classifyMenuFood(menuName: string, shopId: string): FoodPhysicsM
   const isSoupOrDrink =
     menuName.includes('마라탕') ||
     menuName.includes('국밥') ||
+    menuName.includes('해장국') ||
+    menuName.includes('부대찌개') ||
+    menuName.includes('짬뽕') ||
+    menuName.includes('쌀국수') ||
     menuName.includes('육개장') ||
     menuName.includes('오뎅탕') ||
     menuName.includes('우동') ||
@@ -98,9 +102,13 @@ export function classifyMenuFood(menuName: string, shopId: string): FoodPhysicsM
     menuName.includes('스무디') ||
     shopId === 'shop-mara' ||
     shopId === 'shop-gukbap' ||
+    shopId === 'shop-haejang' ||
+    shopId === 'shop-jjamppong' ||
+    shopId === 'shop-pho' ||
+    shopId === 'shop-starbucks' ||
     shopId === 'shop-coffee';
 
-  const isFragile = menuName.includes('케이크') || menuName.includes('피자');
+  const isFragile = menuName.includes('케이크') || menuName.includes('피자') || menuName.includes('초밥');
 
   if (isCold && isSoupOrDrink) {
     return { tempType: 'cold', isSpillSensitive: true, categoryTag: '🧊 음료·쏟음/녹음 주의' };
@@ -692,6 +700,14 @@ export class DeliveryManager {
       'shop-katsu',
       'shop-mara',
       'shop-gukbap',
+      'shop-haejang',
+      'shop-jjamppong',
+      'shop-sundae',
+      'shop-burgerking',
+      'shop-lotteria',
+      'shop-pho',
+      'shop-sushi',
+      'shop-mcd',
     ]);
     const sameShopCount = this.activeMissions.filter((x) => x.order.shop.id === m.order.shop.id).length;
     const delayProb = busyCookShops.has(m.order.shop.id) || sameShopCount > 1 ? 0.8 : 0.45;

@@ -1,5 +1,6 @@
 import { ObstacleBox, clamp, collidesWithWorld, wrapAngle } from '../types';
 import { SCOOTER_SPECS, ScooterState } from '../vehicle/ScooterPhysics';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 
 export interface OnFootInput {
   forward: number; // +1 W, -1 S
@@ -42,9 +43,9 @@ export const MOUNT_DISTANCE = 3.4;
 export class PlayerController {
   public state: PlayerState;
 
-  private readonly spawnX = -64.5;
-  private readonly spawnZ = -31.2;
-  private readonly spawnHeading = Math.PI - 0.65;
+  private readonly spawnX = SUWON_INGYE_DATA.meta.playerSpawn.x;
+  private readonly spawnZ = SUWON_INGYE_DATA.meta.playerSpawn.z;
+  private readonly spawnHeading = SUWON_INGYE_DATA.meta.playerSpawn.heading;
 
   constructor() {
     this.state = this.createInitialState();

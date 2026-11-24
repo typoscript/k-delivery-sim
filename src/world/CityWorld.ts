@@ -18,12 +18,14 @@ import {
   UpcomingCameraAlert,
   WeatherMode,
 } from '../types';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 
 export interface MapBuildingFootprint {
   x: number;
   z: number;
   w: number;
   d: number;
+  pts?: Array<[number, number]>;
   label?: string;
   kind: 'shop' | 'residential' | 'public';
 }
@@ -45,6 +47,20 @@ export interface CityMapInfo {
   buildings: MapBuildingFootprint[];
 }
 
+interface SignalHazardZone {
+  x: number;
+  z: number;
+  manholes: Array<[number, number]>;
+  crosswalkRadius: number;
+}
+
+/**
+ * Real OpenStreetMap 3D City World for Suwon-si Paldal-gu Ingye-dong (Suwon City Hall Station area).
+ * Renders 218 real connected Suwon roads (효원로, 권광로, 경수대로, 권선로, 나혜석거리),
+ * 322 extruded real buildings, 4 parks (효원공원), Suwon City Hall Station landmark,
+ * 10 real local shops, 12 real residences (including 4 walk-up villas), 8 Suwon bus stops,
+ * 14 rotated speed bumps, wet-road PBR puddle shader, and self-service gas/repair stations!
+ */
 export class CityWorld {
   public readonly root = new THREE.Group();
   public readonly obstacles: ObstacleBox[] = [];
@@ -70,7 +86,6 @@ export class CityWorld {
     { bag: THREE.Group; ledMat: THREE.MeshStandardMaterial }
   >();
 
-  // Ground-only entrance ring marker for active pickup / dropoff (no tall sky beam so player navigates via phone!)
   private readonly beaconGroup = new THREE.Group();
   private readonly beaconRingMat: THREE.MeshBasicMaterial;
   private readonly beaconRing: THREE.Mesh;
@@ -79,42 +94,32 @@ export class CityWorld {
   public weatherMode: WeatherMode = 'clear';
 
   // Wet-road shader & slip-surface materials
-  private asphaltHMat!: THREE.MeshStandardMaterial;
-  private asphaltVMat!: THREE.MeshStandardMaterial;
+  private asphaltMat!: THREE.MeshStandardMaterial;
   private crosswalkPaintMat!: THREE.MeshStandardMaterial;
   private manholeMat!: THREE.MeshStandardMaterial;
   private readonly roadShaderUniforms = {
     uRainWetness: { value: 0 },
     uTime: { value: 0 },
   };
-  // Manhole local offsets relative to each 6x6 intersection center (rx, rz)
-  private readonly manholeOffsets: ReadonlyArray<readonly [number, number]> = [
-    [3.4, 3.4],
-    [-3.4, -3.4],
-    [3.2, -3.6],
-  ];
-  private readonly manholeRadius = 1.05; // visual 0.72m + scooter tire contact radius margin
-
-  private readonly roadCoords = CITY_ROAD_LINES;
-  private readonly roadWidth = 14;
+  private readonly signalHazardZones: SignalHazardZone[] = [];
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     scene.add(this.root);
 
     scene.background = new THREE.Color(0x93c5fd);
-    scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0018);
+    scene.fog = new THREE.FogExp2(0xa5d4fb, 0.00145);
 
-    this.hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x475569, 0.9);
+    this.hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x475569, 0.92);
     this.root.add(this.hemiLight);
 
-    this.dirLight = new THREE.DirectionalLight(0xfff7e6, 1.5);
-    this.dirLight.position.set(140, 210, 110);
+    this.dirLight = new THREE.DirectionalLight(0xfff7e6, 1.48);
+    this.dirLight.position.set(160, 240, 120);
     this.dirLight.castShadow = true;
     this.dirLight.shadow.mapSize.set(2048, 2048);
     this.dirLight.shadow.camera.near = 20;
-    this.dirLight.shadow.camera.far = 650;
-    const d = 240;
+    this.dirLight.shadow.camera.far = 780;
+    const d = 310;
     this.dirLight.shadow.camera.left = -d;
     this.dirLight.shadow.camera.right = d;
     this.dirLight.shadow.camera.top = d;
@@ -130,7 +135,7 @@ export class CityWorld {
     this.windowGlowMat = new THREE.MeshStandardMaterial({
       color: 0x334155,
       emissive: 0xfef3c7,
-      emissiveIntensity: 0.12,
+      emissiveIntensity: 0.14,
       roughness: 0.3,
     });
 
@@ -140,10 +145,7 @@ export class CityWorld {
       opacity: 0.88,
       side: THREE.DoubleSide,
     });
-    this.beaconRing = new THREE.Mesh(
-      new THREE.RingGeometry(2.1, 2.7, 28),
-      this.beaconRingMat
-    );
+    this.beaconRing = new THREE.Mesh(new THREE.RingGeometry(2.1, 2.7, 28), this.beaconRingMat);
     this.beaconRing.rotation.x = -Math.PI / 2;
     this.beaconRing.position.y = 0.22;
     this.beaconGroup.add(this.beaconRing);
@@ -151,9 +153,9 @@ export class CityWorld {
     this.root.add(this.beaconGroup);
 
     this.mapInfo = {
-      roadLines: this.roadCoords,
+      roadLines: CITY_ROAD_LINES,
       blockCenters: CITY_BLOCK_CENTERS,
-      roadWidth: this.roadWidth,
+      roadWidth: 12,
       zones: this.zones,
       busStops: this.busStops,
       serviceStations: this.serviceStations,
@@ -163,24 +165,26 @@ export class CityWorld {
     };
 
     this.buildBaseGround();
-    this.buildRoadGrid();
+    this.buildSuwonOsmRoads();
     this.buildSpeedBumps();
-    this.buildSidewalksAndBlocks();
+    this.buildParksAndTrees();
+    this.buildSuwonOsmBuildings();
+    this.buildSuwonStationLandmark();
     this.buildServiceStations();
     this.buildBusStops();
-    this.buildStreetFurniture();
     this.initDeliveryLocations();
     this.buildPickupWindowsAndLobbies();
+    this.buildStreetLamps();
   }
 
-  private createAsphaltTexture(rx: number, ry: number): THREE.CanvasTexture {
+  private createAsphaltTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 256;
     c.height = 256;
     const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#2c333c';
+    ctx.fillStyle = '#2d343e';
     ctx.fillRect(0, 0, 256, 256);
-    for (let i = 0; i < 1500; i++) {
+    for (let i = 0; i < 1600; i++) {
       const v = 36 + Math.floor(Math.random() * 22);
       ctx.fillStyle = `rgb(${v},${v + 3},${v + 6})`;
       ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
@@ -188,11 +192,10 @@ export class CityWorld {
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(rx, ry);
+    tex.repeat.set(2, 2);
     return tex;
   }
 
-  /** Korean pedestrian sidewalk block pattern (보도블록 텍스처) */
   private createSidewalkTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 128;
@@ -200,15 +203,13 @@ export class CityWorld {
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#b4b8bf';
     ctx.fillRect(0, 0, 128, 128);
-
-    // Subtle warm/cool Korean interlocking brick pavers
     for (let row = 0; row < 4; row++) {
       for (let col = 0; col < 4; col++) {
         ctx.fillStyle = (row + col) % 2 === 0 ? '#aeb3bc' : '#babdc3';
         ctx.fillRect(col * 32 + 1, row * 32 + 1, 30, 30);
       }
     }
-    ctx.strokeStyle = 'rgba(71, 85, 105, 0.35)';
+    ctx.strokeStyle = 'rgba(71, 85, 105, 0.3)';
     ctx.lineWidth = 2;
     for (let i = 0; i <= 128; i += 32) {
       ctx.beginPath();
@@ -221,7 +222,33 @@ export class CityWorld {
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(16, 16);
+    tex.repeat.set(110, 110);
+    return tex;
+  }
+
+  private createFacadeTexture(baseHex: string, winHex: string, cols = 4, rows = 6): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = baseHex;
+    ctx.fillRect(0, 0, 256, 256);
+
+    const cw = 256 / cols;
+    const rh = 256 / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let col = 0; col < cols; col++) {
+        ctx.fillStyle = winHex;
+        ctx.fillRect(col * cw + 7, r * rh + 6, cw - 14, rh - 14);
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fillRect(col * cw + 9, r * rh + 8, (cw - 18) * 0.45, (rh - 18) * 0.4);
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(0.08, 0.08);
+    tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
@@ -232,54 +259,28 @@ export class CityWorld {
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 512, 128);
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.38)';
     ctx.lineWidth = 6;
     ctx.strokeRect(6, 6, 500, 116);
     ctx.fillStyle = fg;
-    ctx.font = 'bold 52px sans-serif';
+    ctx.font = 'bold 46px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(title, 256, 68);
+    ctx.fillText(title, 256, 66);
     const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
     tex.needsUpdate = true;
     return tex;
   }
 
-  private buildBaseGround(): void {
-    const grass = new THREE.Mesh(
-      new THREE.PlaneGeometry(720, 720),
-      new THREE.MeshStandardMaterial({ color: 0x4d7c4f, roughness: 0.95 })
-    );
-    grass.rotation.x = -Math.PI / 2;
-    grass.receiveShadow = true;
-    this.root.add(grass);
-
-    // City perimeter boundary wall at ±CITY_WORLD_LIMIT
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 });
-    const lim = CITY_WORLD_LIMIT;
-    const walls: Array<[number, number, number, number]> = [
-      [0, lim, lim * 2, 1.4],
-      [0, -lim, lim * 2, 1.4],
-      [lim, 0, 1.4, lim * 2],
-      [-lim, 0, 1.4, lim * 2],
-    ];
-    for (const [x, z, w, l] of walls) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.6, l), wallMat);
-      m.position.set(x, 0.8, z);
-      this.root.add(m);
-    }
-  }
-
-  private createPuddleRoughnessTexture(rx: number, ry: number): THREE.CanvasTexture {
+  private createPuddleRoughnessTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 256;
     c.height = 256;
     const ctx = c.getContext('2d')!;
-    // Base damp asphalt roughness (~0.68 in texture channel)
     ctx.fillStyle = '#adadad';
     ctx.fillRect(0, 0, 256, 256);
 
-    // Organic dark puddle patches (very low roughness = mirror-like wet reflections!)
     const puddles: Array<[number, number, number, number]> = [
       [56, 64, 42, 26],
       [184, 72, 36, 24],
@@ -305,7 +306,7 @@ export class CityWorld {
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(rx, ry);
+    tex.repeat.set(2, 2);
     return tex;
   }
 
@@ -316,14 +317,11 @@ export class CityWorld {
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#3b424c';
     ctx.fillRect(0, 0, 128, 128);
-
-    // Cast-iron rim & concentric ribs + waffle grid
     ctx.strokeStyle = '#64748b';
     ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.arc(64, 64, 58, 0, Math.PI * 2);
     ctx.stroke();
-
     ctx.strokeStyle = '#1f2937';
     ctx.lineWidth = 3;
     for (const r of [46, 30, 14]) {
@@ -331,161 +329,11 @@ export class CityWorld {
       ctx.arc(64, 64, r, 0, Math.PI * 2);
       ctx.stroke();
     }
-    for (let a = 0; a < Math.PI; a += Math.PI / 6) {
-      ctx.beginPath();
-      ctx.moveTo(64 - Math.cos(a) * 52, 64 - Math.sin(a) * 52);
-      ctx.lineTo(64 + Math.cos(a) * 52, 64 + Math.sin(a) * 52);
-      ctx.stroke();
-    }
-
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
-  private enhanceWetAsphaltMaterial(mat: THREE.MeshStandardMaterial): void {
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uRainWetness = this.roadShaderUniforms.uRainWetness;
-      shader.uniforms.uTime = this.roadShaderUniforms.uTime;
-
-      shader.fragmentShader =
-        'uniform float uRainWetness;\nuniform float uTime;\n' +
-        shader.fragmentShader.replace(
-          '#include <roughnessmap_fragment>',
-          `#include <roughnessmap_fragment>
-          // Smoothly blend dry uniform asphalt into reflective wet puddle surface!
-          float puddleMask = 1.0 - smoothstep(0.08, 0.55, roughnessFactor);
-          roughnessFactor = mix(0.90, mix(0.32, 0.055, puddleMask), uRainWetness);`
-        ).replace(
-          '#include <dithering_fragment>',
-          `if (uRainWetness > 0.02) {
-            float pMask = 1.0 - smoothstep(0.10, 0.55, roughnessFactor);
-            #ifdef USE_ROUGHNESSMAP
-            float ripple = sin((vRoughnessMapUv.x * 90.0 + vRoughnessMapUv.y * 90.0) + uTime * 8.5) * 0.5 + 0.5;
-            #else
-            float ripple = 0.5;
-            #endif
-            float fresnelSheen = (0.055 + 0.14 * pMask) * uRainWetness;
-            vec3 skyReflect = vec3(0.56, 0.72, 0.88) * fresnelSheen * (0.85 + 0.15 * ripple);
-            gl_FragColor.rgb += skyReflect;
-          }
-          #include <dithering_fragment>`
-        );
-    };
-  }
-
-  private buildRoadGrid(): void {
-    const span = 468; // covers -234 to +234
-    this.asphaltHMat = new THREE.MeshStandardMaterial({
-      map: this.createAsphaltTexture(32, 2),
-      roughnessMap: this.createPuddleRoughnessTexture(26, 2),
-      roughness: 0.9,
-      metalness: 0.04,
-    });
-    this.enhanceWetAsphaltMaterial(this.asphaltHMat);
-
-    this.asphaltVMat = new THREE.MeshStandardMaterial({
-      map: this.createAsphaltTexture(2, 32),
-      roughnessMap: this.createPuddleRoughnessTexture(2, 26),
-      roughness: 0.9,
-      metalness: 0.04,
-    });
-    this.enhanceWetAsphaltMaterial(this.asphaltVMat);
-
-    const yellowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-    this.crosswalkPaintMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      roughness: 0.78,
-      metalness: 0.05,
-    });
-    this.manholeMat = new THREE.MeshStandardMaterial({
-      map: this.createManholeTexture(),
-      color: 0x6b7280,
-      roughness: 0.55,
-      metalness: 0.78,
-    });
-
-    for (const coord of this.roadCoords) {
-      const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(span, this.roadWidth), this.asphaltHMat);
-      hRoad.rotation.x = -Math.PI / 2;
-      hRoad.position.set(0, 0.025, coord);
-      hRoad.receiveShadow = true;
-      this.root.add(hRoad);
-
-      const vRoad = new THREE.Mesh(new THREE.PlaneGeometry(this.roadWidth, span), this.asphaltVMat);
-      vRoad.rotation.x = -Math.PI / 2;
-      vRoad.position.set(coord, 0.028, 0);
-      vRoad.receiveShadow = true;
-      this.root.add(vRoad);
-
-      // Center yellow dashed markings between intersections
-      for (let p = -222; p <= 222; p += 10) {
-        if (this.roadCoords.some((rc) => Math.abs(p - rc) < 11)) continue;
-        const dh = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.18), yellowMat);
-        dh.rotation.x = -Math.PI / 2;
-        dh.position.set(p, 0.04, coord);
-        this.root.add(dh);
-
-        const dv = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 4.2), yellowMat);
-        dv.rotation.x = -Math.PI / 2;
-        dv.position.set(coord, 0.04, p);
-        this.root.add(dv);
-      }
-    }
-
-    // Crosswalks at all 36 intersections (InstancedMesh for super fast rendering!)
-    const stripeGeoH = new THREE.PlaneGeometry(2.4, 0.7);
-    stripeGeoH.rotateX(-Math.PI / 2);
-    const stripeGeoV = new THREE.PlaneGeometry(0.7, 2.4);
-    stripeGeoV.rotateX(-Math.PI / 2);
-
-    const totalCross = this.roadCoords.length * this.roadCoords.length * 2 * 6;
-    const instH = new THREE.InstancedMesh(stripeGeoH, this.crosswalkPaintMat, totalCross);
-    const instV = new THREE.InstancedMesh(stripeGeoV, this.crosswalkPaintMat, totalCross);
-    instH.receiveShadow = true;
-    instV.receiveShadow = true;
-    const dummy = new THREE.Object3D();
-    let idx = 0;
-
-    for (const rx of this.roadCoords) {
-      for (const rz of this.roadCoords) {
-        for (const side of [-1, 1]) {
-          for (let s = -4.5; s <= 4.51; s += 1.8) {
-            dummy.position.set(rx + side * 8.8, 0.042, rz + s);
-            dummy.updateMatrix();
-            instH.setMatrixAt(idx, dummy.matrix);
-
-            dummy.position.set(rx + s, 0.042, rz + side * 8.8);
-            dummy.updateMatrix();
-            instV.setMatrixAt(idx, dummy.matrix);
-            idx++;
-          }
-        }
-      }
-    }
-    this.root.add(instH, instV);
-
-    // Metallic Manhole Covers at all 36 intersections (1 single InstancedMesh = 1 DrawCall!)
-    const manholeGeo = new THREE.CylinderGeometry(0.74, 0.78, 0.032, 16);
-    const totalManholes = this.roadCoords.length * this.roadCoords.length * this.manholeOffsets.length;
-    const manholeInst = new THREE.InstancedMesh(manholeGeo, this.manholeMat, totalManholes);
-    manholeInst.receiveShadow = true;
-    let mIdx = 0;
-    for (const rx of this.roadCoords) {
-      for (const rz of this.roadCoords) {
-        for (const [ox, oz] of this.manholeOffsets) {
-          dummy.position.set(rx + ox, 0.036, rz + oz);
-          dummy.rotation.set(0, 0, 0);
-          dummy.scale.set(1, 1, 1);
-          dummy.updateMatrix();
-          manholeInst.setMatrixAt(mIdx++, dummy.matrix);
-        }
-      }
-    }
-    this.root.add(manholeInst);
-  }
-
-  /** Creates Korean diagonal yellow-and-black speed bump warning stripe texture */
   private createSpeedBumpTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 256;
@@ -493,7 +341,6 @@ export class CityWorld {
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(0, 0, 256, 64);
-
     ctx.fillStyle = '#facc15';
     for (let x = -64; x < 320; x += 36) {
       ctx.beginPath();
@@ -507,32 +354,259 @@ export class CityWorld {
     const tex = new THREE.CanvasTexture(c);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 5);
+    tex.repeat.set(1, 4);
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   }
 
-  /** Builds 14 Korean yellow/black striped rounded speed bumps near residential zones & commercial strips */
-  private buildSpeedBumps(): void {
-    const specs: Array<{ x: number; z: number; axis: 'ew' | 'ns'; label: string }> = [
-      // Residential apartment & villa entrances (z = 40, z = 120, z = -40, z = -120)
-      { x: 64, z: 40, axis: 'ew', label: '햇살아파트 앞 과속방지턱' },
-      { x: 96, z: 40, axis: 'ew', label: '햇살102동 진입 과속방지턱' },
-      { x: 78, z: -40, axis: 'ew', label: '그린빌라 단지 과속방지턱' },
-      { x: 40, z: 74, axis: 'ns', label: '햇살단지 서측 과속방지턱' },
-      { x: 0, z: 40, axis: 'ew', label: '리버뷰 단지 앞 과속방지턱' },
-      { x: 0, z: 120, axis: 'ew', label: '파크뷰 단지 앞 과속방지턱' },
-      { x: -80, z: 120, axis: 'ew', label: '하늘오피스텔 앞 과속방지턱' },
-      { x: 80, z: 120, axis: 'ew', label: '블루힐 단지 과속방지턱' },
-      { x: 0, z: -120, axis: 'ew', label: '소나무빌라 앞 과속방지턱' },
-      // Commercial & mid-block traffic calming bumps
-      { x: -80, z: -40, axis: 'ew', label: '상가거리 서측 과속방지턱' },
-      { x: 160, z: -40, axis: 'ew', label: '동부 상가 과속방지턱' },
-      { x: -160, z: -40, axis: 'ew', label: '서부 상가 과속방지턱' },
-      { x: -40, z: 80, axis: 'ns', label: '리버뷰 서측 과속방지턱' },
-      { x: 120, z: 80, axis: 'ns', label: '햇살단지 동측 과속방지턱' },
-    ];
+  private enhanceWetAsphaltMaterial(mat: THREE.MeshStandardMaterial): void {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uRainWetness = this.roadShaderUniforms.uRainWetness;
+      shader.uniforms.uTime = this.roadShaderUniforms.uTime;
 
+      shader.fragmentShader =
+        'uniform float uRainWetness;\nuniform float uTime;\n' +
+        shader.fragmentShader
+          .replace(
+            '#include <roughnessmap_fragment>',
+            `#include <roughnessmap_fragment>
+          float puddleMask = 1.0 - smoothstep(0.08, 0.55, roughnessFactor);
+          roughnessFactor = mix(0.90, mix(0.32, 0.055, puddleMask), uRainWetness);`
+          )
+          .replace(
+            '#include <dithering_fragment>',
+            `if (uRainWetness > 0.02) {
+            float pMask = 1.0 - smoothstep(0.10, 0.55, roughnessFactor);
+            #ifdef USE_ROUGHNESSMAP
+            float ripple = sin((vRoughnessMapUv.x * 90.0 + vRoughnessMapUv.y * 90.0) + uTime * 8.5) * 0.5 + 0.5;
+            #else
+            float ripple = 0.5;
+            #endif
+            float fresnelSheen = (0.055 + 0.14 * pMask) * uRainWetness;
+            vec3 skyReflect = vec3(0.56, 0.72, 0.88) * fresnelSheen * (0.85 + 0.15 * ripple);
+            gl_FragColor.rgb += skyReflect;
+          }
+          #include <dithering_fragment>`
+          );
+    };
+  }
+
+  private buildBaseGround(): void {
+    // Outer Suwon suburban backdrop greenbelt
+    const outerGround = new THREE.Mesh(
+      new THREE.PlaneGeometry(1400, 1400),
+      new THREE.MeshStandardMaterial({ color: 0x527358, roughness: 0.95 })
+    );
+    outerGround.rotation.x = -Math.PI / 2;
+    outerGround.position.y = -0.02;
+    this.root.add(outerGround);
+
+    // Korean urban sidewalk interlocking brick base across playable Suwon Ingye-dong district
+    const sidewalkBase = new THREE.Mesh(
+      new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2, CITY_WORLD_LIMIT * 2),
+      new THREE.MeshStandardMaterial({ map: this.createSidewalkTexture(), roughness: 0.88 })
+    );
+    sidewalkBase.rotation.x = -Math.PI / 2;
+    sidewalkBase.position.y = 0;
+    sidewalkBase.receiveShadow = true;
+    this.root.add(sidewalkBase);
+
+    // Subtle perimeter boundary walls at ±CITY_WORLD_LIMIT
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 });
+    const lim = CITY_WORLD_LIMIT;
+    const walls: Array<[number, number, number, number]> = [
+      [0, lim, lim * 2, 1.4],
+      [0, -lim, lim * 2, 1.4],
+      [lim, 0, 1.4, lim * 2],
+      [-lim, 0, 1.4, lim * 2],
+    ];
+    for (const [x, z, w, l] of walls) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, l), wallMat);
+      m.position.set(x, 0.7, z);
+      this.root.add(m);
+    }
+  }
+
+  /** Renders all 218 real Suwon Ingye-dong OSM roads, 나혜석거리 pedestrian plaza, crosswalks & manholes */
+  private buildSuwonOsmRoads(): void {
+    this.asphaltMat = new THREE.MeshStandardMaterial({
+      map: this.createAsphaltTexture(),
+      roughnessMap: this.createPuddleRoughnessTexture(),
+      roughness: 0.9,
+      metalness: 0.04,
+    });
+    this.enhanceWetAsphaltMaterial(this.asphaltMat);
+
+    this.crosswalkPaintMat = new THREE.MeshStandardMaterial({
+      color: 0xf1f5f9,
+      roughness: 0.78,
+      metalness: 0.05,
+    });
+    this.manholeMat = new THREE.MeshStandardMaterial({
+      map: this.createManholeTexture(),
+      color: 0x6b7280,
+      roughness: 0.55,
+      metalness: 0.78,
+    });
+
+    const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+    const whiteEdgeMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
+    const plazaMat = new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 });
+
+    const nodes = SUWON_INGYE_DATA.nodes;
+    const edges = SUWON_INGYE_DATA.edges;
+
+    // Track max width incident to each node for smooth circular asphalt junction caps
+    const nodeMaxW = new Float32Array(nodes.length);
+
+    for (const e of edges) {
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const dx = nb.x - na.x;
+      const dz = nb.z - na.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 0.5) continue;
+
+      nodeMaxW[e.a] = Math.max(nodeMaxW[e.a], e.width);
+      nodeMaxW[e.b] = Math.max(nodeMaxW[e.b], e.width);
+
+      const mx = (na.x + nb.x) * 0.5;
+      const mz = (na.z + nb.z) * 0.5;
+      const heading = Math.atan2(dx, dz); // 0 = +Z
+
+      const yLevel = e.isMajor ? 0.042 : 0.032;
+      const roadMesh = new THREE.Mesh(new THREE.PlaneGeometry(e.width, len), this.asphaltMat);
+      roadMesh.rotation.order = 'YXZ';
+      roadMesh.rotation.y = heading;
+      roadMesh.rotation.x = -Math.PI / 2;
+      roadMesh.position.set(mx, yLevel, mz);
+      roadMesh.receiveShadow = true;
+      this.root.add(roadMesh);
+
+      // Center yellow dashed line on major Suwon boulevards (효원로, 권광로, 경수대로, 권선로)
+      if (e.isMajor && len >= 10) {
+        const dashStep = 9.0;
+        const count = Math.floor((len - 4) / dashStep);
+        for (let i = 0; i < count; i++) {
+          const frac = (i + 0.5) / count;
+          const px = na.x + dx * frac;
+          const pz = na.z + dz * frac;
+          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 4.0), yellowLineMat);
+          dash.rotation.order = 'YXZ';
+          dash.rotation.y = heading;
+          dash.rotation.x = -Math.PI / 2;
+          dash.position.set(px, yLevel + 0.012, pz);
+          this.root.add(dash);
+        }
+      } else if (!e.isMajor && len >= 14) {
+        // Subtle white side shoulder lines on residential streets
+        const edgeLine = new THREE.Mesh(new THREE.PlaneGeometry(0.14, len - 4), whiteEdgeMat);
+        edgeLine.rotation.order = 'YXZ';
+        edgeLine.rotation.y = heading;
+        edgeLine.rotation.x = -Math.PI / 2;
+        edgeLine.position.set(mx, yLevel + 0.01, mz);
+        edgeLine.visible = false; // keep alleyways clean
+      }
+    }
+
+    // Smooth circular asphalt discs at road nodes so arbitrary-angle junctions connect seamlessly!
+    const discGeo = new THREE.CircleGeometry(1, 14);
+    discGeo.rotateX(-Math.PI / 2);
+    const activeNodes = nodes.filter((n) => nodeMaxW[n.id] > 0);
+    const discInst = new THREE.InstancedMesh(discGeo, this.asphaltMat, activeNodes.length);
+    discInst.receiveShadow = true;
+    const dummy = new THREE.Object3D();
+    activeNodes.forEach((n, idx) => {
+      const r = nodeMaxW[n.id] * 0.51;
+      dummy.position.set(n.x, nodeMaxW[n.id] >= 11 ? 0.043 : 0.033, n.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(r, 1, r);
+      dummy.updateMatrix();
+      discInst.setMatrixAt(idx, dummy.matrix);
+    });
+    this.root.add(discInst);
+
+    // Pedestrian Plazas (나혜석거리 보행자 거리!)
+    for (const pl of SUWON_INGYE_DATA.pedestrianPlazas) {
+      for (let i = 0; i < pl.pts.length - 1; i++) {
+        const [ax, az] = pl.pts[i];
+        const [bx, bz] = pl.pts[i + 1];
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 1) continue;
+        const heading = Math.atan2(bx - ax, bz - az);
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(pl.width, len + 1.5), plazaMat);
+        strip.rotation.order = 'YXZ';
+        strip.rotation.y = heading;
+        strip.rotation.x = -Math.PI / 2;
+        strip.position.set((ax + bx) * 0.5, 0.055, (az + bz) * 0.5);
+        strip.receiveShadow = true;
+        this.root.add(strip);
+      }
+    }
+
+    // Crosswalks & Wet Metallic Manhole Covers at Signalized Suwon Intersections!
+    const manholeGeo = new THREE.CylinderGeometry(0.74, 0.78, 0.032, 14);
+    const manholePositions: Array<[number, number]> = [];
+    const stripeGeo = new THREE.PlaneGeometry(0.65, 2.3);
+    stripeGeo.rotateX(-Math.PI / 2);
+
+    const signalNodes = nodes.filter((n) => n.isSignal);
+    for (const sn of signalNodes) {
+      const localManholes: Array<[number, number]> = [
+        [sn.x + 2.8, sn.z + 2.8],
+        [sn.x - 2.8, sn.z - 2.6],
+      ];
+      manholePositions.push(...localManholes);
+      this.signalHazardZones.push({
+        x: sn.x,
+        z: sn.z,
+        manholes: localManholes,
+        crosswalkRadius: 11.0,
+      });
+
+      // Place crosswalk zebra bars on each incident road edge (~7.8m out from junction center)
+      for (const e of edges) {
+        if (e.a !== sn.id && e.b !== sn.id) continue;
+        if (e.dist < 16) continue;
+        const other = nodes[e.a === sn.id ? e.b : e.a];
+        const dx = other.x - sn.x;
+        const dz = other.z - sn.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const ux = dx / len;
+        const uz = dz / len;
+        const rx = -uz;
+        const rz = ux;
+        const heading = Math.atan2(dx, dz);
+
+        const cwCenterX = sn.x + ux * 7.8;
+        const cwCenterZ = sn.z + uz * 7.8;
+        const halfW = e.width * 0.42;
+        for (let off = -halfW; off <= halfW; off += 1.65) {
+          const bar = new THREE.Mesh(stripeGeo, this.crosswalkPaintMat);
+          bar.position.set(cwCenterX + rx * off, 0.054, cwCenterZ + rz * off);
+          bar.rotation.y = heading;
+          this.root.add(bar);
+        }
+      }
+    }
+
+    if (manholePositions.length > 0) {
+      const mInst = new THREE.InstancedMesh(manholeGeo, this.manholeMat, manholePositions.length);
+      mInst.receiveShadow = true;
+      manholePositions.forEach(([mx, mz], i) => {
+        dummy.position.set(mx, 0.048, mz);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        mInst.setMatrixAt(i, dummy.matrix);
+      });
+      this.root.add(mInst);
+    }
+  }
+
+  /** Builds 14 Korean yellow/black striped rounded speed bumps on real Suwon residential/alley roads */
+  private buildSpeedBumps(): void {
+    const nodes = SUWON_INGYE_DATA.nodes;
     const bumpMat = new THREE.MeshStandardMaterial({
       map: this.createSpeedBumpTexture(),
       roughness: 0.72,
@@ -543,988 +617,517 @@ export class CityWorld {
       map: this.createSignTexture('⚠️ 과속방지턱', '#facc15', '#0f172a'),
     });
 
-    // Smooth curved hump cross-section: rotateZ(PI/2) puts arch bulge upward (+Y), length along X, travel depth along Z
-    const humpLength = 12.6;
-    const humpGeo = new THREE.CylinderGeometry(0.16, 0.16, humpLength, 12, 1, false, 0, Math.PI);
-    humpGeo.rotateZ(Math.PI / 2);
-    humpGeo.scale(1, 1, 7.2); // 16cm tall, 2.3m wide arch along travel direction, 12.6m across the 2 lanes!
+    // Pick up to 14 well-spaced residential / alley / secondary road segments!
+    const candidates = SUWON_INGYE_DATA.edges
+      .filter((e) => !e.isMajor && e.dist >= 28 && e.width >= 7.0)
+      .sort((a, b) => b.dist - a.dist);
 
-    specs.forEach((sp, i) => {
-      this.speedBumps.push({
-        id: `bump-${i + 1}`,
-        x: sp.x,
-        z: sp.z,
-        axis: sp.axis,
-        halfLength: humpLength * 0.5,
-        halfWidth: 1.25,
-        label: sp.label,
-      });
+    for (const e of candidates) {
+      if (this.speedBumps.length >= 14) break;
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const mx = (na.x + nb.x) * 0.5;
+      const mz = (na.z + nb.z) * 0.5;
+      if (this.speedBumps.some((b) => Math.hypot(b.x - mx, b.z - mz) < 62)) continue;
+
+      const angle = Math.atan2(nb.x - na.x, nb.z - na.z); // travel direction heading (0 = +Z)
+      const humpLength = e.width * 0.92;
+
+      const humpGeo = new THREE.CylinderGeometry(0.15, 0.15, humpLength, 10, 1, false, 0, Math.PI);
+      humpGeo.rotateZ(Math.PI / 2); // arch bulges +Y, length along X, travel depth along Z
+      humpGeo.scale(1, 1, 6.8);
 
       const hump = new THREE.Mesh(humpGeo, bumpMat);
+      hump.position.set(mx, 0.036, mz);
+      hump.rotation.y = angle;
       hump.receiveShadow = true;
       hump.castShadow = true;
-      // 'ew' road runs along X -> rotateY(PI/2) so hump spans Z; 'ns' road runs along Z -> hump spans X
-      hump.rotation.set(0, sp.axis === 'ew' ? Math.PI / 2 : 0, 0);
-      hump.position.set(sp.x, 0.03, sp.z);
       this.root.add(hump);
 
-      // Small yellow curb warning sign on one side of the speed bump
+      // Curbside warning signpost
+      const rx = -Math.cos(angle);
+      const rz = Math.sin(angle);
+      const sx = mx + rx * (e.width * 0.5 + 0.9);
+      const sz = mz + rz * (e.width * 0.5 + 0.9);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.0, 6), signPoleMat);
-      const board = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 0.05), signFaceMat);
-      const sx = sp.axis === 'ew' ? sp.x : sp.x + 7.6;
-      const sz = sp.axis === 'ew' ? sp.z + 7.6 : sp.z;
       pole.position.set(sx, 1.0, sz);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 0.05), signFaceMat);
       board.position.set(sx, 1.85, sz);
-      if (sp.axis === 'ew') board.rotation.y = Math.PI / 2;
+      board.rotation.y = angle;
       this.root.add(pole, board);
-    });
+
+      this.speedBumps.push({
+        id: `bump-${this.speedBumps.length + 1}`,
+        x: mx,
+        z: mz,
+        axis: Math.abs(Math.sin(angle)) > 0.7 ? 'ew' : 'ns',
+        angle,
+        halfLength: humpLength * 0.5,
+        halfWidth: 1.25,
+        label: e.name ? `${e.name} 과속방지턱` : '인계동 이면도로 과속방지턱',
+      });
+    }
   }
 
-  /** Checks if position (x, z) is currently crossing any road speed bump */
+  /** Checks if position (x, z) is currently crossing any rotated speed bump */
   public getSpeedBumpAt(x: number, z: number): SpeedBumpInfo | null {
     for (const b of this.speedBumps) {
-      if (b.axis === 'ew') {
-        if (Math.abs(x - b.x) <= b.halfWidth && Math.abs(z - b.z) <= b.halfLength) {
-          return b;
-        }
-      } else {
-        if (Math.abs(z - b.z) <= b.halfWidth && Math.abs(x - b.x) <= b.halfLength) {
-          return b;
-        }
+      const dx = x - b.x;
+      const dz = z - b.z;
+      if (dx * dx + dz * dz > 64) continue;
+      const a = b.angle ?? (b.axis === 'ew' ? Math.PI / 2 : 0);
+      const fwdX = Math.sin(a);
+      const fwdZ = Math.cos(a);
+      const rightX = -fwdZ;
+      const rightZ = fwdX;
+      const along = Math.abs(dx * fwdX + dz * fwdZ);
+      const across = Math.abs(dx * rightX + dz * rightZ);
+      if (along <= b.halfWidth && across <= b.halfLength) {
+        return b;
       }
     }
     return null;
   }
 
-  /**
-   * Fast O(1) slip-surface collision query against metallic manhole covers and crosswalk white paint.
-   * Snaps directly to the nearest 6x6 intersection so there is zero per-frame iteration overhead.
-   */
+  /** Checks metallic manhole covers & crosswalk paint near the 24 real signalized Suwon intersections */
   public getSlipSurfaceAt(x: number, z: number): SlipSurfaceType {
-    // Find nearest intersection coordinate on X and Z (grid step = 80, lines at -200..200)
-    const ix = Math.max(0, Math.min(this.roadCoords.length - 1, Math.round((x + 200) / 80)));
-    const iz = Math.max(0, Math.min(this.roadCoords.length - 1, Math.round((z + 200) / 80)));
-    const rx = this.roadCoords[ix];
-    const rz = this.roadCoords[iz];
+    for (const hz of this.signalHazardZones) {
+      const dx = x - hz.x;
+      const dz = z - hz.z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq > 144) continue;
 
-    const dx = x - rx;
-    const dz = z - rz;
-    if (Math.abs(dx) > 12 || Math.abs(dz) > 12) return 'none';
+      for (const [mx, mz] of hz.manholes) {
+        const mdx = x - mx;
+        const mdz = z - mz;
+        if (mdx * mdx + mdz * mdz <= 1.15 * 1.15) {
+          return 'manhole';
+        }
+      }
 
-    // 1. Check metallic manhole covers inside the intersection
-    const rSq = this.manholeRadius * this.manholeRadius;
-    for (const [ox, oz] of this.manholeOffsets) {
-      const mdx = dx - ox;
-      const mdz = dz - oz;
-      if (mdx * mdx + mdz * mdz <= rSq) {
-        return 'manhole';
+      const d = Math.sqrt(dSq);
+      if (d >= 6.4 && d <= 9.2) {
+        return 'crosswalk_paint';
       }
     }
-
-    // 2. Check crosswalk white paint strips surrounding the intersection (±8.8m)
-    const onHCrosswalk = Math.abs(Math.abs(dx) - 8.8) <= 1.45 && Math.abs(dz) <= 5.2;
-    const onVCrosswalk = Math.abs(Math.abs(dz) - 8.8) <= 1.45 && Math.abs(dx) <= 5.2;
-    if (onHCrosswalk || onVCrosswalk) {
-      return 'crosswalk_paint';
-    }
-
     return 'none';
   }
 
-  private addBuilding(
-    x: number,
-    z: number,
-    w: number,
-    h: number,
-    d: number,
-    color: number,
-    opts?: { signText?: string; signColor?: string; signFace?: 'S' | 'N' | 'E' | 'W'; isResidential?: boolean }
-  ): void {
-    const group = new THREE.Group();
-    group.position.set(x, 0.16, z); // sit cleanly on top of the 0.16m raised sidewalk!
+  /** Builds real Suwon Ingye-dong parks (효원공원 etc.) and InstancedMesh urban street trees */
+  private buildParksAndTrees(): void {
+    const parkMat = new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 });
+    const treeCoords: Array<[number, number, number]> = [];
 
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.72 })
-    );
-    body.position.y = h / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
+    for (const park of SUWON_INGYE_DATA.parks) {
+      if (park.pts.length < 3) continue;
+      const shape = new THREE.Shape();
+      shape.moveTo(park.pts[0][0], -park.pts[0][1]);
+      for (let i = 1; i < park.pts.length; i++) {
+        shape.lineTo(park.pts[i][0], -park.pts[i][1]);
+      }
+      shape.closePath();
 
-    const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.3, 0.4, d + 0.3),
-      new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.85 })
-    );
-    roof.position.y = h + 0.2;
-    group.add(roof);
+      const geo = new THREE.ShapeGeometry(shape);
+      geo.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, parkMat);
+      mesh.position.y = 0.06;
+      mesh.receiveShadow = true;
+      this.root.add(mesh);
 
-    // Stylized windows (capped rows/cols for crisp performance across 45+ buildings)
-    const floors = Math.min(8, Math.max(1, Math.floor((h - 1.5) / 3.4)));
-    const cols = Math.min(7, Math.max(1, Math.floor((w - 2) / 3.8)));
-    for (let f = 0; f < floors; f++) {
-      const wy = 2.6 + f * 3.3;
-      for (let c = 0; c < cols; c++) {
-        const wx = -((cols - 1) * 3.5) / 2 + c * 3.5;
-        for (const side of [-1, 1]) {
-          const win = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.3), this.windowGlowMat);
-          win.position.set(wx, wy, side * (d / 2 + 0.03));
-          if (side === -1) win.rotation.y = Math.PI;
-          group.add(win);
+      // Scatter park trees neatly around park interior
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      let cx = 0, cz = 0;
+      for (const [px, pz] of park.pts) {
+        cx += px;
+        cz += pz;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (pz < minZ) minZ = pz;
+        if (pz > maxZ) maxZ = pz;
+      }
+      cx /= park.pts.length;
+      cz /= park.pts.length;
+
+      // Put trees along inset perimeter + center cluster
+      for (let i = 0; i < park.pts.length; i++) {
+        const [px, pz] = park.pts[i];
+        const tx = cx + (px - cx) * 0.72;
+        const tz = cz + (pz - cz) * 0.72;
+        if (treeCoords.length < 180) {
+          treeCoords.push([tx, tz, 0.9 + (i % 3) * 0.14]);
         }
       }
-    }
-
-    if (opts?.signText) {
-      const signTex = this.createSignTexture(opts.signText, opts.signColor ?? '#0ea5e9');
-      const signMat = new THREE.MeshStandardMaterial({
-        map: signTex,
-        emissive: new THREE.Color(opts.signColor ?? '#0ea5e9'),
-        emissiveIntensity: 0.35,
-        roughness: 0.4,
-      });
-      const signW = Math.min(w - 1.4, 9.8);
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(signW, 1.7, 0.24), signMat);
-      const awning = new THREE.Mesh(
-        new THREE.BoxGeometry(signW + 0.6, 0.25, 1.6),
-        new THREE.MeshStandardMaterial({ color: opts.signColor ?? '#0ea5e9', roughness: 0.6 })
-      );
-
-      const face = opts.signFace ?? 'S';
-      if (face === 'S') {
-        sign.position.set(0, 4.1, -d / 2 - 0.14);
-        sign.rotation.y = Math.PI;
-        awning.position.set(0, 2.9, -d / 2 - 0.8);
-      } else if (face === 'N') {
-        sign.position.set(0, 4.1, d / 2 + 0.14);
-        awning.position.set(0, 2.9, d / 2 + 0.8);
-      } else if (face === 'E') {
-        sign.position.set(w / 2 + 0.14, 4.1, 0);
-        sign.rotation.y = Math.PI / 2;
-        awning.position.set(w / 2 + 0.8, 2.9, 0);
-        awning.rotation.y = Math.PI / 2;
-      } else {
-        sign.position.set(-w / 2 - 0.14, 4.1, 0);
-        sign.rotation.y = -Math.PI / 2;
-        awning.position.set(-w / 2 - 0.8, 2.9, 0);
-        awning.rotation.y = -Math.PI / 2;
+      if (park.name.includes('효원공원')) {
+        // Landmark park sign for 효원공원!
+        const sign = new THREE.Mesh(
+          new THREE.BoxGeometry(6.8, 1.8, 0.3),
+          new THREE.MeshBasicMaterial({ map: this.createSignTexture('🌳 효원공원 (인계동)', '#14532d', '#dcfce7') })
+        );
+        sign.position.set(cx, 3.2, cz);
+        this.root.add(sign);
+        this.zones.push({ name: '효원공원', x: cx, z: cz, type: 'residential' });
       }
-      group.add(sign, awning);
     }
 
-    this.root.add(group);
-    this.obstacles.push({
-      minX: x - w / 2,
-      maxX: x + w / 2,
-      minZ: z - d / 2,
-      maxZ: z + d / 2,
-    });
-    this.buildings.push({
-      x,
-      z,
-      w,
-      d,
-      label: opts?.signText,
-      kind: opts?.isResidential ? 'residential' : opts?.signText ? 'shop' : 'public',
-    });
+    // Perimeter greenbelt trees
+    for (let p = -380; p <= 380; p += 38) {
+      treeCoords.push([p, -402, 1.15], [p, 402, 1.15], [-402, p, 1.15], [402, p, 1.15]);
+    }
+
+    if (treeCoords.length > 0) {
+      const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 2.5, 6);
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4f35, roughness: 0.9 });
+      const crownGeo = new THREE.SphereGeometry(1.95, 8, 6);
+      const crownMat = new THREE.MeshStandardMaterial({ color: 0x2f7a42, roughness: 0.85 });
+
+      const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCoords.length);
+      const crowns = new THREE.InstancedMesh(crownGeo, crownMat, treeCoords.length);
+      const dummy = new THREE.Object3D();
+      treeCoords.forEach(([x, z, s], i) => {
+        dummy.position.set(x, 1.25 * s, z);
+        dummy.scale.set(s, s, s);
+        dummy.updateMatrix();
+        trunks.setMatrixAt(i, dummy.matrix);
+
+        dummy.position.set(x, 3.7 * s, z);
+        dummy.scale.set(s, s, s);
+        dummy.updateMatrix();
+        crowns.setMatrixAt(i, dummy.matrix);
+      });
+      this.root.add(trunks, crowns);
+    }
   }
 
-  private buildSidewalksAndBlocks(): void {
-    const sidewalkMat = new THREE.MeshStandardMaterial({
-      map: this.createSidewalkTexture(),
-      roughness: 0.86,
+  /** Extrudes all 322 real OpenStreetMap Suwon Ingye-dong building polygons with Korean facades */
+  private buildSuwonOsmBuildings(): void {
+    const shopWallMat = new THREE.MeshStandardMaterial({
+      map: this.createFacadeTexture('#d8e1ec', '#1e3a5f', 4, 5),
+      roughness: 0.45,
+      metalness: 0.2,
     });
-    const curbMat = new THREE.MeshStandardMaterial({
-      color: 0xd1d5db, // Bright Korean granite curb stone (화강암 연석)
+    const aptWallMat = new THREE.MeshStandardMaterial({
+      map: this.createFacadeTexture('#e6e2d8', '#334155', 5, 8),
       roughness: 0.72,
     });
-    const tactileMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15, // Yellow tactile paving strip (점자블록) at crosswalk corners
-      roughness: 0.8,
+    const villaWallMat = new THREE.MeshStandardMaterial({
+      map: this.createFacadeTexture('#c89c82', '#263242', 3, 4),
+      roughness: 0.84,
     });
-    const bollardMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
-      metalness: 0.55,
-      roughness: 0.45,
+    const publicWallMat = new THREE.MeshStandardMaterial({
+      map: this.createFacadeTexture('#cbd5e1', '#0f2942', 4, 6),
+      roughness: 0.4,
+      metalness: 0.25,
     });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.88 });
 
-    // Raised 0.16m Korean sidewalks + granite curbs + yellow tactile blocks + corner bollards for all 25 city blocks!
-    const bollardGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.72, 8);
-    const bollardMatrices: THREE.Matrix4[] = [];
-    const dummy = new THREE.Object3D();
+    for (const b of SUWON_INGYE_DATA.buildings) {
+      if (b.pts.length < 3) continue;
 
-    for (const bx of CITY_BLOCK_CENTERS) {
-      for (const bz of CITY_BLOCK_CENTERS) {
-        // Sidewalk platform (65.6m x 65.6m)
-        const pad = new THREE.Mesh(new THREE.BoxGeometry(65.6, 0.16, 65.6), sidewalkMat);
-        pad.position.set(bx, 0.08, bz);
-        pad.receiveShadow = true;
-        this.root.add(pad);
-
-        // Raised granite curb edging on all 4 sides of each block
-        const curbLen = 65.9;
-        const curbH = 0.2;
-        const curbT = 0.35;
-        for (const side of [-1, 1]) {
-          const cNS = new THREE.Mesh(new THREE.BoxGeometry(curbLen, curbH, curbT), curbMat);
-          cNS.position.set(bx, curbH / 2, bz + side * 32.8);
-          const cEW = new THREE.Mesh(new THREE.BoxGeometry(curbT, curbH, curbLen), curbMat);
-          cEW.position.set(bx + side * 32.8, curbH / 2, bz);
-          this.root.add(cNS, cEW);
-        }
-
-        // Yellow tactile corner pads & protective sidewalk bollards
-        for (const sx of [-1, 1]) {
-          for (const sz of [-1, 1]) {
-            const tac = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.02, 2.6), tactileMat);
-            tac.position.set(bx + sx * 30.8, 0.17, bz + sz * 30.8);
-            this.root.add(tac);
-
-            dummy.position.set(bx + sx * 31.8, 0.52, bz + sz * 31.8);
-            dummy.updateMatrix();
-            bollardMatrices.push(dummy.matrix.clone());
-          }
-        }
+      const shape = new THREE.Shape();
+      shape.moveTo(b.pts[0][0], -b.pts[0][1]);
+      for (let i = 1; i < b.pts.length; i++) {
+        shape.lineTo(b.pts[i][0], -b.pts[i][1]);
       }
-    }
+      shape.closePath();
 
-    const bollards = new THREE.InstancedMesh(bollardGeo, bollardMat, bollardMatrices.length);
-    bollardMatrices.forEach((m, i) => bollards.setMatrixAt(i, m));
-    this.root.add(bollards);
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: b.height,
+        bevelEnabled: false,
+      });
+      // Rotate so extruded +Z becomes +Y upward, and shape -Z becomes world +Z!
+      geo.rotateX(-Math.PI / 2);
 
-    // ======================== CENTRAL 9 BLOCKS (Original Core) ========================
-    // 1. Central Park Plaza (0, 0)
-    const parkGrass = new THREE.Mesh(
-      new THREE.PlaneGeometry(52, 52),
-      new THREE.MeshStandardMaterial({ color: 0x568b52, roughness: 0.92 })
-    );
-    parkGrass.rotation.x = -Math.PI / 2;
-    parkGrass.position.set(0, 0.17, 0);
-    parkGrass.receiveShadow = true;
-    this.root.add(parkGrass);
+      const sideMat =
+        b.kind === 'shop'
+          ? shopWallMat
+          : b.kind === 'residential'
+            ? b.height <= 16
+              ? villaWallMat
+              : aptWallMat
+            : publicWallMat;
 
-    const fountainBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(5.5, 6.0, 0.7, 20),
-      new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.6 })
-    );
-    fountainBase.position.set(0, 0.5, 0);
-    const water = new THREE.Mesh(
-      new THREE.CylinderGeometry(4.8, 4.8, 0.75, 20),
-      new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.15, metalness: 0.2 })
-    );
-    water.position.set(0, 0.53, 0);
-    this.root.add(fountainBase, water);
-    this.obstacles.push({ minX: -5.8, maxX: 5.8, minZ: -5.8, maxZ: 5.8 });
+      const mesh = new THREE.Mesh(geo, [roofMat, sideMat]);
+      mesh.castShadow = b.height >= 18;
+      mesh.receiveShadow = true;
+      this.root.add(mesh);
 
-    // 2. Main Restaurant / Cafe Strip — Block (-80, 0) right next to player spawn!
-    this.addBuilding(-96, -15, 16, 8.5, 14, 0xfef3c7, {
-      signText: '황금 치킨',
-      signColor: '#dc2626',
-      signFace: 'S',
-    });
-    this.addBuilding(-78, -15, 15, 7.5, 14, 0xe2e8f0, {
-      signText: '모닝 커피',
-      signColor: '#0f766e',
-      signFace: 'S',
-    });
-    this.addBuilding(-61, -15, 15, 8.0, 14, 0xffedd5, {
-      signText: '명동 분식',
-      signColor: '#ea580c',
-      signFace: 'S',
-    });
-    this.addBuilding(-80, 14, 42, 12, 16, 0xdbeafe, {
-      signText: '24시 마트',
-      signColor: '#2563eb',
-      signFace: 'N',
-    });
-    this.zones.push({ name: '상가 거리', x: -78, z: -26, type: 'shop' });
+      // Exact rotated/L-shaped 2D polygon collider (with AABB broadphase!) so diagonal Suwon roads stay 100% clear!
+      this.obstacles.push({
+        minX: b.minX,
+        maxX: b.maxX,
+        minZ: b.minZ,
+        maxZ: b.maxZ,
+        pts: b.pts,
+      });
 
-    // 3. South Food Alley — Block (0, -80)
-    this.addBuilding(-14, -70, 18, 9, 15, 0xfde68a, {
-      signText: '수제 버거',
-      signColor: '#b45309',
-      signFace: 'N',
-    });
-    this.addBuilding(14, -70, 18, 8.5, 15, 0xfecdd3, {
-      signText: '화덕 피자',
-      signColor: '#be123c',
-      signFace: 'N',
-    });
-    this.addBuilding(0, -96, 38, 14, 14, 0xcbd5e1);
-    this.zones.push({ name: '남부 식당가', x: 0, z: -56, type: 'shop' });
+      this.buildings.push({
+        x: b.cx,
+        z: b.cz,
+        w: b.w,
+        d: b.d,
+        pts: b.pts,
+        label: b.name ? b.name.slice(0, 12) : undefined,
+        kind: b.kind,
+      });
 
-    // 4. Haetsal Apartments — Block (+80, +80)
-    this.addBuilding(68, 66, 20, 26, 14, 0xe2e8f0, {
-      signText: '햇살 101동',
-      signColor: '#16a34a',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(94, 92, 20, 28, 14, 0xf1f5f9, {
-      signText: '햇살 102동',
-      signColor: '#15803d',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.zones.push({ name: '햇살 아파트', x: 80, z: 54, type: 'residential' });
-
-    // 5. Green Villa Complex — Block (+80, 0)
-    this.addBuilding(66, -12, 16, 12, 15, 0xf5d0a9, {
-      signText: '그린빌라 A',
-      signColor: '#059669',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(92, -12, 16, 12, 15, 0xfde2c4, {
-      signText: '그린빌라 B',
-      signColor: '#059669',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(79, 14, 34, 14, 14, 0xe7e5e4, {
-      signText: '그린빌라 C',
-      signColor: '#047857',
-      signFace: 'N',
-      isResidential: true,
-    });
-    this.zones.push({ name: '그린 빌라 단지', x: 80, z: -26, type: 'residential' });
-
-    // 6. Riverview Apartments — Block (0, +80)
-    this.addBuilding(-14, 80, 20, 24, 16, 0xe0f2fe, {
-      signText: '리버뷰 201동',
-      signColor: '#0284c7',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(15, 80, 20, 26, 16, 0xe2e8f0, {
-      signText: '리버뷰 202동',
-      signColor: '#0284c7',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.zones.push({ name: '리버뷰 아파트', x: 0, z: 56, type: 'residential' });
-
-    // 7-9. Inner corner blocks
-    this.addBuilding(-80, 80, 32, 22, 22, 0xcbd5e1, {
-      signText: '타워 오피스',
-      signColor: '#334155',
-      signFace: 'S',
-    });
-    this.addBuilding(80, -80, 34, 16, 22, 0xf1f5f9, {
-      signText: '스포츠 센터',
-      signColor: '#4f46e5',
-      signFace: 'N',
-    });
-    this.addBuilding(-80, -80, 28, 12, 22, 0xe7e5e4, {
-      signText: '동네 주민센터',
-      signColor: '#0d9488',
-      signFace: 'N',
-    });
-
-    // ======================== 16 NEW EXPANDED OUTER CITY BLOCKS! ========================
-    // West Commercial Strip (-160, 0) -> New Pickup Shops!
-    this.addBuilding(-172, -14, 18, 9.5, 15, 0xfef3c7, {
-      signText: '돈까스 하우스',
-      signColor: '#d97706',
-      signFace: 'S',
-    });
-    this.addBuilding(-148, -14, 18, 9, 15, 0xfee2e2, {
-      signText: '마라탕 천국',
-      signColor: '#b91c1c',
-      signFace: 'S',
-    });
-    this.addBuilding(-160, 14, 38, 18, 16, 0x94a3b8);
-    this.zones.push({ name: '서부 먹자골목', x: -160, z: -26, type: 'shop' });
-
-    // East Commercial Strip (+160, 0) -> New Pickup Shops!
-    this.addBuilding(148, -14, 18, 9, 15, 0xffedd5, {
-      signText: '국밥 명가',
-      signColor: '#9a3412',
-      signFace: 'S',
-    });
-    this.addBuilding(172, -14, 18, 9.5, 15, 0xfce7f3, {
-      signText: '베이커리 카페',
-      signColor: '#db2777',
-      signFace: 'S',
-    });
-    this.addBuilding(160, 14, 38, 20, 16, 0xdbeafe);
-    this.zones.push({ name: '동부 카페거리', x: 160, z: -26, type: 'shop' });
-
-    // North High-Rise Residential — Central Parkview Apartments (0, +160) & (-80, +160)
-    this.addBuilding(-14, 150, 20, 30, 15, 0xf1f5f9, {
-      signText: '파크뷰 301동',
-      signColor: '#0f766e',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(14, 150, 20, 32, 15, 0xe2e8f0, {
-      signText: '파크뷰 302동',
-      signColor: '#0f766e',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.zones.push({ name: '센트럴 파크뷰', x: 0, z: 136, type: 'residential' });
-
-    // NW Officetel & Skyline (-80, +160) & (-160, +160) & (-160, +80)
-    this.addBuilding(-80, 150, 24, 24, 16, 0xe0e7ff, {
-      signText: '하늘 오피스텔',
-      signColor: '#4338ca',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(-160, 160, 34, 34, 24, 0x94a3b8, {
-      signText: '서부 비즈니스 타워',
-      signColor: '#1e293b',
-      signFace: 'S',
-    });
-    this.addBuilding(-160, 80, 36, 18, 24, 0xf8fafc, {
-      signText: '서울 중앙병원',
-      signColor: '#dc2626',
-      signFace: 'S',
-    });
-
-    // NE Bluehill Apartments & Skyline (+80, +160), (+160, +160), (+160, +80)
-    this.addBuilding(80, 150, 24, 29, 15, 0xdbeafe, {
-      signText: '블루힐 401동',
-      signColor: '#1d4ed8',
-      signFace: 'S',
-      isResidential: true,
-    });
-    this.addBuilding(160, 160, 34, 36, 24, 0xcbd5e1, {
-      signText: '메트로 스카이타워',
-      signColor: '#0369a1',
-      signFace: 'S',
-    });
-    this.addBuilding(160, 80, 36, 22, 24, 0xfef3c7, {
-      signText: '스타 백화점',
-      signColor: '#b45309',
-      signFace: 'S',
-    });
-    this.zones.push({ name: '블루힐 단지', x: 80, z: 136, type: 'residential' });
-
-    // South Expanded District: (-160, -80), (-160, -160), (-80, -160), (0, -160), (+80, -160), (+160, -160), (+160, -80)
-    this.addBuilding(-160, -80, 32, 16, 22, 0xe2e8f0, {
-      signText: '시립 도서관',
-      signColor: '#0284c7',
-      signFace: 'N',
-    });
-    this.addBuilding(-160, -160, 36, 26, 24, 0x94a3b8);
-    this.addBuilding(-80, -160, 32, 22, 22, 0xcbd5e1);
-    this.addBuilding(0, -150, 26, 14, 15, 0xf5d0a9, {
-      signText: '소나무 빌라',
-      signColor: '#15803d',
-      signFace: 'N',
-      isResidential: true,
-    });
-    this.zones.push({ name: '소나무 빌라', x: 0, z: -136, type: 'residential' });
-
-    this.addBuilding(80, -160, 34, 24, 22, 0xdbeafe, {
-      signText: '남부 테크노파크',
-      signColor: '#1e40af',
-      signFace: 'N',
-    });
-    this.addBuilding(160, -160, 34, 30, 24, 0x94a3b8);
-    this.addBuilding(160, -80, 34, 20, 24, 0xe7e5e4, {
-      signText: '그랜드 마트',
-      signColor: '#059669',
-      signFace: 'N',
-    });
-  }
-
-  /**
-   * Builds Phase 3 road-facing Service Stations along main boulevard z = -40:
-   * 1. K-Oil Self Gas Station (주유소) at Block (-80, -80) north frontage (x=-80, z=-56)
-   * 2. Neighborhood Motorcycle Repair Center (동네 오토바이 센터) at Block (+80, -80) north frontage (x=78, z=-57)
-   */
-  private buildServiceStations(): void {
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 });
-    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.45 });
-    const yellowMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15,
-      emissive: 0xeab308,
-      emissiveIntensity: 0.4,
-    });
-    const redMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 });
-    const tealMat = new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.4 });
-    const orangeMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.45 });
-    const screenMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0ea5e9,
-      emissiveIntensity: 0.85,
-    });
-
-    // ================= 1. ⛽ K-OIL SELF GAS STATION (x = -80, z = -56) =================
-    const gas = new THREE.Group();
-    gas.position.set(-80, 0.16, -56);
-
-    // Concrete forecourt pad + yellow safety border marking (주유 패드 구역!)
-    const gasPad = new THREE.Mesh(
-      new THREE.PlaneGeometry(18, 12),
-      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.78 })
-    );
-    gasPad.rotation.x = -Math.PI / 2;
-    gasPad.position.y = 0.025;
-    gasPad.receiveShadow = true;
-    gas.add(gasPad);
-
-    const padEdgeH = new THREE.BoxGeometry(18, 0.04, 0.28);
-    const padEdgeV = new THREE.BoxGeometry(0.28, 0.04, 12);
-    for (const s of [-1, 1]) {
-      const eh = new THREE.Mesh(padEdgeH, yellowMat);
-      eh.position.set(0, 0.03, s * 5.86);
-      const ev = new THREE.Mesh(padEdgeV, yellowMat);
-      ev.position.set(s * 8.86, 0.03, 0);
-      gas.add(eh, ev);
-    }
-
-    // Overhead illuminated canopy & 4 columns
-    const canopy = new THREE.Mesh(new THREE.BoxGeometry(17.5, 0.9, 9.2), whiteMat);
-    canopy.position.set(0, 4.7, -0.4);
-    canopy.castShadow = true;
-    const fascia = new THREE.Mesh(new THREE.BoxGeometry(17.7, 0.55, 9.4), tealMat);
-    fascia.position.set(0, 4.95, -0.4);
-    gas.add(canopy, fascia);
-
-    const gasSignTex = this.createSignTexture('⛽ K-오일 셀프주유소', '#0f766e', '#fef08a');
-    const gasSignMat = new THREE.MeshStandardMaterial({
-      map: gasSignTex,
-      emissive: 0x14b8a6,
-      emissiveIntensity: 0.45,
-    });
-    const gasSignN = new THREE.Mesh(new THREE.PlaneGeometry(11.5, 1.3), gasSignMat);
-    gasSignN.position.set(0, 4.95, 4.35);
-    const gasSignS = new THREE.Mesh(new THREE.PlaneGeometry(11.5, 1.3), gasSignMat);
-    gasSignS.position.set(0, 4.95, -5.15);
-    gasSignS.rotation.y = Math.PI;
-    gas.add(gasSignN, gasSignS);
-
-    for (const px of [-6.5, 6.5]) {
-      for (const pz of [-3.2, 2.4]) {
-        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 4.5, 0.55), whiteMat);
-        pillar.position.set(px, 2.25, pz);
-        pillar.castShadow = true;
-        gas.add(pillar);
-        this.obstacles.push({
-          minX: -80 + px - 0.35,
-          maxX: -80 + px + 0.35,
-          minZ: -56 + pz - 0.35,
-          maxZ: -56 + pz + 0.35,
+      // Add high-visibility Korean rooftop/landmark billboard on famous named Suwon buildings!
+      if (
+        b.name &&
+        (b.name.includes('롯데시네마') ||
+          b.name.includes('뉴코아') ||
+          b.name.includes('CGV') ||
+          b.name.includes('Homeplus') ||
+          b.name.includes('한화꿈에그린') ||
+          b.name.includes('한라비발디') ||
+          b.name.includes('수원프라자') ||
+          b.name.includes('삼성화재') ||
+          b.name.includes('국민연금'))
+      ) {
+        const bgHex =
+          b.kind === 'residential' ? '#1e3a8a' : b.name.includes('CGV') ? '#b91c1c' : '#0f172a';
+        const sign = new THREE.Mesh(
+          new THREE.BoxGeometry(Math.min(12, Math.max(5.5, b.w * 0.6)), 2.2, 0.35),
+          new THREE.MeshBasicMaterial({ map: this.createSignTexture(b.name.slice(0, 14), bgHex, '#f8fafc') })
+        );
+        sign.position.set(b.cx, b.height + 1.3, b.cz);
+        this.root.add(sign);
+        this.zones.push({
+          name: b.name.slice(0, 14),
+          x: b.cx,
+          z: b.cz,
+          type: b.kind === 'residential' ? 'residential' : 'shop',
         });
       }
     }
+  }
 
-    // Central Self-Service Fuel Pump Island (x = -80, z = -56)
-    const island = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.22, 1.4), whiteMat);
-    island.position.set(0, 0.11, 0);
-    gas.add(island);
-    for (const dx of [-1.2, 1.2]) {
-      const pumpBody = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.75, 0.65), redMat);
-      pumpBody.position.set(dx, 1.0, 0);
-      pumpBody.castShadow = true;
-      const pumpTop = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.28, 0.72), yellowMat);
-      pumpTop.position.set(dx, 1.98, 0);
-      const pumpScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.44), screenMat);
-      pumpScreen.position.set(dx, 1.38, 0.34);
-      const pumpScreenBack = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.44), screenMat);
-      pumpScreenBack.position.set(dx, 1.38, -0.34);
-      pumpScreenBack.rotation.y = Math.PI;
-      gas.add(pumpBody, pumpTop, pumpScreen, pumpScreenBack);
-    }
-    this.obstacles.push({ minX: -82.2, maxX: -77.8, minZ: -56.7, maxZ: -55.3 });
+  /** Builds the iconic Suwon City Hall Station (수원시청역 수인분당선) entrance landmark */
+  private buildSuwonStationLandmark(): void {
+    const st = SUWON_INGYE_DATA.meta.station;
+    const g = new THREE.Group();
+    g.position.set(st.x, 0, st.z);
 
-    // Price Totem Sign at roadside corner
-    const totem = new THREE.Mesh(new THREE.BoxGeometry(1.5, 4.6, 0.55), darkMat);
-    totem.position.set(-8.6, 2.3, 4.4);
-    const priceTex = this.createSignTexture('휘발유 ₩40/1%', '#1e293b', '#4ade80');
-    const priceFace = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.38, 1.2),
-      new THREE.MeshBasicMaterial({ map: priceTex })
-    );
-    priceFace.position.set(-8.6, 3.4, 4.7);
-    gas.add(totem, priceFace);
-    this.obstacles.push({ minX: -89.4, maxX: -87.8, minZ: -52.0, maxZ: -51.1 });
-
-    this.root.add(gas);
-    this.serviceStations.push({
-      name: 'K-오일 셀프주유소',
-      kind: 'gas',
-      padMinX: -89,
-      padMaxX: -71,
-      padMinZ: -62.5,
-      padMaxZ: -48.5,
-      interactX: -80,
-      interactZ: -56,
-      interactRadius: 4.0,
+    const yellowMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.35,
+      roughness: 0.35,
     });
-    this.zones.push({ name: 'K-오일 주유소', x: -80, z: -50, type: 'shop' });
-
-    // ================= 2. 🔧 NEIGHBORHOOD MOTORCYCLE REPAIR CENTER (x = 78, z = -57) =================
-    const rep = new THREE.Group();
-    rep.position.set(78, 0.16, -57);
-
-    // Orange-bordered service bay pad in front of garage (z = -57..-49)
-    const repPad = new THREE.Mesh(
-      new THREE.PlaneGeometry(15, 9),
-      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 })
-    );
-    repPad.rotation.x = -Math.PI / 2;
-    repPad.position.set(0, 0.025, 2.2);
-    repPad.receiveShadow = true;
-    rep.add(repPad);
-
-    const rEdgeH = new THREE.BoxGeometry(15, 0.04, 0.25);
-    const rEdgeV = new THREE.BoxGeometry(0.25, 0.04, 9);
-    for (const s of [-1, 1]) {
-      const eh = new THREE.Mesh(rEdgeH, orangeMat);
-      eh.position.set(0, 0.03, 2.2 + s * 4.38);
-      const ev = new THREE.Mesh(rEdgeV, orangeMat);
-      ev.position.set(s * 7.38, 0.03, 2.2);
-      rep.add(eh, ev);
-    }
-
-    // Garage Structure (back half of lot, leaving spacious pad facing road z = -40!)
-    const garageBody = new THREE.Mesh(new THREE.BoxGeometry(14, 4.6, 5.2), darkMat);
-    garageBody.position.set(0, 2.3, -4.8);
-    garageBody.castShadow = true;
-    garageBody.receiveShadow = true;
-    const garageTrim = new THREE.Mesh(new THREE.BoxGeometry(14.3, 0.45, 5.5), orangeMat);
-    garageTrim.position.set(0, 4.65, -4.8);
-    const garageAwning = new THREE.Mesh(new THREE.BoxGeometry(13.6, 0.24, 3.2), orangeMat);
-    garageAwning.position.set(0, 3.4, -1.1);
-
-    const repSignTex = this.createSignTexture('🔧 번개 오토바이 센터', '#ea580c', '#ffffff');
-    const repSign = new THREE.Mesh(
-      new THREE.PlaneGeometry(11.2, 1.35),
-      new THREE.MeshStandardMaterial({
-        map: repSignTex,
-        emissive: 0xf97316,
-        emissiveIntensity: 0.4,
-      })
-    );
-    repSign.position.set(0, 4.15, -2.14);
-
-    // Open service bay interior & red tool chest
-    const bayDoor = new THREE.Mesh(
-      new THREE.PlaneGeometry(7.2, 2.9),
-      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
-    );
-    bayDoor.position.set(-1.5, 1.48, -2.18);
-    const toolChest = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.15, 0.7), redMat);
-    toolChest.position.set(4.5, 0.58, -1.7);
-    const counterDesk = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.05, 0.8), whiteMat);
-    counterDesk.position.set(2.4, 0.52, -1.7);
-
-    rep.add(garageBody, garageTrim, garageAwning, repSign, bayDoor, toolChest, counterDesk);
-    this.obstacles.push({ minX: 71, maxX: 85, minZ: -64.6, maxZ: -59.0 });
-
-    this.root.add(rep);
-    this.serviceStations.push({
-      name: '번개 오토바이 센터',
-      kind: 'repair',
-      padMinX: 70,
-      padMaxX: 86,
-      padMinZ: -60.5,
-      padMaxZ: -49.5,
-      interactX: 79.5,
-      interactZ: -57.2,
-      interactRadius: 4.4,
-    });
-    this.zones.push({ name: '오토바이 정비센터', x: 78, z: -50, type: 'shop' });
-  }
-
-  public isScooterOnGasPad(x: number, z: number): boolean {
-    const s = this.serviceStations.find((st) => st.kind === 'gas');
-    if (!s) return false;
-    return x >= s.padMinX && x <= s.padMaxX && z >= s.padMinZ && z <= s.padMaxZ;
-  }
-
-  public isPlayerNearGasPump(x: number, z: number): boolean {
-    const s = this.serviceStations.find((st) => st.kind === 'gas');
-    if (!s) return false;
-    return Math.hypot(x - s.interactX, z - s.interactZ) <= s.interactRadius;
-  }
-
-  public isScooterOnRepairPad(x: number, z: number): boolean {
-    const s = this.serviceStations.find((st) => st.kind === 'repair');
-    if (!s) return false;
-    return x >= s.padMinX && x <= s.padMaxX && z >= s.padMinZ && z <= s.padMaxZ;
-  }
-
-  public isPlayerNearRepairShop(x: number, z: number): boolean {
-    const s = this.serviceStations.find((st) => st.kind === 'repair');
-    if (!s) return false;
-    return Math.hypot(x - s.interactX, z - s.interactZ) <= s.interactRadius;
-  }
-
-  /**
-   * Builds 8 realistic Korean Bus Stops (버스정류장) along main boulevards
-   * with shelters, benches, BIT LED signs, and yellow road bus bays!
-   */
-  private buildBusStops(): void {
-    // roadIndex in [-200(0), -120(1), -40(2), 40(3), 120(4), 200(5)]
-    const defs: BusStopPoint[] = [
-      // Along z = -40 (roadIndex 2): Eastbound (+X, dir=1, lane z=-36.5, sidewalk z=-31)
-      { name: '중앙공원 남문', x: -12, z: -36.5, shelterX: -12, shelterZ: -31.2, dir: 1, roadIndex: 2 },
-      { name: '동부 카페거리', x: 148, z: -36.5, shelterX: 148, shelterZ: -31.2, dir: 1, roadIndex: 2 },
-      // Along z = -40 (roadIndex 2): Westbound (-X, dir=3, lane z=-43.5, sidewalk z=-49)
-      { name: '남부 식당가', x: 14, z: -43.5, shelterX: 14, shelterZ: -48.8, dir: 3, roadIndex: 2 },
-      { name: '서부 도서관 앞', x: -146, z: -43.5, shelterX: -146, shelterZ: -48.8, dir: 3, roadIndex: 2 },
-      // Along z = +40 (roadIndex 3): Eastbound (+X, dir=1, lane z=43.5, sidewalk z=49)
-      { name: '리버뷰 아파트', x: -14, z: 43.5, shelterX: -14, shelterZ: 48.8, dir: 1, roadIndex: 3 },
-      { name: '햇살 아파트', x: 78, z: 43.5, shelterX: 78, shelterZ: 48.8, dir: 1, roadIndex: 3 },
-      // Along z = +40 (roadIndex 3): Westbound (-X, dir=3, lane z=36.5, sidewalk z=31)
-      { name: '중앙공원 북문', x: 14, z: 36.5, shelterX: 14, shelterZ: 31.2, dir: 3, roadIndex: 3 },
-      { name: '상가거리 북문', x: -82, z: 36.5, shelterX: -82, shelterZ: 31.2, dir: 3, roadIndex: 3 },
-    ];
-
-    const steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.65, roughness: 0.35 });
     const glassMat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
       transparent: true,
-      opacity: 0.36,
+      opacity: 0.48,
       roughness: 0.15,
     });
-    const benchMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.8 });
-    const bayMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-    const signBoardTex = this.createSignTexture('🚌 BUS 101 · 402', '#1d4ed8', '#ffffff');
-    const signBoardMat = new THREE.MeshStandardMaterial({
-      map: signBoardTex,
-      emissive: 0x1e40af,
-      emissiveIntensity: 0.5,
-    });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
 
-    for (const stop of defs) {
-      this.busStops.push(stop);
+    // Subway exit canopy roof & glass walls
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.35, 3.6), darkMat);
+    roof.position.set(0, 3.25, 0);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.45, 3.7), yellowMat);
+    band.position.set(0, 3.55, 0);
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(6.2, 3.1, 0.14), glassMat);
+    backWall.position.set(0, 1.55, -1.7);
 
-      const g = new THREE.Group();
-      g.position.set(stop.shelterX, 0.16, stop.shelterZ);
-      // dir 1 (+X Eastbound) shelter is on north sidewalk (+Z) facing South (-Z, rotY = PI)
-      // dir 3 (-X Westbound) shelter is on south sidewalk (-Z) facing North (+Z, rotY = 0)
-      if (stop.dir === 1) {
-        g.rotation.y = Math.PI;
-      }
+    // Tall yellow Suin-Bundang Line Totem Sign
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 5.2, 10), darkMat);
+    pole.position.set(3.6, 2.6, 0);
+    const signBoard = new THREE.Mesh(
+      new THREE.BoxGeometry(4.8, 1.25, 0.25),
+      new THREE.MeshBasicMaterial({
+        map: this.createSignTexture('🚇 수원시청역 (수인분당선)', '#f59e0b', '#0f172a'),
+      })
+    );
+    signBoard.position.set(0, 4.4, 0);
 
-      // Canopy roof & 2 rear pillars
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.16, 2.0), steelMat);
-      roof.position.set(0, 2.65, 0);
-      roof.castShadow = true;
-      g.add(roof);
+    g.add(roof, band, backWall, pole, signBoard);
+    this.root.add(g);
 
-      for (const sx of [-2.4, 2.4]) {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.65, 8), steelMat);
-        post.position.set(sx, 1.32, -0.75);
-        g.add(post);
-      }
-
-      // Back wind-shield glass panel
-      const backGlass = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.1, 0.08), glassMat);
-      backGlass.position.set(0, 1.35, -0.75);
-      g.add(backGlass);
-
-      // Waiting bench
-      const bench = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.12, 0.55), benchMat);
-      bench.position.set(0, 0.52, -0.35);
-      g.add(bench);
-
-      // Tall Korean Blue Bus Stop Signpost + BIT LED arrival board
-      const signPole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.3, 8), steelMat);
-      signPole.position.set(3.2, 1.65, 0.25);
-      const signPanel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.55, 0.14), signBoardMat);
-      signPanel.position.set(3.2, 2.95, 0.25);
-      g.add(signPole, signPanel);
-
-      this.root.add(g);
-
-      // Painted Yellow Bus Bay box on the asphalt in front of the shelter!
-      const bayL = 12.5;
-      const bayW = 3.8;
-      for (const zOff of [-bayW / 2, bayW / 2]) {
-        const line = new THREE.Mesh(new THREE.PlaneGeometry(bayL, 0.22), bayMat);
-        line.rotation.x = -Math.PI / 2;
-        line.position.set(stop.x, 0.044, stop.z + zOff);
-        this.root.add(line);
-      }
-      for (const xOff of [-bayL / 2, bayL / 2]) {
-        const line = new THREE.Mesh(new THREE.PlaneGeometry(0.22, bayW), bayMat);
-        line.rotation.x = -Math.PI / 2;
-        line.position.set(stop.x + xOff, 0.044, stop.z);
-        this.root.add(line);
-      }
-    }
+    this.zones.push({ name: '수원시청역 (인계동)', x: st.x, z: st.z, type: 'shop' });
+    this.zones.push({ name: '나혜석거리 상권', x: -120, z: 120, type: 'shop' });
   }
 
-  private buildStreetFurniture(): void {
-    // Streetlamps at key block corners
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4 });
-    const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 6.2, 6);
-    const lampGeo = new THREE.BoxGeometry(0.55, 0.14, 0.28);
+  /** Builds K-Oil Self-Service Gas Station & Lightning Motorcycle Repair Center in open roadside bays */
+  private buildServiceStations(): void {
+    const gas = SUWON_INGYE_DATA.serviceSpots.gas;
+    const rep = SUWON_INGYE_DATA.serviceSpots.repair;
 
-    const lampOffsets = [-191, -111, -31, 31, 111, 191];
-    for (const cx of lampOffsets) {
-      for (const cz of lampOffsets) {
-        const g = new THREE.Group();
-        g.position.set(cx, 0.16, cz);
-        const pole = new THREE.Mesh(poleGeo, poleMat);
-        pole.position.y = 3.1;
-        const lamp = new THREE.Mesh(lampGeo, this.lampGlowMat);
-        lamp.position.y = 6.2;
-        g.add(pole, lamp);
-        this.root.add(g);
-      }
+    // 1. 인계 K-오일 셀프주유소
+    const gasGroup = new THREE.Group();
+    gasGroup.position.set(gas.x, 0, gas.z);
+    gasGroup.rotation.y = gas.facingHeading;
+
+    const padMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.7 });
+    const gasPad = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.06, 4.4), padMat);
+    gasPad.position.set(0, 0.04, 1.4);
+    const canopyMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.45 });
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.5, 4.8), canopyMat);
+    canopy.position.set(0, 3.85, 0.6);
+    const gasSign = new THREE.Mesh(
+      new THREE.BoxGeometry(6.2, 0.85, 0.18),
+      new THREE.MeshBasicMaterial({ map: this.createSignTexture('⛽ 인계 K-오일 셀프주유소', '#eab308', '#0f172a') })
+    );
+    gasSign.position.set(0, 4.45, 2.95);
+
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.4, roughness: 0.4 });
+    for (const px of [-2.8, 2.8]) {
+      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.35, 3.8, 0.35), pillarMat);
+      pil.position.set(px, 1.9, -1.2);
+      gasGroup.add(pil);
     }
+    const pump = new THREE.Mesh(
+      new THREE.BoxGeometry(0.85, 1.65, 0.65),
+      new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 })
+    );
+    pump.position.set(0, 0.84, -0.7);
+    gasGroup.add(gasPad, canopy, gasSign, pump);
+    this.root.add(gasGroup);
 
-    // Street trees in Central Park, along wide sidewalks, and outer greenbelt (InstancedMesh!)
-    const treeCoords: Array<[number, number, number]> = [
-      [-18, -18, 1.0],
-      [18, -18, 1.1],
-      [-18, 18, 1.05],
-      [18, 18, 0.95],
-      [-20, 0, 0.9],
-      [20, 0, 1.0],
-      [0, -20, 0.95],
-      [0, 20, 1.05],
-    ];
-    for (let p = -235; p <= 235; p += 24) {
-      treeCoords.push([p, -248, 1.2]);
-      treeCoords.push([p, 248, 1.2]);
-      treeCoords.push([-248, p, 1.2]);
-      treeCoords.push([248, p, 1.2]);
-    }
-
-    const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 2.4, 7);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4f35, roughness: 0.9 });
-    const crownGeo = new THREE.SphereGeometry(1.9, 8, 7);
-    const crownMat = new THREE.MeshStandardMaterial({ color: 0x2f7a42, roughness: 0.85 });
-
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCoords.length);
-    const crowns = new THREE.InstancedMesh(crownGeo, crownMat, treeCoords.length);
-    trunks.castShadow = true;
-    crowns.castShadow = true;
-
-    const dummy = new THREE.Object3D();
-    treeCoords.forEach(([x, z, s], i) => {
-      dummy.position.set(x, 1.2 * s, z);
-      dummy.scale.set(s, s, s);
-      dummy.updateMatrix();
-      trunks.setMatrixAt(i, dummy.matrix);
-
-      dummy.position.set(x, 3.6 * s, z);
-      dummy.scale.set(s, s, s);
-      dummy.updateMatrix();
-      crowns.setMatrixAt(i, dummy.matrix);
+    this.serviceStations.push({
+      name: '인계 K-오일 셀프주유소',
+      kind: 'gas',
+      padMinX: gas.x - 5.2,
+      padMaxX: gas.x + 5.2,
+      padMinZ: gas.z - 5.2,
+      padMaxZ: gas.z + 5.2,
+      interactX: gas.x,
+      interactZ: gas.z,
+      interactRadius: 5.5,
     });
-    this.root.add(trunks, crowns);
+
+    // 2. 인계 번개 오토바이 센터
+    const repGroup = new THREE.Group();
+    repGroup.position.set(rep.x, 0, rep.z);
+    repGroup.rotation.y = rep.facingHeading;
+
+    const repPad = new THREE.Mesh(
+      new THREE.BoxGeometry(5.6, 0.06, 4.4),
+      new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.72 })
+    );
+    repPad.position.set(0, 0.04, 1.4);
+    const garage = new THREE.Mesh(
+      new THREE.BoxGeometry(6.2, 3.6, 2.4),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.65 })
+    );
+    garage.position.set(0, 1.8, -1.5);
+    const repSign = new THREE.Mesh(
+      new THREE.BoxGeometry(6.0, 0.9, 0.2),
+      new THREE.MeshBasicMaterial({ map: this.createSignTexture('🔧 인계 번개 오토바이 센터', '#ea580c', '#ffffff') })
+    );
+    repSign.position.set(0, 3.9, -0.25);
+    repGroup.add(repPad, garage, repSign);
+    this.root.add(repGroup);
+
+    this.serviceStations.push({
+      name: '인계 번개 오토바이 센터',
+      kind: 'repair',
+      padMinX: rep.x - 5.2,
+      padMaxX: rep.x + 5.2,
+      padMinZ: rep.z - 5.2,
+      padMaxZ: rep.z + 5.2,
+      interactX: rep.x,
+      interactZ: rep.z,
+      interactRadius: 5.5,
+    });
+  }
+
+  public isScooterOnGasPad(sx: number, sz: number): boolean {
+    const st = this.serviceStations.find((s) => s.kind === 'gas');
+    if (!st) return false;
+    return sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ;
+  }
+
+  public isPlayerNearGasPump(px: number, pz: number): boolean {
+    const st = this.serviceStations.find((s) => s.kind === 'gas');
+    if (!st) return false;
+    return Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius;
+  }
+
+  public isScooterOnRepairPad(sx: number, sz: number): boolean {
+    const st = this.serviceStations.find((s) => s.kind === 'repair');
+    if (!st) return false;
+    return sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ;
+  }
+
+  public isPlayerNearRepairShop(px: number, pz: number): boolean {
+    const st = this.serviceStations.find((s) => s.kind === 'repair');
+    if (!st) return false;
+    return Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius;
+  }
+
+  /** Builds 8 real Suwon City Hall Station / NewCore / Ingye bus stops from OSM */
+  private buildBusStops(): void {
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.65, roughness: 0.35 });
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0xbae6fd,
+      transparent: true,
+      opacity: 0.42,
+      roughness: 0.15,
+    });
+    const benchMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.65 });
+
+    for (const bs of SUWON_INGYE_DATA.busStops) {
+      this.busStops.push({
+        name: bs.name,
+        x: bs.x,
+        z: bs.z,
+        shelterX: bs.shelterX,
+        shelterZ: bs.shelterZ,
+        facingHeading: bs.facingHeading,
+        edgeIndex: bs.edgeIndex,
+      });
+
+      const g = new THREE.Group();
+      g.position.set(bs.shelterX, 0.05, bs.shelterZ);
+      g.rotation.y = bs.facingHeading;
+
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.14, 1.6), steelMat);
+      roof.position.set(0, 2.55, 0);
+      const backGlass = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.0, 0.08), glassMat);
+      backGlass.position.set(0, 1.35, -0.65);
+      const bench = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.12, 0.48), benchMat);
+      bench.position.set(0, 0.5, -0.3);
+
+      const signMat = new THREE.MeshBasicMaterial({
+        map: this.createSignTexture(`🚌 ${bs.name.slice(0, 12)}`, '#1d4ed8', '#ffffff'),
+      });
+      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.55, 0.12), signMat);
+      signBoard.position.set(0, 2.95, 0.65);
+      g.add(roof, backGlass, bench, signBoard);
+      this.root.add(g);
+    }
   }
 
   private initDeliveryLocations(): void {
-    this.locations.push(
-      // 9 Pickup Shops (5 core + 4 new outer commercial strips!)
-      {
-        id: 'shop-chicken',
-        name: '황금 치킨',
-        x: -96,
-        z: -25.5,
+    for (const s of SUWON_INGYE_DATA.shops) {
+      this.locations.push({
+        id: s.id,
+        name: s.name,
+        x: s.x,
+        z: s.z,
         type: 'shop',
-        emoji: '🍗',
-        menus: ['후라이드 치킨 + 콜라', '양념반 후라이드반 세트', '순살 간장치킨 + 치즈볼'],
-      },
-      {
-        id: 'shop-coffee',
-        name: '모닝 커피',
-        x: -78,
-        z: -25.5,
-        type: 'shop',
-        emoji: '☕',
-        menus: ['아이스 아메리카노 2잔', '바닐라 라떼 + 크루아상', '딸기 스무디 + 케이크'],
-      },
-      {
-        id: 'shop-bunsik',
-        name: '명동 분식',
-        x: -61,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🍢',
-        menus: ['로제 떡볶이 + 모둠튀김', '김밥 2줄 + 라볶이 세트', '순대 + 오뎅탕 세트'],
-      },
-      {
-        id: 'shop-burger',
-        name: '수제 버거',
-        x: -14,
-        z: -58.5,
-        type: 'shop',
-        emoji: '🍔',
-        facesNorth: true,
-        menus: ['더블치즈 버거 세트', '베이컨 BBQ 버거 + 감튀', '크리스피 치킨버거 세트'],
-      },
-      {
-        id: 'shop-pizza',
-        name: '화덕 피자',
-        x: 14,
-        z: -58.5,
-        type: 'shop',
-        emoji: '🍕',
-        facesNorth: true,
-        menus: ['페퍼로니 라지 피자', '콤비네이션 피자 + 스파게티', '고르곤졸라 + 갈릭디핑'],
-      },
-      {
-        id: 'shop-katsu',
-        name: '돈까스 하우스',
-        x: -172,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🍛',
-        menus: ['등심 돈까스 정식', '치즈 돈까스 + 우동 세트', '안심 카츠 + 카레'],
-      },
-      {
-        id: 'shop-mara',
-        name: '마라탕 천국',
-        x: -148,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🍲',
-        menus: ['마라탕 2단계 + 꿔바로우', '마라샹궈 2인 세트', '계란볶음밥 + 마라탕'],
-      },
-      {
-        id: 'shop-gukbap',
-        name: '국밥 명가',
-        x: 148,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🍚',
-        menus: ['돼지국밥 특 + 수육', '순대국밥 2인 세트', '얼큰 육개장 정식'],
-      },
-      {
-        id: 'shop-bakery',
-        name: '베이커리 카페',
-        x: 172,
-        z: -25.5,
-        type: 'shop',
-        emoji: '🥐',
-        menus: ['소금빵 4개 + 아메리카노', '생크림 케이크 박스', '샌드위치 + 라떼 세트'],
-      },
-
-      // 12 Residential Delivery Buildings (7 core + 5 new outer complexes! 4 walk-up villas with NO elevator!)
-      { id: 'res-sun-101', name: '햇살 아파트 101동', x: 68, z: 55, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-sun-102', name: '햇살 아파트 102동', x: 94, z: 81, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-villa-a', name: '그린빌라 A동', x: 66, z: -23.5, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠' },
-      { id: 'res-villa-b', name: '그린빌라 B동', x: 92, z: -23.5, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠' },
-      { id: 'res-villa-c', name: '그린빌라 C동', x: 79, z: 25, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠', facesNorth: true },
-      { id: 'res-river-201', name: '리버뷰 201동', x: -14, z: 68, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-river-202', name: '리버뷰 202동', x: 15, z: 68, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-park-301', name: '파크뷰 301동', x: -14, z: 138.5, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-park-302', name: '파크뷰 302동', x: 14, z: 138.5, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-sky-off', name: '하늘 오피스텔', x: -80, z: 138, type: 'residential', residenceKind: 'officetel', emoji: '🏬' },
-      { id: 'res-blue-401', name: '블루힐 401동', x: 80, z: 138.5, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
-      { id: 'res-pine-villa', name: '소나무 빌라', x: 0, z: -138.5, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠', facesNorth: true }
-    );
+        emoji: s.emoji,
+        facingHeading: s.facingHeading,
+        menus: s.menus,
+      });
+    }
+    for (const r of SUWON_INGYE_DATA.residences) {
+      this.locations.push({
+        id: r.id,
+        name: r.name,
+        x: r.x,
+        z: r.z,
+        type: 'residential',
+        residenceKind: r.residenceKind,
+        emoji: r.emoji,
+        facingHeading: r.facingHeading,
+      });
+    }
   }
 
+  /** Builds outdoor pickup counters & residential glass lobby portals oriented cleanly toward each Suwon road */
   private buildPickupWindowsAndLobbies(): void {
-    const counterMat = new THREE.MeshStandardMaterial({
-      color: 0xcbd5e1,
-      roughness: 0.35,
-      metalness: 0.45,
-    });
+    const counterMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.35, metalness: 0.45 });
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 });
     const screenMat = new THREE.MeshStandardMaterial({
       color: 0x0ea5e9,
@@ -1536,86 +1139,112 @@ export class CityWorld {
       roughness: 0.12,
       metalness: 0.3,
       transparent: true,
-      opacity: 0.46,
+      opacity: 0.48,
     });
     const pinPadMat = new THREE.MeshStandardMaterial({
       color: 0x1e293b,
       emissive: 0x22c55e,
-      emissiveIntensity: 0.55,
+      emissiveIntensity: 0.6,
     });
 
     for (const loc of this.locations) {
-      const facesNorth = Boolean(loc.facesNorth);
-      const wallOffsetZ = facesNorth ? -2.9 : 2.9;
+      const heading = loc.facingHeading ?? 0;
+      const g = new THREE.Group();
+      // Place slightly back from the interaction point so player stands cleanly on sidewalk facing counter/lobby
+      const backX = -Math.sin(heading) * 1.1;
+      const backZ = -Math.cos(heading) * 1.1;
+      g.position.set(loc.x + backX, 0.05, loc.z + backZ);
+      g.rotation.y = heading;
 
       if (loc.type === 'shop') {
-        const g = new THREE.Group();
-        g.position.set(loc.x, 0.16, loc.z + wallOffsetZ);
-        if (!facesNorth) g.rotation.y = Math.PI;
-
-        const counter = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.05, 0.72), counterMat);
-        counter.position.set(0, 0.52, 0.36);
-        counter.castShadow = true;
-        g.add(counter);
-
-        const windowFrame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.2, 0.18), darkMat);
-        windowFrame.position.set(0, 1.65, 0.1);
-        g.add(windowFrame);
+        const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.72), counterMat);
+        counter.position.set(0, 0.52, 0);
+        const awning = new THREE.Mesh(
+          new THREE.BoxGeometry(3.0, 0.65, 0.25),
+          new THREE.MeshBasicMaterial({
+            map: this.createSignTexture(`${loc.emoji} ${loc.name}`, '#c2410c', '#fff7ed'),
+          })
+        );
+        awning.position.set(0, 2.35, 0.15);
 
         const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), darkMat);
-        posStand.position.set(0.85, 1.18, 0.45);
+        posStand.position.set(0.82, 1.18, 0.08);
         posStand.rotation.x = -0.35;
         const posScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.22), screenMat);
-        posScreen.position.set(0.85, 1.21, 0.58);
+        posScreen.position.set(0.82, 1.21, 0.21);
         posScreen.rotation.x = -0.35;
 
-        // Outdoor Pickup Counter Tray + Spawnable 3D Food Bag + Cooking/Ready Status Lamp!
         const tray = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.032, 0.42), darkMat);
-        tray.position.set(-0.35, 1.06, 0.36);
+        tray.position.set(-0.35, 1.06, 0.04);
         const trayLedMat = new THREE.MeshStandardMaterial({
           color: 0x1e293b,
           emissive: 0xfacc15,
-          emissiveIntensity: 0.05,
+          emissiveIntensity: 0.08,
         });
         const trayLed = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.035, 0.03), trayLedMat);
-        trayLed.position.set(-0.35, 1.07, 0.57);
+        trayLed.position.set(-0.35, 1.07, 0.25);
 
         const trayBag = HandheldFoodBag3D.createFoodBagMesh();
-        trayBag.position.set(-0.35, 1.21, 0.36);
+        trayBag.position.set(-0.35, 1.21, 0.04);
         trayBag.scale.set(1.12, 1.12, 1.12);
         trayBag.visible = false;
 
         this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
-        g.add(posStand, posScreen, tray, trayLed, trayBag);
-
+        g.add(counter, awning, posStand, posScreen, tray, trayLed, trayBag);
         this.root.add(g);
       } else {
-        const g = new THREE.Group();
-        g.position.set(loc.x, 0.16, loc.z + wallOffsetZ);
-        if (!facesNorth) g.rotation.y = Math.PI;
-
-        const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.75, 0.45), darkMat);
-        archFrame.position.set(0, 1.38, 0.2);
+        const isVilla = loc.residenceKind === 'walkup_villa';
+        const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), darkMat);
+        archFrame.position.set(0, 1.35, 0);
         const innerCut = new THREE.Mesh(
-          new THREE.BoxGeometry(2.5, 2.45, 0.48),
+          new THREE.BoxGeometry(2.35, 2.4, 0.45),
           new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
         );
-        innerCut.position.set(0, 1.24, 0.18);
-        g.add(archFrame, innerCut);
+        innerCut.position.set(0, 1.2, -0.02);
 
-        const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.38, 0.08), glassDoorMat);
-        leftDoor.position.set(-0.6, 1.2, 0.46);
-        const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.18, 2.38, 0.08), glassDoorMat);
-        rightDoor.position.set(0.6, 1.2, 0.46);
-        g.add(leftDoor, rightDoor);
+        const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), glassDoorMat);
+        leftDoor.position.set(-0.56, 1.18, 0.22);
+        const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), glassDoorMat);
+        rightDoor.position.set(0.56, 1.18, 0.22);
 
-        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.08), pinPadMat);
-        pad.position.set(1.42, 1.32, 0.46);
-        g.add(pad);
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.36, 0.08), pinPadMat);
+        pad.position.set(1.32, 1.3, 0.22);
+
+        const signBg = isVilla ? '#065f46' : '#1e3a8a';
+        const lobbySign = new THREE.Mesh(
+          new THREE.BoxGeometry(3.2, 0.62, 0.2),
+          new THREE.MeshBasicMaterial({
+            map: this.createSignTexture(`${loc.emoji} ${loc.name}`, signBg, '#f8fafc'),
+          })
+        );
+        lobbySign.position.set(0, 3.0, 0.16);
 
         this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: false });
+        g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
         this.root.add(g);
       }
+    }
+  }
+
+  private buildStreetLamps(): void {
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4 });
+    const poleGeo = new THREE.CylinderGeometry(0.08, 0.11, 6.2, 6);
+    const lampGeo = new THREE.BoxGeometry(0.52, 0.14, 0.26);
+
+    const lampPositions: Array<[number, number]> = [];
+    for (const n of SUWON_INGYE_DATA.nodes) {
+      if (!n.isSignal) continue;
+      lampPositions.push([n.x + 8.0, n.z + 8.0], [n.x - 8.0, n.z - 8.0]);
+    }
+    for (const [lx, lz] of lampPositions) {
+      const g = new THREE.Group();
+      g.position.set(lx, 0.05, lz);
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.y = 3.1;
+      const lamp = new THREE.Mesh(lampGeo, this.lampGlowMat);
+      lamp.position.y = 6.2;
+      g.add(pole, lamp);
+      this.root.add(g);
     }
   }
 
@@ -1625,7 +1254,6 @@ export class CityWorld {
     }
   }
 
-  /** Spawns 3D takeout bags on shop pickup trays when ready, and pulses amber/emerald status LEDs */
   public syncShopPickupTrays(
     cookingShopIds: Set<string>,
     readyShopIds: Set<string>,
@@ -1643,7 +1271,7 @@ export class CityWorld {
         entry.ledMat.emissive.setHex(0xfacc15);
         entry.ledMat.emissiveIntensity = 1.0 + pulse * 1.6;
       } else {
-        entry.ledMat.emissiveIntensity = 0.05;
+        entry.ledMat.emissiveIntensity = 0.08;
       }
     }
   }
@@ -1651,8 +1279,8 @@ export class CityWorld {
   public updateLobbyDoors(dt: number): void {
     const step = Math.min(1, dt * 6);
     for (const entry of this.lobbyDoors.values()) {
-      const targetL = entry.open ? -1.45 : -0.6;
-      const targetR = entry.open ? 1.45 : 0.6;
+      const targetL = entry.open ? -1.42 : -0.56;
+      const targetR = entry.open ? 1.42 : 0.56;
       entry.leftDoor.position.x += (targetL - entry.leftDoor.position.x) * step;
       entry.rightDoor.position.x += (targetR - entry.rightDoor.position.x) * step;
     }
@@ -1671,7 +1299,6 @@ export class CityWorld {
     this.beaconGroup.position.set(target.x, 0, target.z);
     const hex = isPickup ? 0xf97316 : 0x10b981;
     this.beaconRingMat.color.setHex(hex);
-
     const pulse = 1 + Math.sin(elapsedTime * 4.2) * 0.1;
     this.beaconRing.scale.set(pulse, pulse, 1);
   }
@@ -1693,17 +1320,14 @@ export class CityWorld {
     }
   }
 
-  /** Smoothly updates wet asphalt shader parameters, roughness, and puddle sheen */
   public updateWeatherVisuals(rainIntensity: number, elapsedTime: number): void {
     this.roadShaderUniforms.uRainWetness.value = rainIntensity;
     this.roadShaderUniforms.uTime.value = elapsedTime;
 
     const wetMetal = 0.04 + rainIntensity * 0.34;
     const wetTint = 1.0 - rainIntensity * 0.32;
-    this.asphaltHMat.metalness = wetMetal;
-    this.asphaltVMat.metalness = wetMetal;
-    this.asphaltHMat.color.setRGB(wetTint * 0.95, wetTint * 0.98, wetTint * 1.05);
-    this.asphaltVMat.color.setRGB(wetTint * 0.95, wetTint * 0.98, wetTint * 1.05);
+    this.asphaltMat.metalness = wetMetal;
+    this.asphaltMat.color.setRGB(wetTint * 0.95, wetTint * 0.98, wetTint * 1.05);
 
     this.crosswalkPaintMat.roughness = 0.78 - rainIntensity * 0.62;
     this.crosswalkPaintMat.metalness = 0.05 + rainIntensity * 0.25;
@@ -1718,39 +1342,38 @@ export class CityWorld {
 
     if (this.isNight) {
       const bgHex = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
-      const fogDensity = isRain ? 0.0052 : isCloudy ? 0.004 : 0.0034;
+      const fogDensity = isRain ? 0.0046 : isCloudy ? 0.0036 : 0.003;
       this.scene.background = new THREE.Color(bgHex);
       this.scene.fog = new THREE.FogExp2(bgHex, fogDensity);
-      this.dirLight.intensity = isRain ? 0.15 : isCloudy ? 0.2 : 0.25;
+      this.dirLight.intensity = isRain ? 0.16 : isCloudy ? 0.2 : 0.25;
       this.dirLight.color.setHex(isRain ? 0x6b88b0 : 0x8aa8d6);
       this.hemiLight.intensity = isRain ? 0.22 : 0.28;
       this.lampGlowMat.emissiveIntensity = isRain ? 3.8 : 3.2;
       this.windowGlowMat.emissiveIntensity = isRain ? 1.3 : 1.1;
     } else if (isRain) {
-      // Rainy daytime: overcast stormy slate sky, toned-down lighting & thick mist fog!
       this.scene.background = new THREE.Color(0x5b6d80);
-      this.scene.fog = new THREE.FogExp2(0x5b6d80, 0.0048);
-      this.dirLight.intensity = 0.52;
+      this.scene.fog = new THREE.FogExp2(0x5b6d80, 0.0042);
+      this.dirLight.intensity = 0.54;
       this.dirLight.color.setHex(0xb8cde0);
       this.hemiLight.intensity = 0.58;
       this.lampGlowMat.emissiveIntensity = 1.45;
       this.windowGlowMat.emissiveIntensity = 0.42;
     } else if (isCloudy) {
       this.scene.background = new THREE.Color(0x889cb0);
-      this.scene.fog = new THREE.FogExp2(0x889cb0, 0.0028);
-      this.dirLight.intensity = 0.92;
+      this.scene.fog = new THREE.FogExp2(0x889cb0, 0.0024);
+      this.dirLight.intensity = 0.94;
       this.dirLight.color.setHex(0xdce6f2);
       this.hemiLight.intensity = 0.74;
       this.lampGlowMat.emissiveIntensity = 0.45;
       this.windowGlowMat.emissiveIntensity = 0.2;
     } else {
       this.scene.background = new THREE.Color(0x93c5fd);
-      this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.0018);
-      this.dirLight.intensity = 1.5;
+      this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.00145);
+      this.dirLight.intensity = 1.48;
       this.dirLight.color.setHex(0xfff7e6);
-      this.hemiLight.intensity = 0.9;
+      this.hemiLight.intensity = 0.92;
       this.lampGlowMat.emissiveIntensity = 0.2;
-      this.windowGlowMat.emissiveIntensity = 0.12;
+      this.windowGlowMat.emissiveIntensity = 0.14;
     }
   }
 

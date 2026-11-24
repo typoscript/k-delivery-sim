@@ -1,4 +1,4 @@
-import { CITY_ROAD_LINES } from '../types';
+import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
 
 export interface RoutePoint {
   x: number;
@@ -25,119 +25,82 @@ interface GraphNode {
   z: number;
 }
 
+interface GraphEdge {
+  a: number;
+  b: number;
+  cost: number;
+}
+
 interface ProjectedPoint {
   x: number;
   z: number;
-  isHorizontal: boolean;
-  roadIndex: number; // index in CITY_ROAD_LINES for fixed axis
-  segLow: number; // lower intersection index on varying axis (0..4)
-  segHigh: number; // upper intersection index on varying axis (1..5)
+  edgeIdx: number;
+  a: number;
+  b: number;
   distFromSource: number;
 }
 
-const GRID_SIZE = CITY_ROAD_LINES.length; // 6x6 = 36 intersections
-const TURN_PENALTY_METERS = 3.0; // slight preference for straight roads to avoid unnecessary zig-zags
+const TURN_PENALTY_METERS = 3.5;
 
 /**
- * 6x6 Road Network Graph & A* Shortest-Path Navigator.
- * Connects arbitrary outdoor positions cleanly to the nearest road segment,
- * runs A* over the 36 intersections, and computes real-time turn-by-turn guidance.
+ * General OpenStreetMap Road Network Graph & A* Shortest-Path Navigator
+ * powered by real Suwon-si Paldal-gu Ingye-dong (Suwon City Hall Station) road topology!
  */
 export class RoadNavigator {
   private readonly baseNodes: GraphNode[] = [];
+  private readonly baseEdges: GraphEdge[] = [];
   private readonly baseAdj: Array<Array<{ to: number; cost: number }>> = [];
 
   constructor() {
-    // Create 36 intersection nodes (id = ix * 6 + iz)
-    for (let ix = 0; ix < GRID_SIZE; ix++) {
-      for (let iz = 0; iz < GRID_SIZE; iz++) {
-        const id = ix * GRID_SIZE + iz;
-        this.baseNodes.push({
-          id,
-          x: CITY_ROAD_LINES[ix],
-          z: CITY_ROAD_LINES[iz],
-        });
-        this.baseAdj.push([]);
-      }
+    for (const n of SUWON_INGYE_DATA.nodes) {
+      this.baseNodes.push({ id: n.id, x: n.x, z: n.z });
+      this.baseAdj.push([]);
     }
 
-    // Connect 4-way orthogonal road edges
-    for (let ix = 0; ix < GRID_SIZE; ix++) {
-      for (let iz = 0; iz < GRID_SIZE; iz++) {
-        const id = ix * GRID_SIZE + iz;
-        if (ix + 1 < GRID_SIZE) {
-          const nid = (ix + 1) * GRID_SIZE + iz;
-          const cost = Math.abs(CITY_ROAD_LINES[ix + 1] - CITY_ROAD_LINES[ix]);
-          this.baseAdj[id].push({ to: nid, cost });
-          this.baseAdj[nid].push({ to: id, cost });
-        }
-        if (iz + 1 < GRID_SIZE) {
-          const nid = ix * GRID_SIZE + (iz + 1);
-          const cost = Math.abs(CITY_ROAD_LINES[iz + 1] - CITY_ROAD_LINES[iz]);
-          this.baseAdj[id].push({ to: nid, cost });
-          this.baseAdj[nid].push({ to: id, cost });
-        }
-      }
+    for (const e of SUWON_INGYE_DATA.edges) {
+      // Slightly favor wider major boulevards (효원로/권광로/경수대로) over tiny alleys
+      const weightMul = e.isMajor ? 0.92 : 1.05;
+      const cost = Math.max(1, e.dist * weightMul);
+      this.baseEdges.push({ a: e.a, b: e.b, cost });
+      this.baseAdj[e.a].push({ to: e.b, cost });
+      this.baseAdj[e.b].push({ to: e.a, cost });
     }
   }
 
-  /** Projects an arbitrary world coordinate (x, z) orthogonally onto the closest 6x6 road segment */
+  /** Projects an arbitrary world coordinate (x, z) onto the closest real Suwon OSM road segment */
   private projectToRoad(px: number, pz: number): ProjectedPoint {
-    const minC = CITY_ROAD_LINES[0];
-    const maxC = CITY_ROAD_LINES[GRID_SIZE - 1];
-    const clampedX = Math.max(minC, Math.min(maxC, px));
-    const clampedZ = Math.max(minC, Math.min(maxC, pz));
-
     let best: ProjectedPoint = {
-      x: clampedX,
-      z: CITY_ROAD_LINES[0],
-      isHorizontal: true,
-      roadIndex: 0,
-      segLow: 0,
-      segHigh: 1,
+      x: px,
+      z: pz,
+      edgeIdx: 0,
+      a: 0,
+      b: 0,
       distFromSource: Infinity,
     };
 
-    const findSegmentBounds = (val: number): [number, number] => {
-      for (let i = 0; i < GRID_SIZE - 1; i++) {
-        if (val >= CITY_ROAD_LINES[i] && val <= CITY_ROAD_LINES[i + 1]) {
-          return [i, i + 1];
-        }
-      }
-      return val < CITY_ROAD_LINES[0] ? [0, 1] : [GRID_SIZE - 2, GRID_SIZE - 1];
-    };
+    for (let i = 0; i < this.baseEdges.length; i++) {
+      const e = this.baseEdges[i];
+      const na = this.baseNodes[e.a];
+      const nb = this.baseNodes[e.b];
+      const vx = nb.x - na.x;
+      const vz = nb.z - na.z;
+      const lenSq = vx * vx + vz * vz;
+      if (lenSq < 1e-5) continue;
 
-    // Check 6 horizontal roads (constant Z = CITY_ROAD_LINES[iz])
-    const [xLow, xHigh] = findSegmentBounds(clampedX);
-    for (let iz = 0; iz < GRID_SIZE; iz++) {
-      const rz = CITY_ROAD_LINES[iz];
-      const d = Math.hypot(px - clampedX, pz - rz);
+      let t = ((px - na.x) * vx + (pz - na.z) * vz) / lenSq;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+
+      const cx = na.x + vx * t;
+      const cz = na.z + vz * t;
+      const d = Math.hypot(px - cx, pz - cz);
       if (d < best.distFromSource) {
         best = {
-          x: clampedX,
-          z: rz,
-          isHorizontal: true,
-          roadIndex: iz,
-          segLow: xLow,
-          segHigh: xHigh,
-          distFromSource: d,
-        };
-      }
-    }
-
-    // Check 6 vertical roads (constant X = CITY_ROAD_LINES[ix])
-    const [zLow, zHigh] = findSegmentBounds(clampedZ);
-    for (let ix = 0; ix < GRID_SIZE; ix++) {
-      const rx = CITY_ROAD_LINES[ix];
-      const d = Math.hypot(px - rx, pz - clampedZ);
-      if (d < best.distFromSource) {
-        best = {
-          x: rx,
-          z: clampedZ,
-          isHorizontal: false,
-          roadIndex: ix,
-          segLow: zLow,
-          segHigh: zHigh,
+          x: cx,
+          z: cz,
+          edgeIdx: i,
+          a: e.a,
+          b: e.b,
           distFromSource: d,
         };
       }
@@ -151,7 +114,7 @@ export class RoadNavigator {
     return this.findShortestPath(fromX, fromZ, toX, toZ).distance;
   }
 
-  /** Computes the shortest path along the 6x6 road network graph using A* */
+  /** Computes the shortest path along the real Suwon Ingye-dong OSM road graph using A* */
   public findShortestPath(fromX: number, fromZ: number, toX: number, toZ: number): AStarPathResult {
     const directDist = Math.hypot(toX - fromX, toZ - fromZ);
     if (directDist < 14) {
@@ -167,23 +130,20 @@ export class RoadNavigator {
     const startProj = this.projectToRoad(fromX, fromZ);
     const goalProj = this.projectToRoad(toX, toZ);
 
-    // If start and goal project onto the exact same road line, connect directly along that road
-    if (
-      startProj.isHorizontal === goalProj.isHorizontal &&
-      startProj.roadIndex === goalProj.roadIndex
-    ) {
-      const raw: RoutePoint[] = [
+    // Same road segment -> direct along that road!
+    if (startProj.edgeIdx === goalProj.edgeIdx) {
+      return this.finalizePath([
         { x: fromX, z: fromZ },
         { x: startProj.x, z: startProj.z },
         { x: goalProj.x, z: goalProj.z },
         { x: toX, z: toZ },
-      ];
-      return this.finalizePath(raw);
+      ]);
     }
 
-    const START_ID = 36;
-    const GOAL_ID = 37;
-    const totalNodes = 38;
+    const baseCount = this.baseNodes.length;
+    const START_ID = baseCount;
+    const GOAL_ID = baseCount + 1;
+    const totalNodes = baseCount + 2;
 
     const nodes: GraphNode[] = [
       ...this.baseNodes,
@@ -191,7 +151,6 @@ export class RoadNavigator {
       { id: GOAL_ID, x: goalProj.x, z: goalProj.z },
     ];
 
-    // Extra dynamic edges attached to intersections (avoid mutating baseAdj)
     const extraAdj = new Map<number, Array<{ to: number; cost: number }>>();
     const addTempEdge = (a: number, b: number, cost: number) => {
       if (!extraAdj.has(a)) extraAdj.set(a, []);
@@ -201,23 +160,16 @@ export class RoadNavigator {
     };
 
     const connectProjection = (nodeId: number, proj: ProjectedPoint) => {
-      const n1 = proj.isHorizontal
-        ? proj.segLow * GRID_SIZE + proj.roadIndex
-        : proj.roadIndex * GRID_SIZE + proj.segLow;
-      const n2 = proj.isHorizontal
-        ? proj.segHigh * GRID_SIZE + proj.roadIndex
-        : proj.roadIndex * GRID_SIZE + proj.segHigh;
-
-      const d1 = Math.hypot(proj.x - this.baseNodes[n1].x, proj.z - this.baseNodes[n1].z);
-      const d2 = Math.hypot(proj.x - this.baseNodes[n2].x, proj.z - this.baseNodes[n2].z);
-      addTempEdge(nodeId, n1, d1);
-      addTempEdge(nodeId, n2, d2);
+      const na = this.baseNodes[proj.a];
+      const nb = this.baseNodes[proj.b];
+      addTempEdge(nodeId, proj.a, Math.hypot(proj.x - na.x, proj.z - na.z));
+      addTempEdge(nodeId, proj.b, Math.hypot(proj.x - nb.x, proj.z - nb.z));
     };
 
     connectProjection(START_ID, startProj);
     connectProjection(GOAL_ID, goalProj);
 
-    // --- Standard A* Search ---
+    // --- Standard A* Search (Euclidean admissible heuristic for arbitrary OSM angles) ---
     const gScore = new Float64Array(totalNodes).fill(Infinity);
     const fScore = new Float64Array(totalNodes).fill(Infinity);
     const cameFrom = new Int16Array(totalNodes).fill(-1);
@@ -226,7 +178,7 @@ export class RoadNavigator {
 
     const heuristic = (id: number) => {
       const n = nodes[id];
-      return Math.abs(n.x - goalProj.x) + Math.abs(n.z - goalProj.z);
+      return Math.hypot(n.x - goalProj.x, n.z - goalProj.z) * 0.92;
     };
 
     gScore[START_ID] = 0;
@@ -235,7 +187,6 @@ export class RoadNavigator {
     inOpen[START_ID] = 1;
 
     while (openList.length > 0) {
-      // Pick node in openList with smallest fScore (totalNodes <= 38, linear scan is ultra-fast)
       let bestIdx = 0;
       let bestF = fScore[openList[0]];
       for (let i = 1; i < openList.length; i++) {
@@ -250,9 +201,7 @@ export class RoadNavigator {
       openList.pop();
       inOpen[current] = 0;
 
-      if (current === GOAL_ID) {
-        break;
-      }
+      if (current === GOAL_ID) break;
       closed[current] = 1;
 
       const prev = cameFrom[current];
@@ -273,7 +222,7 @@ export class RoadNavigator {
           const l2 = Math.hypot(dx2, dz2);
           if (l1 > 0.5 && l2 > 0.5) {
             const dot = (dx1 * dx2 + dz1 * dz2) / (l1 * l2);
-            if (dot < 0.7) {
+            if (dot < 0.72) {
               turnPenalty = TURN_PENALTY_METERS;
             }
           }
@@ -291,7 +240,7 @@ export class RoadNavigator {
         }
       };
 
-      if (current < 36) {
+      if (current < baseCount) {
         for (const e of this.baseAdj[current]) {
           checkNeighbor(e.to, e.cost);
         }
@@ -304,11 +253,10 @@ export class RoadNavigator {
       }
     }
 
-    // Reconstruct polyline
     const roadNodes: RoutePoint[] = [];
     let curr = GOAL_ID;
     let safety = 0;
-    while (curr !== -1 && safety < 64) {
+    while (curr !== -1 && safety < 256) {
       roadNodes.push({ x: nodes[curr].x, z: nodes[curr].z });
       if (curr === START_ID) break;
       curr = cameFrom[curr];
@@ -316,8 +264,14 @@ export class RoadNavigator {
     }
     roadNodes.reverse();
 
-    const raw: RoutePoint[] = [{ x: fromX, z: fromZ }, ...roadNodes, { x: toX, z: toZ }];
-    return this.finalizePath(raw);
+    if (roadNodes.length < 2) {
+      return this.finalizePath([
+        { x: fromX, z: fromZ },
+        { x: toX, z: toZ },
+      ]);
+    }
+
+    return this.finalizePath([{ x: fromX, z: fromZ }, ...roadNodes, { x: toX, z: toZ }]);
   }
 
   /** Removes duplicate and redundant collinear vertices and computes exact polyline length */
@@ -333,7 +287,6 @@ export class RoadNavigator {
       dedup.push(raw[raw.length - 1]);
     }
 
-    // Collapse near-collinear interior points to keep vertex count minimal for Line2
     const simplified: RoutePoint[] = [dedup[0]];
     for (let i = 1; i < dedup.length - 1; i++) {
       const a = simplified[simplified.length - 1];
@@ -347,9 +300,7 @@ export class RoadNavigator {
       const l2 = Math.hypot(v2x, v2z);
       if (l1 > 0.1 && l2 > 0.1) {
         const dot = (v1x * v2x + v1z * v2z) / (l1 * l2);
-        if (dot > 0.992) {
-          continue; // collinear -> skip intermediate point
-        }
+        if (dot > 0.992) continue;
       }
       simplified.push(b);
     }
@@ -381,11 +332,9 @@ export class RoadNavigator {
       };
     }
 
-    // Check current player forward heading against first meaningful path segment
     const fwdX = Math.sin(heading);
     const fwdZ = Math.cos(heading);
 
-    // Find first segment >= 4m from player to evaluate immediate heading alignment
     let firstSegIdx = 0;
     for (let i = 0; i < points.length - 1; i++) {
       const d = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].z - points[i].z);
@@ -412,7 +361,6 @@ export class RoadNavigator {
       }
     }
 
-    // Scan upcoming vertices for the first significant turn (> ~35 degrees)
     let accum = 0;
     for (let i = 0; i < points.length - 2; i++) {
       const a = points[i];
@@ -434,16 +382,12 @@ export class RoadNavigator {
       const u2z = dz2 / l2;
       const dot = u1x * u2x + u1z * u2z;
 
-      if (dot < 0.8) {
-        // Right-handed Y-up cross product: (u1 x u2).y = u1z * u2x - u1x * u2z
-        // Positive => CCW => LEFT turn (+X when heading +Z)
-        // Negative => CW  => RIGHT turn (-X when heading +Z)
+      if (dot < 0.78) {
         const crossY = u1z * u2x - u1x * u2z;
         const turnDir: TurnDirection = crossY >= 0 ? 'left' : 'right';
         const turnDist = Math.max(1, Math.round(accum));
         const label = turnDir === 'left' ? '좌회전' : '우회전';
 
-        // If turn is very far away (> 140m), tell rider to go straight first
         if (turnDist > 140) {
           return {
             direction: 'straight',
@@ -461,7 +405,6 @@ export class RoadNavigator {
       }
     }
 
-    // No turn remaining before destination
     const rem = Math.max(1, Math.round(totalDistance));
     return {
       direction: rem <= 25 ? 'arrive' : 'straight',
