@@ -4406,3 +4406,15 @@ body.phone-3d-hover canvas {
   font-size: 9.5px;
   color: #94a3b8;
 }
+
+
+/* Free Touch/Mouse Map Pan-Drag on Zoomed Smartphone Canvas */
+#phone-map-canvas {
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+#phone-map-canvas.dragging {
+  cursor: grabbing;
+}

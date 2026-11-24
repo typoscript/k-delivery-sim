@@ -102,6 +102,12 @@ export class PhoneMap {
   private zoomLevel = 1.4;
   private camX = ACTIVE_MAP_DATA.meta.playerSpawn.x;
   private camZ = ACTIVE_MAP_DATA.meta.playerSpawn.z;
+  private isMapDragging = false;
+  private dragPointerId: number | null = null;
+  private dragLastX = 0;
+  private dragLastY = 0;
+  private panVelX = 0;
+  private panVelZ = 0;
   private lastSheetFingerprint = '';
   private last3DRenderTime = -1;
   private ripple3D: { x: number; y: number; bornAt: number } | null = null;
@@ -122,19 +128,27 @@ export class PhoneMap {
 
     this.zoomInBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.zoomLevel = clamp(this.zoomLevel + 0.32, 0.48, 2.8);
+      this.zoomLevel = clamp(this.zoomLevel + 0.32, 0.42, 3.2);
     });
 
     this.zoomOutBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.zoomLevel = clamp(this.zoomLevel - 0.32, 0.48, 2.8);
+      this.zoomLevel = clamp(this.zoomLevel - 0.32, 0.42, 3.2);
     });
 
     this.followBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.followPlayer = !this.followPlayer;
-      this.followBtn.classList.toggle('active', this.followPlayer);
-      this.zoomLevel = this.followPlayer ? 1.5 : 0.56;
+      this.panVelX = 0;
+      this.panVelZ = 0;
+      if (!this.followPlayer) {
+        // Snap right back to live player position after free-panning the map!
+        this.followPlayer = true;
+        this.followBtn.classList.add('active');
+        if (this.zoomLevel < 0.9) this.zoomLevel = 1.4;
+      } else {
+        // Already following: toggle between close street view & wide city overview
+        this.zoomLevel = this.zoomLevel > 0.95 ? 0.56 : 1.45;
+      }
     });
 
     this.unzoomBtn.addEventListener('click', (e) => {
@@ -221,7 +235,99 @@ export class PhoneMap {
 
     this.followBtn.classList.add('active');
     this.setupTouchHandInteraction();
+    this.setupMapPanAndZoom();
     this.setPlacement('pocket');
+  }
+
+  /** Enables free touch/mouse press-and-drag panning + wheel zoom on the zoomed smartphone GPS map */
+  private setupMapPanAndZoom(): void {
+    const getMapScale = (): number => {
+      const rect = this.zoomCanvas.getBoundingClientRect();
+      const baseScale = Math.min(rect.width, rect.height) / 285;
+      return Math.max(0.15, baseScale * this.zoomLevel);
+    };
+
+    this.zoomCanvas.addEventListener('pointerdown', (e) => {
+      if (!this.isZoomed || e.button !== 0) return;
+      this.isMapDragging = true;
+      this.dragPointerId = e.pointerId;
+      this.dragLastX = e.clientX;
+      this.dragLastY = e.clientY;
+      this.panVelX = 0;
+      this.panVelZ = 0;
+      this.zoomCanvas.classList.add('dragging');
+      try {
+        this.zoomCanvas.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore if synthetic pointer
+      }
+    });
+
+    this.zoomCanvas.addEventListener('pointermove', (e) => {
+      if (!this.isMapDragging || e.pointerId !== this.dragPointerId) return;
+      e.stopPropagation();
+
+      const dx = e.clientX - this.dragLastX;
+      const dy = e.clientY - this.dragLastY;
+      if (Math.abs(dx) < 0.25 && Math.abs(dy) < 0.25) return;
+
+      this.dragLastX = e.clientX;
+      this.dragLastY = e.clientY;
+
+      // Disengage player lock as soon as the user drags the map!
+      if (this.followPlayer) {
+        this.followPlayer = false;
+        this.followBtn.classList.remove('active');
+      }
+
+      const scale = getMapScale();
+      const lim = ACTIVE_MAP_DATA.meta.worldLimit;
+      const worldDx = dx / scale;
+      const worldDz = dy / scale;
+      this.camX = clamp(this.camX + worldDx, -lim, lim);
+      this.camZ = clamp(this.camZ + worldDz, -lim, lim);
+
+      // Track smooth flick inertia
+      this.panVelX = worldDx * 0.72;
+      this.panVelZ = worldDz * 0.72;
+
+      // Keep 1st-person touching finger pressed onto glass while panning
+      this.touchHandEl.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+      this.touchHandEl.classList.add('active', 'tapping');
+    });
+
+    const endDrag = (e: PointerEvent) => {
+      if (!this.isMapDragging || (this.dragPointerId !== null && e.pointerId !== this.dragPointerId)) {
+        return;
+      }
+      this.isMapDragging = false;
+      this.dragPointerId = null;
+      this.zoomCanvas.classList.remove('dragging');
+      this.touchHandEl.classList.remove('tapping');
+      try {
+        if (this.zoomCanvas.hasPointerCapture(e.pointerId)) {
+          this.zoomCanvas.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    this.zoomCanvas.addEventListener('pointerup', endDrag);
+    this.zoomCanvas.addEventListener('pointercancel', endDrag);
+
+    // Smooth mouse-wheel / trackpad zoom right on the smartphone map!
+    this.zoomCanvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (!this.isZoomed) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const factor = e.deltaY < 0 ? 1.14 : 1 / 1.14;
+        this.zoomLevel = clamp(this.zoomLevel * factor, 0.42, 3.2);
+      },
+      { passive: false }
+    );
   }
 
   /** Wires realistic 1st-person touching hand & glass tap ripples across the zoomed smartphone screen */
@@ -257,7 +363,9 @@ export class PhoneMap {
         window.clearTimeout(this.touchTapTimer);
       }
       this.touchTapTimer = window.setTimeout(() => {
-        this.touchHandEl.classList.remove('tapping');
+        if (!this.isMapDragging) {
+          this.touchHandEl.classList.remove('tapping');
+        }
         this.touchTapTimer = null;
       }, 170);
 
@@ -426,6 +534,11 @@ export class PhoneMap {
   }
 
   public setZoomed(zoomed: boolean): boolean {
+    this.isMapDragging = false;
+    this.dragPointerId = null;
+    this.panVelX = 0;
+    this.panVelZ = 0;
+    this.zoomCanvas.classList.remove('dragging');
     if (this.placement === 'pocket') {
       this.isZoomed = false;
       this.syncOverlayVisibility();
@@ -437,6 +550,8 @@ export class PhoneMap {
       this.lastSheetFingerprint = '';
       requestAnimationFrame(() => this.syncZoomCanvasSize());
     } else {
+      this.followPlayer = true;
+      this.followBtn.classList.add('active');
       this.touchHandEl.classList.remove('active', 'tapping');
       this.last3DRenderTime = -1;
     }
@@ -606,10 +721,24 @@ export class PhoneMap {
       return;
     }
 
-    const targetX = this.followPlayer ? player.x : 0;
-    const targetZ = this.followPlayer ? player.z : 0;
-    this.camX += (targetX - this.camX) * 0.16;
-    this.camZ += (targetZ - this.camZ) * 0.16;
+    if (this.followPlayer || !this.isZoomed) {
+      this.camX += (player.x - this.camX) * 0.16;
+      this.camZ += (player.z - this.camZ) * 0.16;
+      this.panVelX = 0;
+      this.panVelZ = 0;
+    } else if (!this.isMapDragging) {
+      // Smooth flick inertia glide when releasing a map drag
+      if (Math.abs(this.panVelX) > 0.04 || Math.abs(this.panVelZ) > 0.04) {
+        const lim = ACTIVE_MAP_DATA.meta.worldLimit;
+        this.camX = clamp(this.camX + this.panVelX, -lim, lim);
+        this.camZ = clamp(this.camZ + this.panVelZ, -lim, lim);
+        this.panVelX *= 0.86;
+        this.panVelZ *= 0.86;
+      } else {
+        this.panVelX = 0;
+        this.panVelZ = 0;
+      }
+    }
 
     const now = new Date();
     const clockStr = `${String(now.getHours()).padStart(2, '0')}:${String(
