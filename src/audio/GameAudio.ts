@@ -19,6 +19,7 @@ export class GameAudio {
   private rainFilter: BiquadFilterNode | null = null;
 
   public muted = false;
+  public masterVolume = 0.8;
   private started = false;
   private lastBlinkPhase = false;
   private lastLowFuelBeepTime = -10;
@@ -37,7 +38,7 @@ export class GameAudio {
       this.ctx = new AudioCtx();
 
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.muted ? 0 : 0.25;
+      this.masterGain.gain.value = this.muted ? 0 : 0.3 * this.masterVolume;
       this.masterGain.connect(this.ctx.destination);
 
       // Compact 125cc CVT scooter buzz
@@ -134,9 +135,20 @@ export class GameAudio {
   public toggleMute(): boolean {
     this.muted = !this.muted;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 0.25, this.ctx.currentTime, 0.04);
+      this.masterGain.gain.setTargetAtTime(
+        this.muted ? 0 : 0.3 * this.masterVolume,
+        this.ctx.currentTime,
+        0.04
+      );
     }
     return this.muted;
+  }
+
+  public setMasterVolume(vol: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, vol));
+    if (this.masterGain && this.ctx && !this.muted) {
+      this.masterGain.gain.setTargetAtTime(0.3 * this.masterVolume, this.ctx.currentTime, 0.04);
+    }
   }
 
   public setHorn(active: boolean): void {
@@ -889,6 +901,38 @@ export class GameAudio {
     g.connect(this.masterGain);
     osc.start(now);
     osc.stop(now + 0.07);
+  }
+
+  /** Wet rubber glove wiping across helmet visor ("쓱~ 뽀드득!") */
+  public playVisorWipeSound(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const dur = 0.34;
+    const bufLen = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+      const env = Math.sin((i / bufLen) * Math.PI);
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.setValueAtTime(720, now);
+    filt.frequency.exponentialRampToValueAtTime(1950, now + dur * 0.55);
+    filt.frequency.exponentialRampToValueAtTime(640, now + dur);
+    filt.Q.value = 3.8;
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.26, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(this.masterGain);
+    src.start(now);
   }
 
   /**

@@ -2141,6 +2141,45 @@ export class PhoneMap {
       }
     }
 
+    // 1-Lane Road Construction Zone Markers (🚧) on Smartphone GPS Map!
+    if (mapInfo.constructionZones) {
+      for (const cz of mapInfo.constructionZones) {
+        const cx = toX(cz.x);
+        const cy = toY(cz.z);
+        ctx.fillStyle = '#f97316';
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (rotateHeadingUp) ctx.rotate(-player.heading);
+        ctx.font = 'bold 8.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🚧', 0, 0.5);
+        ctx.restore();
+      }
+    }
+
+    // Rival AI Delivery Scooter Rider Dots on Smartphone GPS Map!
+    if (mapInfo.rivalRiders) {
+      for (const rr of mapInfo.rivalRiders) {
+        const rx = toX(rr.x);
+        const ry = toY(rr.z);
+        ctx.fillStyle = rr.color;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 4.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
     const sigHex = (c: 'green' | 'yellow' | 'red') =>
       c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
 

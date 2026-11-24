@@ -6,9 +6,11 @@ import {
   CITY_ROAD_LINES,
   CITY_WORLD_LIMIT,
   CityZoneMarker,
+  ConstructionZoneMarker,
   DeliveryLocation,
   ObstacleBox,
   PolicePatrolMarker,
+  RivalRiderMarker,
   ServiceStationInfo,
   SlipSurfaceType,
   SpeedBumpInfo,
@@ -35,6 +37,8 @@ export interface CityMapInfo {
   serviceStations: ServiceStationInfo[];
   speedCameras?: SpeedCameraMarker[];
   policePatrols?: PolicePatrolMarker[];
+  constructionZones?: ConstructionZoneMarker[];
+  rivalRiders?: RivalRiderMarker[];
   speedBumps?: SpeedBumpInfo[];
   upcomingCamera?: UpcomingCameraAlert | null;
   obstacles: ObstacleBox[];

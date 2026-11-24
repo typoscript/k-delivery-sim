@@ -3768,3 +3768,241 @@ body.phone-3d-hover canvas {
 .temp-pill.bad {
   color: #ef4444;
 }
+
+/* 1st-Person Helmet Visor Raindrop Canvas & Wiper Hand */
+.visor-rain-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.visor-wipe-hand {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 180px;
+  height: 220px;
+  pointer-events: none;
+  z-index: 14;
+  will-change: transform;
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.45));
+}
+
+.visor-wipe-hand.hidden {
+  display: none;
+}
+
+.visor-wipe-hint {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.84);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  color: #bae6fd;
+  font-size: 12px;
+  font-weight: 800;
+  z-index: 26;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+
+.visor-wipe-hint.hidden {
+  display: none;
+}
+
+/* First-Shift 1-Minute Interactive Onboarding Card */
+.onboarding-card {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 274px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1.5px solid rgba(45, 212, 191, 0.55);
+  color: #f8fafc;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+  z-index: 30;
+  pointer-events: auto;
+}
+
+.onboarding-card.hidden {
+  display: none;
+}
+
+.ob-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 900;
+  color: #5eead4;
+}
+
+.ob-skip-btn {
+  background: rgba(148, 163, 184, 0.2);
+  border: none;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+
+.ob-skip-btn:hover {
+  background: rgba(148, 163, 184, 0.35);
+  color: #ffffff;
+}
+
+.ob-track {
+  margin-top: 7px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  overflow: hidden;
+}
+
+.ob-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #14b8a6, #34d399);
+  transition: width 0.28s ease;
+}
+
+.ob-steps {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ob-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.ob-step.active {
+  color: #fef08a;
+  font-weight: 800;
+}
+
+.ob-step.done {
+  color: #34d399;
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+/* Settings Modal Card */
+.settings-card {
+  width: min(410px, calc(100vw - 28px));
+  background: linear-gradient(160deg, #0f172a, #1e293b);
+  border: 1.5px solid rgba(148, 163, 184, 0.35);
+  border-radius: 18px;
+  padding: 16px 18px;
+  color: #f8fafc;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.6);
+}
+
+.settings-body {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.set-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.set-row.toggle-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.set-row.toggle-row input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: #14b8a6;
+  cursor: pointer;
+}
+
+.set-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.set-title {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.set-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.set-row input[type='range'] {
+  width: 100%;
+  accent-color: #2dd4bf;
+  cursor: pointer;
+}
+
+.set-select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.set-footer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.set-secondary-btn {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(45, 212, 191, 0.5);
+  background: rgba(20, 184, 166, 0.16);
+  color: #5eead4;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.set-secondary-btn:hover {
+  background: rgba(20, 184, 166, 0.28);
+}

@@ -24,6 +24,7 @@ export interface InteractionContext {
   nearCorridorElevator: boolean;
   isVillaCorridor: boolean;
   villaCurrentFloor: number;
+  visorWetHint: boolean;
   modalOpen: boolean;
 }
 
@@ -56,6 +57,7 @@ export class Hud {
   private readonly vsFloorText = document.getElementById('vs-floor-text')!;
   private readonly vsStaminaVal = document.getElementById('vs-stamina-val')!;
   private readonly vsStaminaFill = document.getElementById('vs-stamina-fill')!;
+  private readonly visorWipeHint = document.getElementById('visor-wipe-hint')!;
   private readonly toast = document.getElementById('toast')!;
   private readonly cookingHudBar = document.getElementById('cooking-hud-bar')!;
   private readonly cookingHudTitle = document.getElementById('cooking-hud-title')!;
@@ -317,6 +319,9 @@ export class Hud {
     } else {
       this.villaStairHud.classList.add('hidden');
     }
+
+    // Rainy Helmet Visor Wipe Hint Chip ([G] to wipe visor)
+    this.visorWipeHint.classList.toggle('hidden', !ctx.visorWetHint || ctx.modalOpen || player.inCorridor);
 
     this.ridingCluster.classList.toggle('hidden', !isRiding);
     const showSlip =

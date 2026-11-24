@@ -80,6 +80,30 @@ export interface PolicePatrolMarker {
   sirenActive: boolean;
 }
 
+export interface ConstructionZoneMarker {
+  id: string;
+  x: number;
+  z: number;
+  label: string;
+}
+
+export interface RivalRiderMarker {
+  id: string;
+  x: number;
+  z: number;
+  heading: number;
+  color: string;
+}
+
+export type GraphicsQuality = 'high' | 'medium' | 'low';
+
+export interface GameSettings {
+  masterVolume: number; // 0..1
+  voiceNaviEnabled: boolean;
+  mouseSensitivity: number; // 0.5..2.0
+  graphicsQuality: GraphicsQuality;
+}
+
 export interface UpcomingCameraAlert {
   cameraId: string;
   label: string;

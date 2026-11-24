@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import {
   CITY_ROAD_LINES,
+  ConstructionZoneMarker,
   ObstacleBox,
   PolicePatrolMarker,
+  RivalRiderMarker,
   SpeedCameraMarker,
   UpcomingCameraAlert,
 } from '../types';
@@ -44,6 +46,28 @@ interface PolicePatrolUnit {
   cruiseSpeed: number;
   sirenTimer: number;
   citeCooldown: number;
+}
+
+interface ConstructionZoneUnit {
+  id: string;
+  label: string;
+  x: number;
+  z: number;
+  strobeMat: THREE.MeshStandardMaterial;
+}
+
+interface RivalRiderUnit {
+  id: string;
+  group: THREE.Group;
+  color: string;
+  x: number;
+  z: number;
+  heading: number;
+  dir: PatrolDir;
+  roadIndex: number;
+  speed: number;
+  cruiseSpeed: number;
+  turnCooldown: number;
 }
 
 interface SpeedCameraUnit {
@@ -126,11 +150,15 @@ export class RoadHazardManager {
   public readonly obstacles: ObstacleBox[] = [];
   public readonly cameraMarkers: SpeedCameraMarker[] = [];
   public readonly patrolMarkers: PolicePatrolMarker[] = [];
+  public readonly constructionMarkers: ConstructionZoneMarker[] = [];
+  public readonly rivalRiderMarkers: RivalRiderMarker[] = [];
   public upcomingCamera: UpcomingCameraAlert | null = null;
 
   private readonly cameras: SpeedCameraUnit[] = [];
   private readonly parkedHazards: ParkedHazardUnit[] = [];
   private readonly patrolCars: PolicePatrolUnit[] = [];
+  private readonly constructionZones: ConstructionZoneUnit[] = [];
+  private readonly rivalRiders: RivalRiderUnit[] = [];
   private readonly pedFactory = new PedestrianFactory();
   private globalPopOutCooldown = 3.0;
   private lastWarnedCameraId: string | null = null;
@@ -140,10 +168,12 @@ export class RoadHazardManager {
     this.buildSpeedCameras();
     this.buildParkedHazards();
     this.buildPolicePatrols();
+    this.buildConstructionZones();
+    this.buildRivalRiders();
     parent.add(this.root);
   }
 
-  /** Returns static parked hazard obstacles + live moving police patrol car obstacle boxes */
+  /** Returns static parked/construction obstacles + live moving police & rival rider obstacle boxes */
   public getAllObstacleBoxes(): ObstacleBox[] {
     const list: ObstacleBox[] = [...this.obstacles];
     for (const p of this.patrolCars) {
@@ -155,6 +185,14 @@ export class RoadHazardManager {
         maxX: p.x + rx,
         minZ: p.z - rz,
         maxZ: p.z + rz,
+      });
+    }
+    for (const r of this.rivalRiders) {
+      list.push({
+        minX: r.x - 0.55,
+        maxX: r.x + 0.55,
+        minZ: r.z - 0.55,
+        maxZ: r.z + 0.55,
       });
     }
     return list;
@@ -854,6 +892,87 @@ export class RoadHazardManager {
     }
 
     // --- 2. Update Double-Parked Hazard Blinkers & Blind-Spot Pop-Out Pedestrians ---
+    // Also blink road construction amber strobes & drive rival AI delivery scooters!
+    for (const cz of this.constructionZones) {
+      cz.strobeMat.emissiveIntensity = blinkOn ? 3.8 : 0.25;
+    }
+
+    for (let ri = 0; ri < this.rivalRiders.length; ri++) {
+      const r = this.rivalRiders[ri];
+      if (r.turnCooldown > 0) r.turnCooldown = Math.max(0, r.turnCooldown - clampedDt);
+
+      const [fx, fz] = patrolDirVec(r.dir);
+      const isNS = r.dir === 0 || r.dir === 2;
+      const axisSig = isNS ? signalState.ns : signalState.ew;
+      const stepSign = isNS ? fz : fx;
+      const posAlong = isNS ? r.z : r.x;
+
+      let mustStop = false;
+      if (axisSig === 'red' || axisSig === 'yellow') {
+        for (const rc of CITY_ROAD_LINES) {
+          const stopLine = rc - stepSign * 10.5;
+          const distToStop = (stopLine - posAlong) * stepSign;
+          if (distToStop >= -0.4 && distToStop <= 9.5) {
+            mustStop = true;
+            break;
+          }
+        }
+      }
+
+      // Yield cleanly if player scooter is directly ahead
+      const toPlX = scooter.x - r.x;
+      const toPlZ = scooter.z - r.z;
+      const distPl = Math.hypot(toPlX, toPlZ);
+      const aheadDot = distPl > 0.1 ? (toPlX * fx + toPlZ * fz) / distPl : 0;
+      if (distPl < 5.2 && aheadDot > 0.72) {
+        mustStop = true;
+      }
+
+      const targetSpd = mustStop ? 0 : r.cruiseSpeed;
+      r.speed += (targetSpd - r.speed) * Math.min(1, clampedDt * (mustStop ? 9 : 4.2));
+      r.x += fx * r.speed * clampedDt;
+      r.z += fz * r.speed * clampedDt;
+
+      // Turn at outer perimeter or occasionally at an interior intersection
+      const nextAlong = isNS ? r.z : r.x;
+      const hitPerimeter =
+        (stepSign > 0 && nextAlong >= 198) || (stepSign < 0 && nextAlong <= -198);
+      if (hitPerimeter) {
+        const nextDir = ((r.dir + 1) % 4) as PatrolDir;
+        const clampedEdgeIdx = stepSign > 0 ? CITY_ROAD_LINES.length - 1 : 0;
+        r.dir = nextDir;
+        r.roadIndex = clampedEdgeIdx;
+        r.heading = patrolDirHeading(nextDir);
+        const laneC = patrolLaneCoord(CITY_ROAD_LINES[r.roadIndex], nextDir);
+        if (nextDir === 0 || nextDir === 2) r.x = laneC;
+        else r.z = laneC;
+        r.turnCooldown = 2.0;
+      } else if (r.turnCooldown <= 0 && r.speed > 3) {
+        for (let idx = 1; idx < CITY_ROAD_LINES.length - 1; idx++) {
+          const rc = CITY_ROAD_LINES[idx];
+          if (Math.abs(nextAlong - rc) < 0.75 && Math.random() < 0.25) {
+            const turnDelta = Math.random() < 0.5 ? 1 : 3;
+            const nextDir = ((r.dir + turnDelta) % 4) as PatrolDir;
+            r.dir = nextDir;
+            r.roadIndex = idx;
+            r.heading = patrolDirHeading(nextDir);
+            const laneC = patrolLaneCoord(CITY_ROAD_LINES[r.roadIndex], nextDir);
+            if (nextDir === 0 || nextDir === 2) r.x = laneC;
+            else r.z = laneC;
+            r.turnCooldown = 4.0;
+            break;
+          }
+        }
+      }
+
+      r.group.position.set(r.x, 0, r.z);
+      r.group.rotation.y = r.heading;
+
+      this.rivalRiderMarkers[ri].x = r.x;
+      this.rivalRiderMarkers[ri].z = r.z;
+      this.rivalRiderMarkers[ri].heading = r.heading;
+    }
+
     if (this.globalPopOutCooldown > 0) {
       this.globalPopOutCooldown = Math.max(0, this.globalPopOutCooldown - clampedDt);
     }
@@ -969,6 +1088,245 @@ export class RoadHazardManager {
           h.popRig.root.visible = false;
         }
       }
+    }
+  }
+
+  /** Creates a Korean "🚧 도로 공사 중 · 서행" barricade canvas texture */
+  private createConstructionSignTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#f97316';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.fillStyle = '#0f172a';
+    for (let x = -40; x < 300; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 128);
+      ctx.lineTo(x + 18, 128);
+      ctx.lineTo(x + 36, 98);
+      ctx.lineTo(x + 18, 98);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 4;
+    ctx.fillRect(14, 14, 228, 76);
+    ctx.strokeRect(14, 14, 228, 76);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '900 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚧 도로 공사 중', 128, 42);
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = '#dc2626';
+    ctx.fillText('1차선 통제 · 서행', 128, 72);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** Builds 3 Korean 1-lane road construction zones with traffic cones, A-frame barricade & strobe */
+  private buildConstructionZones(): void {
+    const specs: Array<{ id: string; label: string; x: number; z: number; axis: 'ew' | 'ns' }> = [
+      { id: 'const-1', label: '중앙로 동측 공사구간', x: 80, z: -36.5, axis: 'ew' },
+      { id: 'const-2', label: '리버뷰 서측 공사구간', x: -36.5, z: 0, axis: 'ns' },
+      { id: 'const-3', label: '남부 간선도로 공사구간', x: -80, z: 123.5, axis: 'ew' },
+    ];
+
+    const coneOrangeMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45 });
+    const coneStripeMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.25,
+      roughness: 0.35,
+    });
+    const coneBaseMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+    const dirtMat = new THREE.MeshStandardMaterial({ color: 0x5c4738, roughness: 0.96 });
+    const signMat = new THREE.MeshBasicMaterial({ map: this.createConstructionSignTexture() });
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.5, roughness: 0.5 });
+
+    const coneGeo = new THREE.ConeGeometry(0.22, 0.72, 10);
+    const bandGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.14, 10);
+    const baseGeo = new THREE.BoxGeometry(0.46, 0.06, 0.46);
+
+    for (const sp of specs) {
+      const g = new THREE.Group();
+      g.position.set(sp.x, 0, sp.z);
+      if (sp.axis === 'ns') {
+        g.rotation.y = Math.PI / 2;
+      }
+
+      // Excavated asphalt / gravel work patch (7.5m x 2.6m inside right lane)
+      const patch = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, 2.5), dirtMat);
+      patch.position.set(0, 0.04, 0);
+      patch.receiveShadow = true;
+      g.add(patch);
+
+      // 6 Orange/White Reflective Traffic Cones tapering traffic cleanly into the open lane
+      const coneOffsets: Array<[number, number]> = [
+        [-4.8, 0.65],
+        [-3.2, 1.35],
+        [-0.8, 1.35],
+        [1.6, 1.35],
+        [3.6, 1.35],
+        [5.0, 0.65],
+      ];
+      for (const [cx, cz] of coneOffsets) {
+        const cBase = new THREE.Mesh(baseGeo, coneBaseMat);
+        cBase.position.set(cx, 0.04, cz);
+        const cone = new THREE.Mesh(coneGeo, coneOrangeMat);
+        cone.position.set(cx, 0.41, cz);
+        cone.castShadow = true;
+        const band = new THREE.Mesh(bandGeo, coneStripeMat);
+        band.position.set(cx, 0.48, cz);
+        g.add(cBase, cone, band);
+      }
+
+      // Two-sided A-Frame Construction Warning Signboard + Amber Blinking Strobe Lamp
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.95, 1.85), signMat);
+      board.position.set(-3.9, 0.72, 0);
+      board.castShadow = true;
+      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.15, 0.08), poleMat);
+      legL.position.set(-3.9, 0.58, -0.78);
+      const legR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.15, 0.08), poleMat);
+      legR.position.set(-3.9, 0.58, 0.78);
+
+      const strobeMat = new THREE.MeshStandardMaterial({
+        color: 0xf59e0b,
+        emissive: 0xf59e0b,
+        emissiveIntensity: 3.0,
+      });
+      const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.22, 10), strobeMat);
+      strobe.position.set(-3.9, 1.32, 0);
+      g.add(board, legL, legR, strobe);
+
+      this.root.add(g);
+
+      // Physical collision box blocking the closed lane so player must steer around cones
+      const halfX = sp.axis === 'ew' ? 4.2 : 1.45;
+      const halfZ = sp.axis === 'ew' ? 1.45 : 4.2;
+      this.obstacles.push({
+        minX: sp.x - halfX,
+        maxX: sp.x + halfX,
+        minZ: sp.z - halfZ,
+        maxZ: sp.z + halfZ,
+      });
+
+      this.constructionZones.push({ id: sp.id, label: sp.label, x: sp.x, z: sp.z, strobeMat });
+      this.constructionMarkers.push({ id: sp.id, x: sp.x, z: sp.z, label: sp.label });
+    }
+  }
+
+  /** Builds 4 Rival AI Korean Delivery Scooter Riders roaming the 6x6 road grid */
+  private buildRivalRiders(): void {
+    const configs: Array<{
+      id: string;
+      colorHex: number;
+      colorCss: string;
+      jacketHex: number;
+      dir: PatrolDir;
+      roadIndex: number;
+      along: number;
+      cruiseSpeed: number;
+    }> = [
+      { id: 'rival-1', colorHex: 0x14b8a6, colorCss: '#14b8a6', jacketHex: 0x0f766e, dir: 1, roadIndex: 2, along: -95, cruiseSpeed: 11.4 },
+      { id: 'rival-2', colorHex: 0xf97316, colorCss: '#f97316', jacketHex: 0xc2410c, dir: 0, roadIndex: 3, along: -65, cruiseSpeed: 12.2 },
+      { id: 'rival-3', colorHex: 0x3b82f6, colorCss: '#3b82f6', jacketHex: 0x1d4ed8, dir: 3, roadIndex: 3, along: 90, cruiseSpeed: 10.8 },
+      { id: 'rival-4', colorHex: 0xeab308, colorCss: '#eab308', jacketHex: 0x334155, dir: 2, roadIndex: 1, along: 85, cruiseSpeed: 11.8 },
+    ];
+
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4, metalness: 0.3 });
+    const helmetMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25 });
+    const visorMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.6 });
+    const headLightMat = new THREE.MeshStandardMaterial({
+      color: 0xfef9c3,
+      emissive: 0xfef08a,
+      emissiveIntensity: 2.2,
+    });
+    const tailLightMat = new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      emissive: 0xef4444,
+      emissiveIntensity: 1.8,
+    });
+
+    for (const cfg of configs) {
+      const g = new THREE.Group();
+      const boxMat = new THREE.MeshStandardMaterial({ color: cfg.colorHex, roughness: 0.4 });
+      const jacketMat = new THREE.MeshStandardMaterial({ color: cfg.jacketHex, roughness: 0.78 });
+
+      // Wheels
+      for (const wz of [-0.62, 0.62]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.14, 10), tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(0, 0.26, wz);
+        g.add(wheel);
+      }
+
+      // Scooter body & front shield
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 1.38), frameMat);
+      body.position.set(0, 0.56, 0);
+      body.castShadow = true;
+      const frontFairing = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.62, 0.28), frameMat);
+      frontFairing.position.set(0, 0.84, 0.55);
+      const handlebar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.07, 0.08), tireMat);
+      handlebar.position.set(0, 1.12, 0.48);
+
+      // Colorful Korean delivery top-box on rear rack!
+      const topBox = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.5, 0.52), boxMat);
+      topBox.position.set(0, 1.05, -0.58);
+      topBox.castShadow = true;
+
+      // Headlight & Taillight
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.05), headLightMat);
+      hl.position.set(0, 0.94, 0.7);
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.05), tailLightMat);
+      tl.position.set(0, 0.74, -0.72);
+
+      // Stylized seated rider + white helmet
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.54, 0.28), jacketMat);
+      torso.position.set(0, 1.15, -0.02);
+      torso.rotation.x = 0.14;
+      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), helmetMat);
+      helmet.position.set(0, 1.56, 0.04);
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.12), visorMat);
+      visor.position.set(0, 1.56, 0.16);
+
+      g.add(body, frontFairing, handlebar, topBox, hl, tl, torso, helmet, visor);
+
+      const isNS = cfg.dir === 0 || cfg.dir === 2;
+      const laneC = patrolLaneCoord(CITY_ROAD_LINES[cfg.roadIndex], cfg.dir);
+      const sx = isNS ? laneC : cfg.along;
+      const sz = isNS ? cfg.along : laneC;
+      const heading = patrolDirHeading(cfg.dir);
+
+      g.position.set(sx, 0, sz);
+      g.rotation.y = heading;
+      this.root.add(g);
+
+      this.rivalRiders.push({
+        id: cfg.id,
+        group: g,
+        color: cfg.colorCss,
+        x: sx,
+        z: sz,
+        heading,
+        dir: cfg.dir,
+        roadIndex: cfg.roadIndex,
+        speed: cfg.cruiseSpeed,
+        cruiseSpeed: cfg.cruiseSpeed,
+        turnCooldown: 1.5,
+      });
+
+      this.rivalRiderMarkers.push({
+        id: cfg.id,
+        x: sx,
+        z: sz,
+        heading,
+        color: cfg.colorCss,
+      });
     }
   }
 }

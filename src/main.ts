@@ -16,6 +16,7 @@ import { HandheldFoodBag3D } from './player/HandheldFoodBag3D';
 import { CameraController } from './camera/CameraController';
 import { validateDeliveryPhotoFrame } from './camera/PhotoProofValidator';
 import { GameAudio } from './audio/GameAudio';
+import { VoiceNavigator } from './audio/VoiceNavigator';
 import {
   DeliveryManager,
   MAX_CONCURRENT_ORDERS,
@@ -24,7 +25,9 @@ import {
 import { OrderDispatchManager } from './delivery/OrderDispatchManager';
 import { Hud } from './ui/Hud';
 import { ModalUi } from './ui/ModalUi';
-import { collidesWithWorld } from './types';
+import { VisorRainOverlay } from './ui/VisorRainOverlay';
+import { OnboardingAndSettings } from './ui/OnboardingAndSettings';
+import { GameSettings, collidesWithWorld } from './types';
 
 const app = document.getElementById('app')!;
 
@@ -49,14 +52,23 @@ const traffic = new TrafficSystem(scene, world.busStops);
 const corridorRoom = new CorridorRoom(scene);
 const roadNavigator = new RoadNavigator();
 const pedestrians = new PedestrianManager(world.root); // Independent 25-block crosswalk AI (paused indoors!)
-const roadHazards = new RoadHazardManager(world.root); // Speed cameras, police patrols, illegal parked trucks & pop-outs!
+const roadHazards = new RoadHazardManager(world.root); // Speed cameras, police patrols, construction zones, rival riders & pop-outs!
 world.mapInfo.speedCameras = roadHazards.cameraMarkers;
 world.mapInfo.policePatrols = roadHazards.patrolMarkers;
+world.mapInfo.constructionZones = roadHazards.constructionMarkers;
+world.mapInfo.rivalRiders = roadHazards.rivalRiderMarkers;
 const weather = new WeatherManager(scene);
+const visorRain = new VisorRainOverlay();
+const voiceNav = new VoiceNavigator();
 const delivery = new DeliveryManager(world.locations);
 const dispatch = new OrderDispatchManager(world.locations, {
   onOfferArrived: (offer) => {
     audio.playDispatchCallAlert();
+    voiceNav.speak(
+      offer.type === 'SINGLE'
+        ? '새로운 한집배달 콜이 도착했습니다.'
+        : '새로운 알뜰배달 묶음 콜이 도착했습니다.'
+    );
     const label = offer.type === 'SINGLE' ? '🚀 한집배달' : '🛵 알뜰배달 (2건 묶음)';
     const hint =
       hud.phoneMap.placement === 'pocket'
@@ -80,6 +92,30 @@ const playerCtrl = new PlayerController();
 const playerMesh = new PlayerMesh(scene);
 const camController = new CameraController(renderer.domElement);
 const audio = new GameAudio();
+
+const applyGameSettings = (s: GameSettings) => {
+  audio.setMasterVolume(s.masterVolume);
+  voiceNav.setEnabled(s.voiceNaviEnabled);
+  voiceNav.setVolume(Math.min(1, s.masterVolume * 1.05));
+  camController.sensitivity = s.mouseSensitivity;
+
+  const dprCap = s.graphicsQuality === 'high' ? 2 : s.graphicsQuality === 'medium' ? 1.35 : 1;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
+  renderer.shadowMap.enabled = s.graphicsQuality !== 'low';
+  renderer.shadowMap.needsUpdate = true;
+};
+
+const onboardingSettings = new OnboardingAndSettings({
+  onApplySettings: (s) => {
+    applyGameSettings(s);
+  },
+  onTutorialCompleted: () => {
+    audio.playChime('complete');
+    voiceNav.speak('첫 배달을 성공적으로 마쳤습니다! 이제 프로 라이더로 활동해 보세요.');
+    hud.showToast('🎓 첫 출근 튜토리얼 완료! 훌륭한 라이더 데뷔를 축하합니다!', 4800);
+  },
+});
+applyGameSettings(onboardingSettings.settings);
 
 const tmpCargoPos = new THREE.Vector3();
 
@@ -952,8 +988,24 @@ window.addEventListener('keydown', (e) => {
       handleCycleWeather();
       break;
     }
+    case 'KeyG': {
+      if (!playerCtrl.state.inCorridor && modalUi.activeModal === 'none') {
+        if (visorRain.triggerWipe()) {
+          audio.playVisorWipeSound();
+          hud.showToast('🧤 헬멧 바이저 빗물을 닦아냈습니다!', 1800);
+        }
+      }
+      break;
+    }
+    case 'KeyO': {
+      if (modalUi.activeModal === 'none') {
+        onboardingSettings.toggleSettingsModal();
+      }
+      break;
+    }
     case 'KeyM': {
       const muted = audio.toggleMute();
+      voiceNav.setMuted(muted);
       hud.showToast(muted ? '사운드 음소거' : '사운드 켜짐');
       break;
     }
@@ -993,7 +1045,9 @@ window.addEventListener('keydown', (e) => {
       break;
     }
     case 'Escape': {
-      if (hud.phoneMap.isZoomed) {
+      if (onboardingSettings.isSettingsOpen) {
+        onboardingSettings.closeSettingsModal();
+      } else if (hud.phoneMap.isZoomed) {
         handleTogglePhoneZoom();
       }
       break;
@@ -1037,7 +1091,7 @@ function animate(now: number): void {
 
   const inCorridor = playerCtrl.state.inCorridor;
   const isRiding = playerCtrl.state.mode === 'riding';
-  const movementBlocked = modalUi.isBlockingMovement();
+  const movementBlocked = modalUi.isBlockingMovement() || onboardingSettings.isSettingsOpen;
 
   if (!inCorridor) {
     world.updateLobbyDoors(dt);
@@ -1215,6 +1269,7 @@ function animate(now: number): void {
   // Step active mission delivery countdowns, peak-time cooking timers, cargo physics & live customer chat!
   delivery.stepTimers(dt, (readyMission) => {
     audio.playFoodReadyDingDong();
+    voiceNav.speak(`${readyMission.order.shop.name} 음식이 준비되었습니다. 픽업대에서 수령하세요.`);
     hud.showToast(
       `🔔 ${readyMission.order.shop.emoji} ${readyMission.order.shop.name} [#${readyMission.order.orderNumber}]: "음식이 준비되었습니다!" 픽업대 트레이에서 [E]로 수령하세요`,
       4600
@@ -1229,9 +1284,10 @@ function animate(now: number): void {
   });
   delivery.stepCustomerChatEvents(dt, inCorridor, isRiding, (chatEv) => {
     audio.playCustomerChatPing();
+    voiceNav.speak('고객님께 새 메시지가 도착했습니다.');
     hud.showCustomerChatPopup(chatEv);
   });
-  dispatch.step(dt, delivery, inCorridor, modalUi.isBlockingMovement());
+  dispatch.step(dt, delivery, inCorridor, movementBlocked);
 
   // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
   const navPlan = delivery.getNavigationPlan(
@@ -1299,13 +1355,24 @@ function animate(now: number): void {
     modalUi.updateCameraProofStatus(proofStatus);
   }
 
-  // Weather local rain particles (InstancedMesh), wet asphalt shader, & rain audio (instantly muted indoors!)
+  // Weather local rain particles (InstancedMesh), 1st-person helmet visor droplets, wet asphalt & audio!
   weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
+  visorRain.update(dt, weather.rainIntensity, inCorridor, scooterPhysics.state.speed, isRiding);
   if (!inCorridor) {
     world.updateWeatherVisuals(weather.rainIntensity, elapsed);
   }
   audio.updateWeatherAudio(weather.rainIntensity, inCorridor);
   audio.update(scooterPhysics.state, elapsed);
+
+  // Korean Web Speech API Voice Navigation (Turn-by-Turn + 80m Speed Camera Enforcement Alert)
+  const navFocusKey = navPlan.focusMission
+    ? `${navPlan.focusMission.order.id}:${navPlan.isPickupTarget ? 'p' : 'd'}`
+    : null;
+  voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
+  voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
+
+  // Update 1-Minute First-Shift Interactive Onboarding Guide progress
+  onboardingSettings.updateOnboarding(playerCtrl.state, delivery);
 
   hud.update(
     playerCtrl.state,
@@ -1337,7 +1404,8 @@ function animate(now: number): void {
         inCorridor && corridorRoom.isVillaMode
           ? corridorRoom.getCurrentVillaFloor(playerCtrl.state.y)
           : 1,
-      modalOpen: modalUi.activeModal !== 'none',
+      visorWetHint: !inCorridor && weather.isRaining && visorRain.dropletDensity >= 0.35,
+      modalOpen: modalUi.activeModal !== 'none' || onboardingSettings.isSettingsOpen,
     }
   );
 

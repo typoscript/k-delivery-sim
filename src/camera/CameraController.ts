@@ -13,6 +13,7 @@ import { clamp, wrapAngle } from '../types';
 export class CameraController {
   // World-space look yaw when on-foot (0 = +Z)
   public onFootYaw = Math.PI - 0.65;
+  public sensitivity = 1.0;
   private onFootPitch = -0.06;
 
   // Relative head-look offset when riding
@@ -51,11 +52,11 @@ export class CameraController {
       this.lastX = e.clientX;
       this.lastY = e.clientY;
 
-      this.onFootYaw = wrapAngle(this.onFootYaw - dx * 0.0055);
-      this.onFootPitch = clamp(this.onFootPitch - dy * 0.0045, -0.75, 0.75);
+      this.onFootYaw = wrapAngle(this.onFootYaw - dx * 0.0055 * this.sensitivity);
+      this.onFootPitch = clamp(this.onFootPitch - dy * 0.0045 * this.sensitivity, -0.75, 0.75);
 
-      this.rideLookYaw = clamp(this.rideLookYaw - dx * 0.005, -1.45, 1.45);
-      this.rideLookPitch = clamp(this.rideLookPitch - dy * 0.004, -0.45, 0.45);
+      this.rideLookYaw = clamp(this.rideLookYaw - dx * 0.005 * this.sensitivity, -1.45, 1.45);
+      this.rideLookPitch = clamp(this.rideLookPitch - dy * 0.004 * this.sensitivity, -0.45, 0.45);
     });
 
     domElement.addEventListener('dblclick', () => {
