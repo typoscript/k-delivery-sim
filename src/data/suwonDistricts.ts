@@ -2,6 +2,7 @@ import { SuwonDistrictId, SuwonMapDataset } from './suwonTypes';
 import { SUWON_INGYE_DATA } from './suwonIngyeData';
 import { SUWON_HAENGGUNG_DATA } from './suwonHaenggungData';
 import { SUWON_STATION_DATA } from './suwonStationData';
+import { SUWON_GWANGGYO_DATA } from './suwonGwanggyoData';
 
 export type { SuwonDistrictId, SuwonMapDataset };
 
@@ -49,19 +50,33 @@ export const SUWON_DISTRICTS: SuwonDistrictMeta[] = [
     highlights: ['수원역(KTX·1호선)', '로데오거리', 'AK·타임빌라스', '뼈나라감자탕·한신포차'],
     data: SUWON_STATION_DATA,
   },
+  {
+    id: 'gwanggyo',
+    icon: '🌊',
+    shortName: '수원 광교 · 호수공원',
+    badgeLabel: '🌊 수원 광교 ▾',
+    fullTitle: '영통구 광교신도시 (광교중앙역 · 광교호수공원)',
+    description: '광교호수공원(원천호수) 수변과 넓은 도청로·센트럴타운로 대로, 갤러리아 백화점과 초고층 신축 아파트 대단지 상권',
+    highlights: ['광교중앙역(신분당선)', '광교 호수공원', '갤러리아 광교', '초고층 대단지'],
+    data: SUWON_GWANGGYO_DATA,
+  },
 ];
+
+function isValidDistrictId(v: string | null): v is SuwonDistrictId {
+  return v === 'ingye' || v === 'haenggung' || v === 'suwon_station' || v === 'gwanggyo';
+}
 
 function resolveInitialDistrictId(): SuwonDistrictId {
   if (typeof window !== 'undefined') {
     try {
       const params = new URLSearchParams(window.location.search);
       const q = params.get('district');
-      if (q === 'ingye' || q === 'haenggung' || q === 'suwon_station') {
+      if (isValidDistrictId(q)) {
         window.localStorage.setItem(DISTRICT_STORAGE_KEY, q);
         return q;
       }
       const saved = window.localStorage.getItem(DISTRICT_STORAGE_KEY);
-      if (saved === 'ingye' || saved === 'haenggung' || saved === 'suwon_station') {
+      if (isValidDistrictId(saved)) {
         return saved;
       }
     } catch {

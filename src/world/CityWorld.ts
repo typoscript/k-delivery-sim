@@ -775,6 +775,32 @@ export class CityWorld {
       }
     }
 
+    // Real OSM Water Bodies (광교 호수공원 원천호수 등)
+    if (ACTIVE_MAP_DATA.waters && ACTIVE_MAP_DATA.waters.length > 0) {
+      const lakeMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        emissive: 0x0369a1,
+        emissiveIntensity: 0.18,
+        roughness: 0.14,
+        metalness: 0.38,
+      });
+      for (const water of ACTIVE_MAP_DATA.waters) {
+        if (water.pts.length < 3) continue;
+        const wShape = new THREE.Shape();
+        wShape.moveTo(water.pts[0][0], -water.pts[0][1]);
+        for (let i = 1; i < water.pts.length; i++) {
+          wShape.lineTo(water.pts[i][0], -water.pts[i][1]);
+        }
+        wShape.closePath();
+        const wGeo = new THREE.ShapeGeometry(wShape);
+        wGeo.rotateX(-Math.PI / 2);
+        const wMesh = new THREE.Mesh(wGeo, lakeMat);
+        wMesh.position.y = 0.068;
+        wMesh.receiveShadow = true;
+        this.root.add(wMesh);
+      }
+    }
+
     // Perimeter greenbelt trees
     for (let p = -380; p <= 380; p += 38) {
       treeCoords.push([p, -402, 1.15], [p, 402, 1.15], [-402, p, 1.15], [402, p, 1.15]);
@@ -897,7 +923,11 @@ export class CityWorld {
           b.name.includes('롯데백화점') ||
           b.name.includes('AK') ||
           b.name.includes('노보텔') ||
-          b.name.includes('수원역'))
+          b.name.includes('수원역') ||
+          b.name.includes('갤러리아') ||
+          b.name.includes('코트야드') ||
+          b.name.includes('경기도서관') ||
+          b.name.includes('광교엘포트'))
       ) {
         const bgHex =
           b.kind === 'residential' ? '#1e3a8a' : b.name.includes('CGV') ? '#b91c1c' : '#0f172a';

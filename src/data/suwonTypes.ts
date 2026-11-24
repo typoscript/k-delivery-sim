@@ -1,7 +1,7 @@
 // Shared OpenStreetMap dataset interfaces for Suwon-si Multi-District Delivery Map Engine
 // Attribution: © OpenStreetMap contributors (ODbL)
 
-export type SuwonDistrictId = 'ingye' | 'haenggung' | 'suwon_station';
+export type SuwonDistrictId = 'ingye' | 'haenggung' | 'suwon_station' | 'gwanggyo';
 
 export interface OsmGraphNode {
   id: number;
@@ -95,6 +95,7 @@ export interface SuwonMapDataset {
   pedestrianPlazas: OsmPlazaData[];
   buildings: OsmBuildingData[];
   parks: OsmParkData[];
+  waters?: OsmParkData[];
   shops: OsmDeliverySpot[];
   residences: OsmDeliverySpot[];
   busStops: OsmBusStopData[];

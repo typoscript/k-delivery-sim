@@ -2095,6 +2095,21 @@ export class PhoneMap {
       ctx.fill();
     }
 
+    // 1.2. Real OSM Water Bodies (광교 원천호수 등)
+    if (ACTIVE_MAP_DATA.waters) {
+      for (const wt of ACTIVE_MAP_DATA.waters) {
+        if (wt.pts.length < 3) continue;
+        ctx.fillStyle = theme.water;
+        ctx.beginPath();
+        ctx.moveTo(toX(wt.pts[0][0]), toY(wt.pts[0][1]));
+        for (let i = 1; i < wt.pts.length; i++) {
+          ctx.lineTo(toX(wt.pts[i][0]), toY(wt.pts[i][1]));
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
     // 1.5. Pedestrian Plazas (나혜석거리)
     ctx.lineCap = 'round';
     ctx.strokeStyle = isNight ? '#3d332a' : '#e9d8c8';
