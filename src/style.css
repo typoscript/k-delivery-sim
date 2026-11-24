@@ -4115,3 +4115,137 @@ body.phone-3d-hover canvas {
   background: rgba(15, 23, 42, 0.7);
   color: #e2e8f0;
 }
+
+/* Convenience Store Drink Buff Pill & Live Smartphone Battery Indicators */
+.buff-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.28), rgba(14, 165, 233, 0.28));
+  border: 1px solid rgba(52, 211, 153, 0.65);
+  color: #6ee7b7;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.buff-pill.hidden {
+  display: none;
+}
+
+.sb-batt-pct {
+  font-size: 9.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-battery.charging i {
+  background: #22c55e !important;
+}
+
+.sb-battery.low i {
+  background: #ef4444 !important;
+}
+
+.phone-dead-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.96);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  z-index: 45;
+  color: #f8fafc;
+}
+
+.phone-dead-overlay.hidden {
+  display: none;
+}
+
+.pdo-icon {
+  font-size: 46px;
+}
+
+.pdo-title {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 900;
+  color: #f87171;
+}
+
+.pdo-desc {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+/* 24h Convenience Store Modal */
+.cvs-card {
+  width: min(420px, calc(100vw - 28px));
+  border-color: rgba(16, 185, 129, 0.55);
+}
+
+.cvs-status-bar {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  font-size: 12px;
+  font-weight: 800;
+  color: #a7f3d0;
+  text-align: center;
+}
+
+.cvs-items-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cvs-item-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1.5px solid rgba(148, 163, 184, 0.28);
+  color: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+
+.cvs-item-btn:hover {
+  border-color: #34d399;
+  transform: translateY(-1px);
+}
+
+.cvs-it-name {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.cvs-it-desc {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.cvs-it-price {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.22);
+  color: #34d399;
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}

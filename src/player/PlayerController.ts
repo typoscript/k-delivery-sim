@@ -25,6 +25,8 @@ export interface PlayerState {
   distanceToScooter: number;
   stamina: number; // 0..100 (used when climbing walk-up villa stairs / sprinting)
   climbingStairs: boolean;
+  energyBuffTimer: number; // seconds left of Energy Drink (+25% speed, -50% stair stamina drain)
+  coffeeBuffTimer: number; // seconds left of Iced Coffee (2x stamina recovery)
 
   // Lowside crash tumble recovery
   knockdownTimer: number;
@@ -68,6 +70,8 @@ export class PlayerController {
       distanceToScooter: 0,
       stamina: 100,
       climbingStairs: false,
+      energyBuffTimer: 0,
+      coffeeBuffTimer: 0,
       knockdownTimer: 0,
       knockdownRoll: 0,
       tumbleVx: 0,
@@ -77,6 +81,17 @@ export class PlayerController {
 
   public reset(): void {
     this.state = this.createInitialState();
+  }
+
+  /** Applies 24h convenience store beverage buffs (Energy Drink / Iced Coffee) */
+  public applyConvenienceDrink(kind: 'energy_drink' | 'iced_coffee'): void {
+    if (kind === 'energy_drink') {
+      this.state.stamina = 100;
+      this.state.energyBuffTimer = 60;
+    } else {
+      this.state.stamina = clamp(this.state.stamina + 60, 0, 100);
+      this.state.coffeeBuffTimer = 45;
+    }
   }
 
   /** Called when the scooter suffers a lowside crash while riding! */
@@ -218,6 +233,9 @@ export class PlayerController {
     const p = this.state;
     const clampedDt = Math.min(dt, 0.05);
 
+    if (p.energyBuffTimer > 0) p.energyBuffTimer = Math.max(0, p.energyBuffTimer - clampedDt);
+    if (p.coffeeBuffTimer > 0) p.coffeeBuffTimer = Math.max(0, p.coffeeBuffTimer - clampedDt);
+
     if (p.mode === 'riding') {
       p.x = scooter.x;
       p.z = scooter.z;
@@ -226,6 +244,9 @@ export class PlayerController {
       p.moveSpeed = 0;
       p.canMountScooter = false;
       p.distanceToScooter = 0;
+      // Recover stamina nicely while resting on scooter seat
+      const recMul = p.coffeeBuffTimer > 0 ? 2.0 : 1.0;
+      p.stamina = clamp(p.stamina + 18 * recMul * clampedDt, 0, 100);
       return;
     }
 
@@ -289,9 +310,10 @@ export class PlayerController {
 
     const prevBaseY = p.baseY;
     const exhaustedMul = p.stamina < 15 ? 0.68 : 1.0;
+    const energySpeedMul = p.energyBuffTimer > 0 ? 1.25 : 1.0;
     const stairSprintAllowed = input.sprint && p.stamina > 8;
     const targetSpeed =
-      len > 0.01 ? (stairSprintAllowed ? SPRINT_SPEED : WALK_SPEED) * exhaustedMul : 0;
+      len > 0.01 ? (stairSprintAllowed ? SPRINT_SPEED : WALK_SPEED) * exhaustedMul * energySpeedMul : 0;
     if (len > 0.01) {
       dirX /= len;
       dirZ /= len;
@@ -340,14 +362,17 @@ export class PlayerController {
       p.climbingStairs = false;
     }
 
-    // Stamina drain when climbing walk-up villa stairs (faster if sprinting), smooth recovery otherwise
+    // Stamina drain when climbing walk-up villa stairs or sprinting; buffed by convenience drinks!
+    const drainMul = p.energyBuffTimer > 0 ? 0.5 : 1.0;
+    const recoverMul = p.coffeeBuffTimer > 0 ? 2.0 : 1.0;
     if (ascending) {
-      const drain = input.sprint ? 24 : 11;
+      const drain = (input.sprint ? 24 : 11) * drainMul;
       p.stamina = clamp(p.stamina - drain * clampedDt, 0, 100);
-    } else if (p.inCorridor && input.sprint && p.moveSpeed > 4.8) {
-      p.stamina = clamp(p.stamina - 8 * clampedDt, 0, 100);
+    } else if (input.sprint && p.moveSpeed > 5.2) {
+      const drain = (p.inCorridor ? 9 : 7.5) * drainMul;
+      p.stamina = clamp(p.stamina - drain * clampedDt, 0, 100);
     } else {
-      const recover = p.moveSpeed < 0.2 ? 28 : 14;
+      const recover = (p.moveSpeed < 0.2 ? 28 : 14) * recoverMul;
       p.stamina = clamp(p.stamina + recover * clampedDt, 0, 100);
     }
 

@@ -371,6 +371,30 @@ const modalUi = new ModalUi({
       3800
     );
   },
+  onConvenienceBuy: (item, cost) => {
+    delivery.recordConvenienceExpense(cost);
+    audio.playConvenienceChime();
+    if (item === 'energy_drink') {
+      playerCtrl.applyConvenienceDrink('energy_drink');
+      hud.showToast(
+        `⚡ 에너지드링크 구매 (-₩${cost.toLocaleString()})! 체력 100% + 60초 도보·계단 부스트 ON`,
+        3800
+      );
+    } else if (item === 'iced_coffee') {
+      playerCtrl.applyConvenienceDrink('iced_coffee');
+      hud.showToast(
+        `☕ 아이스 아메리카노 구매 (-₩${cost.toLocaleString()})! 체력 +60% + 45초 회복 2배`,
+        3800
+      );
+    } else {
+      hud.phoneMap.rechargeBatteryFull();
+      audio.playWirelessChargeStart();
+      hud.showToast(
+        `🔋 급속 보조배터리 충전 완료 (-₩${cost.toLocaleString()})! 스마트폰 배터리 100%`,
+        3800
+      );
+    }
+  },
   onTakePhoto: handleTakeDeliveryPhoto,
   onSettlementClose: () => {
     if (pendingMissionBonusPopup) {
@@ -421,6 +445,14 @@ const handleContextInteract = () => {
       if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
       else hud.phoneMap.setZoomed(false);
       modalUi.openRepairModal(scooterPhysics.state.damageLevel, scooterPhysics.state.crashCount);
+      return;
+    }
+
+    if (world.isPlayerNearConvenienceStore(playerCtrl.state.x, playerCtrl.state.z)) {
+      if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
+      else hud.phoneMap.setZoomed(false);
+      audio.playConvenienceChime();
+      modalUi.openConvenienceModal(playerCtrl.state.stamina, hud.phoneMap.battery);
       return;
     }
   }
@@ -1392,6 +1424,31 @@ function animate(now: number): void {
   voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
   voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
 
+  // Step smartphone battery drain & handlebar-mount wireless charging!
+  hud.phoneMap.stepBattery(
+    dt,
+    scooterPhysics.state.engineOn,
+    () => {
+      audio.playWirelessChargeStart();
+      hud.showToast('⚡ 오토바이 거치대 무선충전 시작! (주행 중 배터리 자동 충전)', 2600);
+    },
+    () => {
+      audio.playLowBatteryBeep();
+      voiceNav.speak('휴대폰 배터리가 부족합니다. 거치대에 장착해 충전하세요.');
+      hud.showToast(
+        '🪫 휴대폰 배터리 15% 이하! 오토바이 거치대 [Tab] 무선충전 또는 🏪 편의점 충전 필요',
+        4200
+      );
+    },
+    () => {
+      audio.playLowBatteryBeep();
+      hud.showToast(
+        '🪫 휴대폰 배터리 방전! 오토바이 거치대 [Tab] 시동 무선충전 또는 🏪 K-24 편의점에서 충전하세요',
+        4600
+      );
+    }
+  );
+
   // Update 1-Minute First-Shift Interactive Onboarding Guide progress
   onboardingSettings.updateOnboarding(playerCtrl.state, delivery);
 
@@ -1416,6 +1473,8 @@ function animate(now: number): void {
         !inCorridor && world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z),
       scooterOnRepairPad:
         !inCorridor && world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z),
+      nearConvenienceStore:
+        !inCorridor && world.isPlayerNearConvenienceStore(playerCtrl.state.x, playerCtrl.state.z),
       nearCorridorTargetDoor:
         inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
       nearCorridorElevator:

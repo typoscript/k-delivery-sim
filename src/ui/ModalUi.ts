@@ -18,11 +18,14 @@ export type ActiveModalType =
   | 'cargo'
   | 'fuel'
   | 'repair'
+  | 'convenience'
   | 'daily_report'
   | 'mission_bonus'
   | 'camera'
   | 'settlement'
   | 'transition';
+
+export type ConvenienceItemKind = 'energy_drink' | 'iced_coffee' | 'power_bank';
 
 export interface ModalCallbacks {
   onPosSuccess: (missionId: string) => void;
@@ -31,6 +34,7 @@ export interface ModalCallbacks {
   onFuelTick: () => void;
   onFuelComplete: (addedPercent: number, cost: number) => void;
   onRepairConfirm: (cost: number) => void;
+  onConvenienceBuy: (item: ConvenienceItemKind, cost: number) => void;
   onTakePhoto: () => void;
   onSettlementClose: () => void;
   onKeypadBeep: (ok: boolean) => void;
@@ -94,6 +98,10 @@ export class ModalUi {
   private readonly repairDiagBox = document.getElementById('repair-diag-box')!;
   private readonly repairCostEl = document.getElementById('repair-modal-cost')!;
   private repairCost = 0;
+
+  // 24h Convenience Store Modal
+  private readonly cvsBackdrop = document.getElementById('convenience-modal')!;
+  private readonly cvsStatusBar = document.getElementById('cvs-status-bar')!;
 
   // Daily Comprehensive Settlement Dashboard Modal
   private readonly reportBackdrop = document.getElementById('daily-report-modal')!;
@@ -235,6 +243,25 @@ export class ModalUi {
       }
     });
 
+    // 24h Convenience Store modal actions
+    this.cvsBackdrop.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target === this.cvsBackdrop) {
+        this.closeAll();
+        return;
+      }
+      const btn = target.closest('button') as HTMLButtonElement | null;
+      if (!btn) return;
+      if (btn.dataset.action === 'close') {
+        this.closeAll();
+      } else if (btn.dataset.item) {
+        const item = btn.dataset.item as ConvenienceItemKind;
+        const cost = Number(btn.dataset.cost || 1500);
+        this.closeAll();
+        this.callbacks.onConvenienceBuy(item, cost);
+      }
+    });
+
     // Daily Comprehensive Report modal actions
     this.reportBackdrop.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
@@ -269,6 +296,7 @@ export class ModalUi {
       this.activeModal === 'cargo' ||
       this.activeModal === 'fuel' ||
       this.activeModal === 'repair' ||
+      this.activeModal === 'convenience' ||
       this.activeModal === 'daily_report' ||
       this.activeModal === 'mission_bonus' ||
       this.activeModal === 'settlement' ||
@@ -289,6 +317,7 @@ export class ModalUi {
     this.cargoBackdrop.classList.add('hidden');
     this.fuelBackdrop.classList.add('hidden');
     this.repairBackdrop.classList.add('hidden');
+    this.cvsBackdrop.classList.add('hidden');
     this.reportBackdrop.classList.add('hidden');
     this.missionBonusBackdrop.classList.add('hidden');
     this.cameraOverlay.classList.add('hidden');
@@ -510,6 +539,13 @@ export class ModalUi {
     this.repairBackdrop.classList.remove('hidden');
   }
 
+  public openConvenienceModal(staminaPct: number, batteryPct: number): void {
+    this.closeAll();
+    this.activeModal = 'convenience';
+    this.cvsStatusBar.textContent = `현재 체력 ${Math.round(staminaPct)}% · 스마트폰 배터리 ${Math.round(batteryPct)}%`;
+    this.cvsBackdrop.classList.remove('hidden');
+  }
+
   public openDailyReportModal(ledger: DailyFinanceLedger): void {
     this.closeAll();
     this.activeModal = 'daily_report';
@@ -546,6 +582,7 @@ export class ModalUi {
         <div class="rep-line exp"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(ledger.damageDeductionTotal)}</span></div>
         <div class="rep-line exp"><span>⛽ 유류비 지출</span><span>-${fmt(ledger.fuelExpense)}</span></div>
         <div class="rep-line exp"><span>🔧 오토바이 수리비</span><span>-${fmt(ledger.repairExpense)}</span></div>
+        <div class="rep-line exp"><span>🏪 편의점 음료·충전</span><span>-${fmt(ledger.convenienceExpense)}</span></div>
         <div class="rep-line sub exp"><span>총 차감/지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
       </div>
     `;
@@ -749,6 +786,23 @@ export class ModalUi {
         const cost = this.repairCost;
         this.closeAll();
         this.callbacks.onRepairConfirm(cost);
+      }
+      return true;
+    }
+
+    if (this.activeModal === 'convenience') {
+      e.preventDefault();
+      if (e.key === 'Escape' || e.code === 'KeyE') {
+        this.closeAll();
+      } else if (e.key === '1') {
+        this.closeAll();
+        this.callbacks.onConvenienceBuy('energy_drink', 1500);
+      } else if (e.key === '2') {
+        this.closeAll();
+        this.callbacks.onConvenienceBuy('iced_coffee', 1200);
+      } else if (e.key === '3') {
+        this.closeAll();
+        this.callbacks.onConvenienceBuy('power_bank', 2000);
       }
       return true;
     }

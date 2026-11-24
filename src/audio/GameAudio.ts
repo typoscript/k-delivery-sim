@@ -935,6 +935,71 @@ export class GameAudio {
     src.start(now);
   }
 
+  /** Classic Korean 24h convenience store bright entrance/checkout chime ("띠리링~!") */
+  public playConvenienceChime(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const notes = [
+      { t: 0, f: 987.77, dur: 0.16 }, // B5
+      { t: 0.13, f: 1318.51, dur: 0.16 }, // E6
+      { t: 0.26, f: 1567.98, dur: 0.32 }, // G6
+    ];
+    for (const n of notes) {
+      const t = now + n.t;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = n.f;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.24, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+      osc.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + n.dur + 0.02);
+    }
+  }
+
+  /** Soft modern smartphone wireless charging confirmation harmonic ping */
+  public playWirelessChargeStart(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    [587.33, 880, 1174.66].forEach((freq, i) => {
+      const t = now + i * 0.075;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.16, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    });
+  }
+
+  /** Gentle descending low-battery alert chime */
+  public playLowBatteryBeep(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    [740, 554.37].forEach((freq, i) => {
+      const t = now + i * 0.14;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.18, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.16);
+    });
+  }
+
   /**
    * Controls continuous rain ambience volume.
    * Immediately silences rain audio with zero fade tail when inside underground corridors (y = -500)!

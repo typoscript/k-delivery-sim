@@ -178,6 +178,7 @@ export interface DailyFinanceLedger {
   damageDeductionTotal: number;
   fuelExpense: number;
   repairExpense: number;
+  convenienceExpense: number;
   fineExpense: number;
   grossIncome: number;
   totalExpenses: number;
@@ -323,6 +324,7 @@ export class DeliveryManager {
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
+  public convenienceExpense = 0;
   public fineExpense = 0;
   public riderRating = INITIAL_RIDER_RATING; // 0.0 ~ 5.0 신뢰 평점
   public pedestrianAccidentCount = 0;
@@ -1212,6 +1214,12 @@ export class DeliveryManager {
     this.totalEarnings -= rounded;
   }
 
+  public recordConvenienceExpense(amount: number): void {
+    const rounded = Math.max(0, Math.round(amount / 100) * 100);
+    this.convenienceExpense += rounded;
+    this.totalEarnings -= rounded;
+  }
+
   public getDailyMissionStatus(): DailyMissionStatus {
     const current = Math.min(this.completedCount, DAILY_MISSION_TARGET);
     return {
@@ -1232,7 +1240,11 @@ export class DeliveryManager {
       this.tipTotal +
       this.missionBonusTotal;
     const totalExpenses =
-      this.damageDeductionTotal + this.fuelExpense + this.repairExpense + this.fineExpense;
+      this.damageDeductionTotal +
+      this.fuelExpense +
+      this.repairExpense +
+      this.convenienceExpense +
+      this.fineExpense;
     return {
       completedCount: this.completedCount,
       baseFeeTotal: this.baseFeeTotal,
@@ -1243,6 +1255,7 @@ export class DeliveryManager {
       damageDeductionTotal: this.damageDeductionTotal,
       fuelExpense: this.fuelExpense,
       repairExpense: this.repairExpense,
+      convenienceExpense: this.convenienceExpense,
       fineExpense: this.fineExpense,
       grossIncome,
       totalExpenses,

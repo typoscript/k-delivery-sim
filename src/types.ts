@@ -58,7 +58,7 @@ export interface BusStopPoint {
 
 export interface ServiceStationInfo {
   name: string;
-  kind: 'gas' | 'repair';
+  kind: 'gas' | 'repair' | 'convenience';
   padMinX: number;
   padMaxX: number;
   padMinZ: number;

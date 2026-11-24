@@ -35,6 +35,7 @@
           <button id="district-badge-btn" class="badge district-btn" title="수원시 출근 구역 변경 (P)">📍 수원 인계동 ▾</button>
           <span id="mode-badge" class="mode-pill foot">🚶 1인칭 도보</span>
           <span id="rating-badge" class="rating-pill" title="배달 기사 신뢰 평점 (5.0 만점)">★ 5.0</span>
+          <span id="buff-badge" class="buff-pill hidden" title="편의점 음료 버프 활성화 중">⚡ 60s</span>
           <button id="weather-badge" class="weather-pill clear" title="날씨 전환: 맑음 / 흐림 / 비 (U)">☀️ 맑음</button>
           <button id="open-settings-btn" class="mini-btn" title="설정 메뉴 열기 (O)">⚙️ 설정</button>
           <button id="toggle-help-btn" class="mini-btn" title="조작법 열기/닫기 (F1)">조작법</button>
@@ -101,7 +102,8 @@
               </div>
               <div class="sb-right">
                 <span class="sb-5g">5G</span>
-                <span class="sb-battery"><i></i></span>
+                <span id="sb-battery-pct" class="sb-batt-pct">88%</span>
+                <span id="sb-battery-wrap" class="sb-battery"><i id="sb-battery-fill"></i></span>
               </div>
             </div>
 
@@ -161,6 +163,13 @@
                   <button class="dp-btn accept" data-action="accept_offer">👆 터치하여 콜 수락</button>
                 </div>
               </div>
+            </div>
+
+            <!-- Battery Depleted Lock Overlay inside Zoomed Smartphone -->
+            <div id="phone-dead-overlay" class="phone-dead-overlay hidden">
+              <div class="pdo-icon">🪫</div>
+              <div class="pdo-title">배터리 방전 (0%)</div>
+              <div class="pdo-desc">오토바이 거치대에 <kbd>Tab</kbd>으로 장착해 시동을 켜면 <b>무선충전</b>되거나, <b>🏪 K-24 편의점</b>에서 보조배터리를 충전하세요!</div>
             </div>
 
             <!-- Capacitive Screen Touch Ripple Overlay -->
@@ -644,6 +653,43 @@
           </div>
           <div id="district-list" class="district-list"></div>
           <button class="st-ok-btn" data-action="close" style="margin-top:10px">닫기 (Esc)</button>
+        </div>
+      </div>
+
+      <!-- 13. 24-Hour Korean Convenience Store Modal (Stamina Drinks & Power Bank) -->
+      <div id="convenience-modal" class="modal-backdrop hidden">
+        <div class="service-card cvs-card">
+          <div class="keypad-header">
+            <span>🏪 K-24 편의점 (24시간)</span>
+            <button class="keypad-close" data-action="close">✕</button>
+          </div>
+          <div id="cvs-status-bar" class="cvs-status-bar">현재 체력 100% · 폰 배터리 88%</div>
+          <div class="cvs-items-list">
+            <button class="cvs-item-btn" data-item="energy_drink" data-cost="1500">
+              <div class="cvs-it-left">
+                <div class="cvs-it-name"><kbd>1</kbd> ⚡ 에너지드링크 (핫식스)</div>
+                <div class="cvs-it-desc">체력 100% 즉시 회복 + 60초 도보/계단 속도 +25% · 피로 절반</div>
+              </div>
+              <span class="cvs-it-price">₩1,500</span>
+            </button>
+            <button class="cvs-item-btn" data-item="iced_coffee" data-cost="1200">
+              <div class="cvs-it-left">
+                <div class="cvs-it-name"><kbd>2</kbd> ☕ 편의점 아이스 아메리카노</div>
+                <div class="cvs-it-desc">체력 +60% 회복 + 45초간 체력 회복속도 2배</div>
+              </div>
+              <span class="cvs-it-price">₩1,200</span>
+            </button>
+            <button class="cvs-item-btn" data-item="power_bank" data-cost="2000">
+              <div class="cvs-it-left">
+                <div class="cvs-it-name"><kbd>3</kbd> 🔋 급속 보조배터리 충전</div>
+                <div class="cvs-it-desc">스마트폰 배터리 즉시 100% 완충 (방전 긴급 복구!)</div>
+              </div>
+              <span class="cvs-it-price">₩2,000</span>
+            </button>
+          </div>
+          <div class="cargo-footer-hint">
+            <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> 키 또는 클릭으로 즉시 구매 · <kbd>Esc</kbd> 나가기
+          </div>
         </div>
       </div>
     </div>

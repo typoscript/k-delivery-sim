@@ -1031,7 +1031,7 @@ export class CityWorld {
     this.root.add(repGroup);
 
     this.serviceStations.push({
-      name: '인계 번개 오토바이 센터',
+      name: '번개 오토바이 센터',
       kind: 'repair',
       padMinX: rep.x - 5.2,
       padMaxX: rep.x + 5.2,
@@ -1041,6 +1041,138 @@ export class CityWorld {
       interactZ: rep.z,
       interactRadius: 5.5,
     });
+
+    // 3. 24시 한국 편의점 (K-24 편의점 — 스태미나 음료 & 보조배터리 급속 충전!)
+    const spawn = ACTIVE_MAP_DATA.meta.scooterSpawn;
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    let cvsX = spawn.x + 32;
+    let cvsZ = spawn.z + 18;
+    let cvsHeading = 0;
+    let bestScore = Infinity;
+
+    for (const e of ACTIVE_MAP_DATA.edges) {
+      if (e.dist < 16) continue;
+      const na = nodes[e.a];
+      const nb = nodes[e.b];
+      const mx = (na.x + nb.x) * 0.5;
+      const mz = (na.z + nb.z) * 0.5;
+      const dx = nb.x - na.x;
+      const dz = nb.z - na.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      for (const side of [1, -1]) {
+        const px = mx + nx * side * (e.width * 0.5 + 2.4);
+        const pz = mz + nz * side * (e.width * 0.5 + 2.4);
+        if (Math.abs(px) > CITY_WORLD_LIMIT - 35 || Math.abs(pz) > CITY_WORLD_LIMIT - 35) continue;
+        const dSpawn = Math.hypot(px - spawn.x, pz - spawn.z);
+        if (dSpawn < 24 || dSpawn > 135) continue;
+        if (Math.hypot(px - gas.x, pz - gas.z) < 28) continue;
+        if (Math.hypot(px - rep.x, pz - rep.z) < 28) continue;
+        const hitsBldg = this.obstacles.some(
+          (o) => px + 2.2 > o.minX && px - 2.2 < o.maxX && pz + 2.2 > o.minZ && pz - 2.2 < o.maxZ
+        );
+        if (hitsBldg) continue;
+        const sc = Math.abs(dSpawn - 52);
+        if (sc < bestScore) {
+          bestScore = sc;
+          cvsX = px;
+          cvsZ = pz;
+          cvsHeading = Math.atan2(mx - px, mz - pz);
+        }
+      }
+    }
+
+    const cvsGroup = new THREE.Group();
+    cvsGroup.position.set(cvsX, 0, cvsZ);
+    cvsGroup.rotation.y = cvsHeading;
+
+    const cvsPad = new THREE.Mesh(
+      new THREE.BoxGeometry(5.2, 0.06, 3.6),
+      new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.72 })
+    );
+    cvsPad.position.set(0, 0.04, 1.3);
+
+    const cvsBody = new THREE.Mesh(
+      new THREE.BoxGeometry(5.6, 3.3, 2.5),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 })
+    );
+    cvsBody.position.set(0, 1.65, -1.4);
+
+    // Brightly lit Korean convenience store showcase window
+    const cvsWindow = new THREE.Mesh(
+      new THREE.BoxGeometry(4.4, 2.0, 0.08),
+      new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        emissive: 0xfffbeb,
+        emissiveIntensity: 0.95,
+        roughness: 0.2,
+      })
+    );
+    cvsWindow.position.set(0, 1.22, -0.14);
+
+    // Signature 3-color Korean convenience store neon fascia stripes (emerald / sky / orange)
+    const stripe1 = new THREE.Mesh(
+      new THREE.BoxGeometry(5.75, 0.22, 0.24),
+      new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 1.4 })
+    );
+    stripe1.position.set(0, 3.36, -0.15);
+    const stripe2 = new THREE.Mesh(
+      new THREE.BoxGeometry(5.75, 0.14, 0.24),
+      new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0ea5e9, emissiveIntensity: 1.4 })
+    );
+    stripe2.position.set(0, 3.16, -0.15);
+    const stripe3 = new THREE.Mesh(
+      new THREE.BoxGeometry(5.75, 0.12, 0.24),
+      new THREE.MeshStandardMaterial({ color: 0xf97316, emissive: 0xf97316, emissiveIntensity: 1.4 })
+    );
+    stripe3.position.set(0, 3.01, -0.15);
+
+    const cvsSign = new THREE.Mesh(
+      new THREE.BoxGeometry(5.4, 0.85, 0.2),
+      new THREE.MeshBasicMaterial({
+        map: this.createSignTexture('🏪 K-24 편의점 · 24시간', '#047857', '#ecfdf5'),
+      })
+    );
+    cvsSign.position.set(0, 3.92, -0.15);
+
+    // Outdoor plastic table + blue umbrella parasol (classic Korean CVS!)
+    const tblPole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6),
+      new THREE.MeshStandardMaterial({ color: 0x64748b })
+    );
+    tblPole.position.set(2.1, 1.1, 0.75);
+    const tblTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.58, 0.58, 0.07, 10),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc })
+    );
+    tblTop.position.set(2.1, 0.76, 0.75);
+    const parasol = new THREE.Mesh(
+      new THREE.ConeGeometry(1.15, 0.45, 8),
+      new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.7 })
+    );
+    parasol.position.set(2.1, 2.25, 0.75);
+
+    cvsGroup.add(cvsPad, cvsBody, cvsWindow, stripe1, stripe2, stripe3, cvsSign, tblPole, tblTop, parasol);
+    this.root.add(cvsGroup);
+
+    this.serviceStations.push({
+      name: 'K-24 편의점 (24시)',
+      kind: 'convenience',
+      padMinX: cvsX - 4.8,
+      padMaxX: cvsX + 4.8,
+      padMinZ: cvsZ - 4.8,
+      padMaxZ: cvsZ + 4.8,
+      interactX: cvsX,
+      interactZ: cvsZ,
+      interactRadius: 5.4,
+    });
+  }
+
+  public isPlayerNearConvenienceStore(px: number, pz: number): boolean {
+    const st = this.serviceStations.find((s) => s.kind === 'convenience');
+    if (!st) return false;
+    return Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius;
   }
 
   public isScooterOnGasPad(sx: number, sz: number): boolean {

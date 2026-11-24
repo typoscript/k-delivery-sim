@@ -56,6 +56,10 @@ export class PhoneMap {
   private readonly zoomCanvas = document.getElementById('phone-map-canvas') as HTMLCanvasElement;
   private readonly zoomCtx = this.zoomCanvas.getContext('2d')!;
   private readonly clockEl = document.getElementById('phone-clock')!;
+  private readonly battPctEl = document.getElementById('sb-battery-pct')!;
+  private readonly battWrapEl = document.getElementById('sb-battery-wrap')!;
+  private readonly battFillEl = document.getElementById('sb-battery-fill')!;
+  private readonly deadOverlayEl = document.getElementById('phone-dead-overlay')!;
   private readonly areaEl = document.getElementById('phone-area-name')!;
   private readonly earningsEl = document.getElementById('phone-earnings')!;
   private readonly statusPillEl = document.getElementById('phone-status-pill')!;
@@ -87,6 +91,10 @@ export class PhoneMap {
   private readonly callbacks: PhoneCallbacks;
   public placement: PhonePlacement = 'pocket';
   public isZoomed = false;
+  public battery = 88; // 0..100% live smartphone battery
+  public isWirelessCharging = false;
+  private lowBatteryWarned = false;
+  private deadBatteryWarned = false;
   public topNav: PhoneTopNav = 'calls';
   public activeTab: PhoneTab = 'calls';
 
@@ -353,6 +361,59 @@ export class PhoneMap {
       el.classList.toggle('active', el.dataset.topnav === this.topNav);
     });
     this.bottomSheetEl.classList.toggle('earnings-expanded', this.topNav === 'earnings');
+  }
+
+  /**
+   * Steps realistic smartphone battery drain (on-foot/zoomed) and handlebar-mount wireless charging!
+   * Mounting phone (`Tab`) with scooter engine ON rapidly recharges via wireless charging dock.
+   */
+  public stepBattery(
+    dt: number,
+    scooterEngineOn: boolean,
+    onWirelessChargeStart?: () => void,
+    onLowBattery?: () => void,
+    onBatteryDead?: () => void
+  ): void {
+    const clampedDt = Math.min(dt, 0.05);
+    const chargingNow = this.placement === 'mounted' && scooterEngineOn;
+
+    if (chargingNow && !this.isWirelessCharging && this.battery < 99.5) {
+      onWirelessChargeStart?.();
+    }
+    this.isWirelessCharging = chargingNow;
+
+    if (chargingNow) {
+      this.battery = clamp(this.battery + 4.4 * clampedDt, 0, 100);
+      if (this.battery > 18) this.lowBatteryWarned = false;
+      if (this.battery > 3) this.deadBatteryWarned = false;
+    } else {
+      const drainRate = this.isZoomed ? 0.85 : this.placement === 'in_hand' ? 0.52 : 0.14;
+      this.battery = clamp(this.battery - drainRate * clampedDt, 0, 100);
+    }
+
+    if (this.battery <= 15 && this.battery > 0 && !this.lowBatteryWarned && !chargingNow) {
+      this.lowBatteryWarned = true;
+      onLowBattery?.();
+    }
+    if (this.battery <= 0.05 && !this.deadBatteryWarned && !chargingNow) {
+      this.deadBatteryWarned = true;
+      onBatteryDead?.();
+    }
+
+    // Sync zoomed smartphone status bar & depleted lock overlay
+    const pct = Math.round(this.battery);
+    this.battPctEl.textContent = chargingNow ? `⚡${pct}%` : `${pct}%`;
+    this.battFillEl.style.width = `${Math.max(4, pct)}%`;
+    this.battWrapEl.classList.toggle('charging', chargingNow);
+    this.battWrapEl.classList.toggle('low', !chargingNow && pct <= 15);
+    this.deadOverlayEl.classList.toggle('hidden', this.battery > 0.05);
+  }
+
+  public rechargeBatteryFull(): void {
+    this.battery = 100;
+    this.lowBatteryWarned = false;
+    this.deadBatteryWarned = false;
+    this.last3DRenderTime = -1;
   }
 
   public setPlacement(next: PhonePlacement): void {
@@ -761,6 +822,25 @@ export class PhoneMap {
     const ctx = this.texCtx;
     const w = this.texCanvas.width;
     const h = this.texCanvas.height;
+
+    // Battery depleted screen on 3D phone!
+    if (this.battery <= 0.05) {
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#f87171';
+      ctx.font = 'bold 48px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🪫', w * 0.5, h * 0.42);
+      ctx.font = '900 22px sans-serif';
+      ctx.fillText('배터리 방전 (0%)', w * 0.5, h * 0.52);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('거치대 [Tab] 시동 무선충전', w * 0.5, h * 0.59);
+      ctx.fillText('또는 🏪 K-24 편의점 충전', w * 0.5, h * 0.635);
+      return;
+    }
+
     const isRidingNavMode = player.mode === 'riding' && this.placement === 'mounted';
 
     // 1. Live GPS map background (Heading-Up rotating minimap when riding!)
@@ -789,7 +869,20 @@ export class PhoneMap {
     ctx.textBaseline = 'middle';
     ctx.fillText(clockStr, 16, 18);
     ctx.textAlign = 'right';
-    ctx.fillText(isRidingNavMode ? 'NAVI · 5G 🔋' : '5G 🔋', w - 14, 18);
+    const battPct = Math.round(this.battery);
+    const battBadge = this.isWirelessCharging
+      ? `⚡${battPct}%`
+      : battPct <= 15
+        ? `🪫${battPct}%`
+        : `🔋${battPct}%`;
+    ctx.fillStyle = this.isWirelessCharging
+      ? '#10b981'
+      : battPct <= 15
+        ? '#ef4444'
+        : isNight
+          ? '#f8fafc'
+          : '#0f172a';
+    ctx.fillText(isRidingNavMode ? `NAVI · ${battBadge}` : `5G · ${battBadge}`, w - 14, 18);
 
     if (isRidingNavMode) {
       this.renderRidingNavOverlay(ctx, w, h, scooter, delivery, navPlan, isNight, areaName, mapInfo, elapsedTime);
@@ -2132,7 +2225,8 @@ export class PhoneMap {
     for (const st of mapInfo.serviceStations) {
       const stx = toX(st.interactX);
       const sty = toY(st.interactZ);
-      ctx.fillStyle = st.kind === 'gas' ? '#eab308' : '#ea580c';
+      ctx.fillStyle =
+        st.kind === 'gas' ? '#eab308' : st.kind === 'convenience' ? '#10b981' : '#ea580c';
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
@@ -2147,7 +2241,7 @@ export class PhoneMap {
       ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(st.kind === 'gas' ? '⛽' : '🔧', 0, 0.5);
+      ctx.fillText(st.kind === 'gas' ? '⛽' : st.kind === 'convenience' ? '🏪' : '🔧', 0, 0.5);
       ctx.restore();
     }
 

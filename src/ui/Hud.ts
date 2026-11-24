@@ -20,6 +20,7 @@ export interface InteractionContext {
   scooterOnGasPad: boolean;
   nearRepairShop: boolean;
   scooterOnRepairPad: boolean;
+  nearConvenienceStore: boolean;
   nearCorridorTargetDoor: boolean;
   nearCorridorElevator: boolean;
   isVillaCorridor: boolean;
@@ -31,6 +32,7 @@ export interface InteractionContext {
 export class Hud {
   private readonly modeBadge = document.getElementById('mode-badge')!;
   private readonly ratingBadge = document.getElementById('rating-badge')!;
+  private readonly buffBadge = document.getElementById('buff-badge')!;
   private readonly weatherBadge = document.getElementById('weather-badge')!;
   private readonly helpPanel = document.getElementById('help-panel')!;
   private readonly toggleHelpBtn = document.getElementById('toggle-help-btn')!;
@@ -232,6 +234,17 @@ export class Hud {
     this.ratingBadge.textContent = `★ ${rating.toFixed(1)}`;
     this.ratingBadge.className =
       rating <= 2.5 ? 'rating-pill danger' : rating < 4.5 ? 'rating-pill warn' : 'rating-pill';
+
+    // Update convenience store beverage buff pill (Energy Drink / Iced Coffee)
+    if (player.energyBuffTimer > 0) {
+      this.buffBadge.textContent = `⚡ 에너지 ${Math.ceil(player.energyBuffTimer)}s`;
+      this.buffBadge.classList.remove('hidden');
+    } else if (player.coffeeBuffTimer > 0) {
+      this.buffBadge.textContent = `☕ 카페인 ${Math.ceil(player.coffeeBuffTimer)}s`;
+      this.buffBadge.classList.remove('hidden');
+    } else {
+      this.buffBadge.classList.add('hidden');
+    }
 
     // Update top-left weather pill
     if (weatherMode === 'rain') {
@@ -466,6 +479,9 @@ export class Hud {
         return scooter.damageLevel > 0
           ? `<kbd>E</kbd> 🔧 오토바이 센터 정비 (${scooter.damageLevel}단계 파손 복구)`
           : '🔧 오토바이 상태 양호 (수리 불필요)';
+      }
+      if (ctx.nearConvenienceStore) {
+        return `<kbd>E</kbd> 🏪 K-24 편의점 이용 (에너지드링크 · 아메리카노 · 보조배터리)`;
       }
 
       // 1. Outdoor Shop Pickup POS / Cooking Wait / Ready Tray Pickup
