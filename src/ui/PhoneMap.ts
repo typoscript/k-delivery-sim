@@ -2189,8 +2189,40 @@ export class PhoneMap {
       }
     }
 
-    // 3.2. Suwon City Hall Station Subway Marker (🚇 수원시청역)
-    {
+    // 3.2. Suwon Signature Landmark Pins (팔달문·화성행궁·통닭거리 / 수원시청역·나혜석거리·효원공원 / 수원역·로데오거리)
+    if (mapInfo.landmarks && mapInfo.landmarks.length > 0) {
+      for (const lm of mapInfo.landmarks) {
+        const lx = toX(lm.x);
+        const ly = toY(lm.z);
+        ctx.fillStyle = lm.color;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.9;
+        ctx.beginPath();
+        ctx.arc(lx, ly, 8.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(lx, ly);
+        if (rotateHeadingUp) ctx.rotate(-player.heading);
+        ctx.font = 'bold 9.5px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(lm.icon, 0, 0.5);
+
+        if (!rotateHeadingUp && effectiveZoom >= 0.85) {
+          ctx.font = '800 9.5px sans-serif';
+          const tw = ctx.measureText(lm.shortLabel).width + 8;
+          ctx.fillStyle = isNight ? 'rgba(15, 23, 42, 0.86)' : 'rgba(255, 255, 255, 0.9)';
+          ctx.beginPath();
+          ctx.roundRect(-tw / 2, 10, tw, 13, 4);
+          ctx.fill();
+          ctx.fillStyle = isNight ? '#f8fafc' : '#0f172a';
+          ctx.fillText(lm.shortLabel, 0, 16.8);
+        }
+        ctx.restore();
+      }
+    } else {
       const st = ACTIVE_MAP_DATA.meta.station;
       const sx = toX(st.x);
       const sy = toY(st.z);

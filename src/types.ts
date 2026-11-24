@@ -33,6 +33,15 @@ export interface CityZoneMarker {
   type: 'shop' | 'residential';
 }
 
+export interface LandmarkMarker {
+  name: string;
+  shortLabel: string;
+  icon: string;
+  x: number;
+  z: number;
+  color: string;
+}
+
 export interface DeliveryLocation {
   id: string;
   name: string;

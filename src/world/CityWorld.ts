@@ -8,6 +8,7 @@ import {
   CityZoneMarker,
   ConstructionZoneMarker,
   DeliveryLocation,
+  LandmarkMarker,
   ObstacleBox,
   PolicePatrolMarker,
   RivalRiderMarker,
@@ -19,6 +20,7 @@ import {
   WeatherMode,
 } from '../types';
 import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 
 export interface MapBuildingFootprint {
   x: number;
@@ -42,6 +44,7 @@ export interface CityMapInfo {
   constructionZones?: ConstructionZoneMarker[];
   rivalRiders?: RivalRiderMarker[];
   speedBumps?: SpeedBumpInfo[];
+  landmarks?: LandmarkMarker[];
   upcomingCamera?: UpcomingCameraAlert | null;
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
@@ -70,7 +73,9 @@ export class CityWorld {
   public readonly busStops: BusStopPoint[] = [];
   public readonly serviceStations: ServiceStationInfo[] = [];
   public readonly speedBumps: SpeedBumpInfo[] = [];
+  public readonly landmarks: LandmarkMarker[] = [];
   public readonly mapInfo: CityMapInfo;
+  private landmarksBuilder?: SuwonLandmarksBuilder;
 
   private readonly scene: THREE.Scene;
   private readonly dirLight: THREE.DirectionalLight;
@@ -160,6 +165,7 @@ export class CityWorld {
       busStops: this.busStops,
       serviceStations: this.serviceStations,
       speedBumps: this.speedBumps,
+      landmarks: this.landmarks,
       obstacles: this.obstacles,
       buildings: this.buildings,
     };
@@ -911,52 +917,16 @@ export class CityWorld {
     }
   }
 
-  /** Builds the iconic district landmark canopy (수원시청역 / 화성행궁 / 수원역) */
+  /** Builds the iconic district 3D signature landmarks (팔달문·화성행궁·통닭거리 / 수원시청역·나혜석거리·효원공원 / 수원역·로데오거리) */
   private buildSuwonStationLandmark(): void {
-    const st = ACTIVE_MAP_DATA.meta.station;
-    const isPalace = ACTIVE_DISTRICT.id === 'haenggung';
-    const g = new THREE.Group();
-    g.position.set(st.x, 0, st.z);
-
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: isPalace ? 0xb91c1c : 0xf59e0b,
-      emissive: isPalace ? 0x991b1b : 0xd97706,
-      emissiveIntensity: 0.35,
-      roughness: 0.35,
+    this.landmarksBuilder = new SuwonLandmarksBuilder({
+      root: this.root,
+      districtId: ACTIVE_DISTRICT.id,
+      mapData: ACTIVE_MAP_DATA,
+      zones: this.zones,
+      landmarks: this.landmarks,
+      createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
     });
-    const glassMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.48,
-      roughness: 0.15,
-    });
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
-
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.35, 3.6), darkMat);
-    roof.position.set(0, 3.25, 0);
-    const band = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.45, 3.7), accentMat);
-    band.position.set(0, 3.55, 0);
-    const backWall = new THREE.Mesh(new THREE.BoxGeometry(6.2, 3.1, 0.14), glassMat);
-    backWall.position.set(0, 1.55, -1.7);
-
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 5.2, 10), darkMat);
-    pole.position.set(3.6, 2.6, 0);
-    const signBoard = new THREE.Mesh(
-      new THREE.BoxGeometry(5.2, 1.25, 0.25),
-      new THREE.MeshBasicMaterial({
-        map: this.createSignTexture(
-          st.name,
-          isPalace ? '#991b1b' : '#f59e0b',
-          isPalace ? '#fef08a' : '#0f172a'
-        ),
-      })
-    );
-    signBoard.position.set(0, 4.4, 0);
-
-    g.add(roof, band, backWall, pole, signBoard);
-    this.root.add(g);
-
-    this.zones.push({ name: ACTIVE_DISTRICT.shortName, x: st.x, z: st.z, type: 'shop' });
   }
 
   /** Builds K-Oil Self-Service Gas Station & Lightning Motorcycle Repair Center in open roadside bays */
@@ -1483,6 +1453,7 @@ export class CityWorld {
   private applySkyTheme(): void {
     const isRain = this.weatherMode === 'rain';
     const isCloudy = this.weatherMode === 'cloudy';
+    this.landmarksBuilder?.setNightMode(this.isNight);
 
     if (this.isNight) {
       const bgHex = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
