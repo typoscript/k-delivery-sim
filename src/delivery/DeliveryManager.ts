@@ -1,6 +1,15 @@
 import { DeliveryLocation, FoodTempType, clamp } from '../types';
 import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
+import {
+  RiderCareerSave,
+  RiderTierSpec,
+  UpgradeId,
+  getRiderTier,
+  getUpgradeEffects,
+  loadRiderCareer,
+  saveRiderCareer,
+} from './RiderCareer';
 
 export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
@@ -175,16 +184,21 @@ export interface DailyFinanceLedger {
   distanceBonusTotal: number;
   rainBonusTotal: number;
   nightBonusTotal: number;
+  tierBonusTotal: number;
   tipTotal: number;
   missionBonusTotal: number;
   damageDeductionTotal: number;
   fuelExpense: number;
   repairExpense: number;
+  upgradeExpense: number;
   convenienceExpense: number;
   fineExpense: number;
   grossIncome: number;
   totalExpenses: number;
   netProfit: number;
+  walletBalance: number;
+  lifetimeCompleted: number;
+  riderTier: RiderTierSpec;
   riderRating: number;
   pedestrianAccidentCount: number;
 }
@@ -262,6 +276,8 @@ export interface SettlementResult {
   baseFee: number;
   rainBonus: number;
   nightBonus: number;
+  tierBonus: number;
+  tierPromotedTo: RiderTierSpec | null;
   foodIntegrity: number;
   foodTemp: number;
   spillDamageAccum: number;
@@ -314,8 +330,10 @@ export class DeliveryManager {
   public completedMissions: CompletedMissionRecord[] = [];
   public selectedMissionId: string | null = null; // null = Auto Recommended Route
 
-  public totalEarnings = 0; // Net daily profit (income - fuel - repair - fines)
-  public completedCount = 0;
+  public totalEarnings = 0; // Persistent wallet balance across sessions & Suwon districts!
+  public completedCount = 0; // Today's session completed count
+  public lifetimeCompleted = 0; // Lifetime completed deliveries (determines Rider Tier!)
+  public career: RiderCareerSave;
   public isWeatherRaining = false;
   public isNightMode = false;
 
@@ -324,15 +342,17 @@ export class DeliveryManager {
   public distanceBonusTotal = 0;
   public rainBonusTotal = 0;
   public nightBonusTotal = 0;
+  public tierBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
   public dailyMissionClaimed = false;
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
+  public upgradeExpense = 0;
   public convenienceExpense = 0;
   public fineExpense = 0;
-  public riderRating = INITIAL_RIDER_RATING; // 0.0 ~ 5.0 신뢰 평점
+  public riderRating = INITIAL_RIDER_RATING; // 0.0 ~ 5.0 신뢰 평점 (persisted!)
   public pedestrianAccidentCount = 0;
 
   private readonly shops: DeliveryLocation[];
@@ -350,7 +370,36 @@ export class DeliveryManager {
   constructor(locations: DeliveryLocation[]) {
     this.shops = locations.filter((l) => l.type === 'shop');
     this.residences = locations.filter((l) => l.type === 'residential');
+    this.career = loadRiderCareer();
+    this.totalEarnings = this.career.walletBalance;
+    this.lifetimeCompleted = this.career.lifetimeCompleted;
+    this.riderRating = this.career.riderRating;
     this.refreshAvailableOrders();
+  }
+
+  public persistCareer(): void {
+    this.career.walletBalance = Math.round(this.totalEarnings);
+    this.career.lifetimeCompleted = this.lifetimeCompleted;
+    this.career.riderRating = Math.round(this.riderRating * 10) / 10;
+    saveRiderCareer(this.career);
+  }
+
+  public getCurrentTier(): RiderTierSpec {
+    return getRiderTier(this.lifetimeCompleted);
+  }
+
+  public hasUpgrade(id: UpgradeId): boolean {
+    return this.career.upgrades.includes(id);
+  }
+
+  public buyUpgrade(id: UpgradeId, cost: number): boolean {
+    if (this.hasUpgrade(id)) return false;
+    const rounded = Math.max(0, Math.round(cost / 100) * 100);
+    this.career.upgrades.push(id);
+    this.upgradeExpense += rounded;
+    this.totalEarnings -= rounded;
+    this.persistCareer();
+    return true;
   }
 
   /** Backward-compatible primary mission accessor (carried / corridor / pinned / first active) */
@@ -850,9 +899,13 @@ export class DeliveryManager {
 
     const rainBonus = m.order.rainBonus;
     const nightBonus = m.order.nightBonus;
+    const prevTier = this.getCurrentTier();
+    const tierBonus = prevTier.bonusPerDelivery;
     const extraBonuses = tempBonus + villaStairBonus + promisedTipBonus;
     const earned =
-      Math.round((m.order.baseFee * integrityFactor + tip + rainBonus + nightBonus + extraBonuses) / 100) * 100;
+      Math.round(
+        (m.order.baseFee * integrityFactor + tip + rainBonus + nightBonus + tierBonus + extraBonuses) / 100
+      ) * 100;
 
     // Record itemized income breakdown into daily ledger (respects SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee)
     const flatRef = m.order.baseFlatFee || BASE_FLAT_FEE;
@@ -863,11 +916,15 @@ export class DeliveryManager {
     this.distanceBonusTotal += distPart;
     this.rainBonusTotal += rainBonus;
     this.nightBonusTotal += nightBonus;
+    this.tierBonusTotal += tierBonus;
     this.tipTotal += tip + extraBonuses;
     this.damageDeductionTotal += damageDed;
 
     this.totalEarnings += earned;
     this.completedCount += 1;
+    this.lifetimeCompleted += 1;
+    const nextTier = this.getCurrentTier();
+    const tierPromotedTo = nextTier.id !== prevTier.id ? nextTier : null;
 
     // Check daily 3-delivery mission completion (+₩5,000 instant wallet bonus!)
     let missionJustCompleted = false;
@@ -879,6 +936,12 @@ export class DeliveryManager {
       missionJustCompleted = true;
       missionBonusAwarded = DAILY_MISSION_BONUS;
     }
+
+    // Smoothly restore +0.1 trust rating on clean high-integrity deliveries (up to 5.0)
+    if (m.foodIntegrity >= 90 && this.riderRating < 5.0) {
+      this.riderRating = Math.min(5.0, Math.round((this.riderRating + 0.1) * 10) / 10);
+    }
+    this.persistCareer();
 
     const now = new Date();
     const completedAt = `${String(now.getHours()).padStart(2, '0')}:${String(
@@ -900,6 +963,8 @@ export class DeliveryManager {
       baseFee: m.order.baseFee,
       rainBonus,
       nightBonus,
+      tierBonus,
+      tierPromotedTo,
       foodIntegrity: Math.round(m.foodIntegrity),
       foodTemp: Math.round(m.foodTemp),
       spillDamageAccum: Math.round(m.spillDamageAccum),
@@ -1005,20 +1070,22 @@ export class DeliveryManager {
     const harshLean = isRiding && !scooter.crashed && speedKmh > 20 && absLean > 0.44; // > ~25°
     const harshLong = isRiding && !scooter.crashed && speedKmh > 14 && absLongAcc > 9.4;
 
+    const upgFx = getUpgradeEffects(this.career.upgrades);
+
     for (const m of this.activeMissions) {
       if (!m.pickedUp || m.phase === 'corridor_exit') continue;
 
-      // 1. Temperature retention decay (insulated cargo box slows decay by ~40% vs hand-carrying!)
+      // 1. Temperature retention decay (insulated cargo box slows decay; thermal_box upgrade cuts decay another -40%!)
       const inInsulatedBox = m.phase === 'cargo_loaded';
       const baseRate = m.order.foodTempType === 'cold' ? 0.62 : 0.42; // % per second in box
-      const tempRate = inInsulatedBox ? baseRate : baseRate * 1.55;
+      const tempRate = (inInsulatedBox ? baseRate * upgFx.tempDecayMul : baseRate * 1.55);
       m.foodTemp = clamp(m.foodTemp - tempRate * clampedDt, 0, 100);
 
       // 2. Real-time liquid/fragile spill damage inside top box from harsh lean or sudden braking
       if (inInsulatedBox && m.order.isSpillSensitive && (harshLean || harshLong)) {
         const leanFactor = harshLean ? (absLean - 0.44) * 10.5 : 0;
         const brakeFactor = harshLong ? (absLongAcc - 9.4) * 1.45 : 0;
-        const dmg = (leanFactor + brakeFactor) * clampedDt;
+        const dmg = (leanFactor + brakeFactor) * upgFx.spillDamageMul * clampedDt;
         if (dmg > 0) {
           m.foodIntegrity = clamp(m.foodIntegrity - dmg, 20, 100);
           m.spillDamageAccum += dmg;
@@ -1051,12 +1118,13 @@ export class DeliveryManager {
     let maxLoss = 0;
     let spillHit = false;
 
+    const upgFx = getUpgradeEffects(this.career.upgrades);
     for (const id of this.cargoSlots) {
       if (!id) continue;
       const m = this.getMissionById(id);
       if (!m || m.phase !== 'cargo_loaded') continue;
       const loss = Math.round(
-        m.order.isSpillSensitive ? 6 + excess * 10 : 3 + excess * 5
+        (m.order.isSpillSensitive ? 6 + excess * 10 : 3 + excess * 5) * upgFx.spillDamageMul
       );
       m.foodIntegrity = clamp(m.foodIntegrity - loss, 15, 100);
       m.spillDamageAccum += loss;
@@ -1194,6 +1262,7 @@ export class DeliveryManager {
   public applyFine(amount: number): number {
     this.fineExpense += amount;
     this.totalEarnings -= amount;
+    this.persistCareer();
     return amount;
   }
 
@@ -1212,6 +1281,7 @@ export class DeliveryManager {
     this.pedestrianAccidentCount += 1;
     const prevRating = this.riderRating;
     this.riderRating = Math.max(0, Math.round((this.riderRating - PEDESTRIAN_RATING_PENALTY) * 10) / 10);
+    this.persistCareer();
     return {
       fine,
       ratingLoss: Math.round((prevRating - this.riderRating) * 10) / 10,
@@ -1224,18 +1294,21 @@ export class DeliveryManager {
     const rounded = Math.max(0, Math.round(amount / 100) * 100);
     this.fuelExpense += rounded;
     this.totalEarnings -= rounded;
+    this.persistCareer();
   }
 
   public recordRepairExpense(amount: number): void {
     const rounded = Math.max(0, Math.round(amount / 100) * 100);
     this.repairExpense += rounded;
     this.totalEarnings -= rounded;
+    this.persistCareer();
   }
 
   public recordConvenienceExpense(amount: number): void {
     const rounded = Math.max(0, Math.round(amount / 100) * 100);
     this.convenienceExpense += rounded;
     this.totalEarnings -= rounded;
+    this.persistCareer();
   }
 
   public getDailyMissionStatus(): DailyMissionStatus {
@@ -1256,12 +1329,14 @@ export class DeliveryManager {
       this.distanceBonusTotal +
       this.rainBonusTotal +
       this.nightBonusTotal +
+      this.tierBonusTotal +
       this.tipTotal +
       this.missionBonusTotal;
     const totalExpenses =
       this.damageDeductionTotal +
       this.fuelExpense +
       this.repairExpense +
+      this.upgradeExpense +
       this.convenienceExpense +
       this.fineExpense;
     return {
@@ -1270,16 +1345,21 @@ export class DeliveryManager {
       distanceBonusTotal: this.distanceBonusTotal,
       rainBonusTotal: this.rainBonusTotal,
       nightBonusTotal: this.nightBonusTotal,
+      tierBonusTotal: this.tierBonusTotal,
       tipTotal: this.tipTotal,
       missionBonusTotal: this.missionBonusTotal,
       damageDeductionTotal: this.damageDeductionTotal,
       fuelExpense: this.fuelExpense,
       repairExpense: this.repairExpense,
+      upgradeExpense: this.upgradeExpense,
       convenienceExpense: this.convenienceExpense,
       fineExpense: this.fineExpense,
       grossIncome,
       totalExpenses,
       netProfit: grossIncome - totalExpenses,
+      walletBalance: this.totalEarnings,
+      lifetimeCompleted: this.lifetimeCompleted,
+      riderTier: this.getCurrentTier(),
       riderRating: this.riderRating,
       pedestrianAccidentCount: this.pedestrianAccidentCount,
     };

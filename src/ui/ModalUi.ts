@@ -17,6 +17,11 @@ import {
   ScooterModelId,
   ScooterPaintId,
 } from '../vehicle/ScooterModels';
+import {
+  RIDER_UPGRADE_LIST,
+  RiderCareerSave,
+  UpgradeId,
+} from '../delivery/RiderCareer';
 
 export type ActiveModalType =
   | 'none'
@@ -43,6 +48,7 @@ export interface ModalCallbacks {
   onRepairConfirm: (cost: number) => void;
   onSelectBikeModel: (modelId: ScooterModelId, cost: number) => void;
   onSelectBikePaint: (paintId: ScooterPaintId, cost: number) => void;
+  onBuyUpgrade: (upgradeId: UpgradeId, cost: number) => void;
   onConvenienceBuy: (item: ConvenienceItemKind, cost: number) => void;
   onTakePhoto: () => void;
   onSettlementClose: () => void;
@@ -110,6 +116,8 @@ export class ModalUi {
   private readonly repairConfirmBtn = document.getElementById('repair-confirm-btn') as HTMLButtonElement;
   private readonly repairBikeList = document.getElementById('repair-bike-list')!;
   private readonly repairPaintGrid = document.getElementById('repair-paint-grid')!;
+  private readonly repairUpgradeList = document.getElementById('repair-upgrade-list')!;
+  private readonly repairWalletChip = document.getElementById('repair-wallet-chip')!;
   private repairCost = 0;
 
   // 24h Convenience Store Modal
@@ -261,6 +269,10 @@ export class ModalUi {
         const paintId = btn.dataset.bikePaint as ScooterPaintId;
         const cost = Number(btn.dataset.cost || 0);
         this.callbacks.onSelectBikePaint(paintId, cost);
+      } else if (btn.dataset.upgradeId) {
+        const upgradeId = btn.dataset.upgradeId as UpgradeId;
+        const cost = Number(btn.dataset.cost || 0);
+        this.callbacks.onBuyUpgrade(upgradeId, cost);
       }
     });
 
@@ -541,17 +553,23 @@ export class ModalUi {
     }, 95);
   }
 
-  public openRepairModal(damageLevel: number, crashCount: number, garage: BikeGarageSave): void {
+  public openRepairModal(
+    damageLevel: number,
+    crashCount: number,
+    garage: BikeGarageSave,
+    career: RiderCareerSave
+  ): void {
     this.closeAll();
     this.activeModal = 'repair';
-    this.renderRepairGarageContent(damageLevel, crashCount, garage);
+    this.renderRepairGarageContent(damageLevel, crashCount, garage, career);
     this.repairBackdrop.classList.remove('hidden');
   }
 
   public renderRepairGarageContent(
     damageLevel: number,
     crashCount: number,
-    garage: BikeGarageSave
+    garage: BikeGarageSave,
+    career: RiderCareerSave
   ): void {
     this.repairCost = damageLevel * REPAIR_COST_PER_DAMAGE_STAGE;
     const accelPenalty = damageLevel * 10;
@@ -626,6 +644,27 @@ export class ModalUi {
         </button>
       `;
     }).join('');
+
+    this.repairWalletChip.textContent = `지갑 ₩${career.walletBalance.toLocaleString()}`;
+    this.repairUpgradeList.innerHTML = RIDER_UPGRADE_LIST.map((u) => {
+      const owned = career.upgrades.includes(u.id);
+      const canAfford = career.walletBalance >= u.price;
+      const cls = owned ? 'upg-owned' : canAfford ? '' : 'upg-locked';
+      const tagClass = owned ? 'active' : canAfford ? 'owned' : '';
+      const tagText = owned ? '✓ 장착 완료' : `₩${u.price.toLocaleString()}`;
+      return `
+        <button class="garage-bike-btn ${cls}" data-upgrade-id="${u.id}" data-cost="${u.price}">
+          <div class="gb-info">
+            <div class="gb-name">${u.icon} ${u.name}</div>
+            <div class="gb-desc">${u.shortDesc}</div>
+            <div class="gb-stats">
+              <span class="gb-stat-pill">${u.statBadge}</span>
+            </div>
+          </div>
+          <span class="gb-price-tag ${tagClass}">${tagText}</span>
+        </button>
+      `;
+    }).join('');
   }
 
   public openConvenienceModal(staminaPct: number, batteryPct: number): void {
@@ -661,6 +700,7 @@ export class ModalUi {
         <div class="rep-line inc"><span>거리 할증 합계</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
         <div class="rep-line inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
         <div class="rep-line inc"><span>🌙 심야 할증</span><span>+${fmt(ledger.nightBonusTotal)}</span></div>
+        <div class="rep-line inc"><span>${ledger.riderTier.icon} ${ledger.riderTier.name} 등급 보너스</span><span>+${fmt(ledger.tierBonusTotal)}</span></div>
         <div class="rep-line inc"><span>안전 배달 팁</span><span>+${fmt(ledger.tipTotal)}</span></div>
         <div class="rep-line inc"><span>🏆 일일 배달 미션 보너스</span><span>+${fmt(ledger.missionBonusTotal)}</span></div>
         <div class="rep-line sub inc"><span>총 수입 소계</span><span>+${fmt(ledger.grossIncome)}</span></div>
@@ -671,9 +711,13 @@ export class ModalUi {
         <div class="rep-line exp"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(ledger.fineExpense)}</span></div>
         <div class="rep-line exp"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(ledger.damageDeductionTotal)}</span></div>
         <div class="rep-line exp"><span>⛽ 유류비 지출</span><span>-${fmt(ledger.fuelExpense)}</span></div>
-        <div class="rep-line exp"><span>🔧 오토바이 수리비</span><span>-${fmt(ledger.repairExpense)}</span></div>
+        <div class="rep-line exp"><span>🔧 오토바이 수리·기종·도색</span><span>-${fmt(ledger.repairExpense)}</span></div>
+        <div class="rep-line exp"><span>⚙️ 성능 장비 업그레이드</span><span>-${fmt(ledger.upgradeExpense)}</span></div>
         <div class="rep-line exp"><span>🏪 편의점 음료·충전</span><span>-${fmt(ledger.convenienceExpense)}</span></div>
         <div class="rep-line sub exp"><span>총 차감/지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
+      </div>
+      <div class="rep-section">
+        <div class="rep-line inc"><span>💼 누적 영구 저장 지갑 잔고 (${ledger.riderTier.icon} 누적 ${ledger.lifetimeCompleted}건)</span><span>₩${ledger.walletBalance.toLocaleString()}</span></div>
       </div>
     `;
 
@@ -765,6 +809,10 @@ export class ModalUi {
       result.nightBonus > 0
         ? `<div class="st-row tip"><span>🌙 심야 할증 보너스</span><span>+₩${result.nightBonus.toLocaleString()}</span></div>`
         : '';
+    const tierRow =
+      result.tierBonus > 0
+        ? `<div class="st-row tip"><span>🏅 라이더 등급 보너스</span><span>+₩${result.tierBonus.toLocaleString()}</span></div>`
+        : '';
 
     const tempIcon = result.order.foodTempType === 'cold' ? '🧊 보냉' : '🔥 보온';
     const tempRow =
@@ -797,6 +845,7 @@ export class ModalUi {
       <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
       ${rainRow}
       ${nightRow}
+      ${tierRow}
       ${tempRow}
       ${villaRow}
       ${chatTipRow}

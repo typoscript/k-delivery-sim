@@ -4431,3 +4431,42 @@ body.phone-3d-hover canvas {
   border: 1px solid rgba(129, 140, 248, 0.45);
   margin-left: 4px;
 }
+
+
+/* Rider Career Tier Pill & Upgrade Store UI */
+.tier-pill {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.86);
+  color: #fde68a;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  white-space: nowrap;
+}
+
+.garage-sec-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.garage-wallet-chip {
+  font-size: 11px;
+  font-weight: 800;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.garage-bike-btn.upg-owned {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(6, 78, 59, 0.28);
+}
+
+.garage-bike-btn.upg-locked {
+  opacity: 0.65;
+}

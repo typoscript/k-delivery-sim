@@ -480,7 +480,8 @@ export class PhoneMap {
     scooterEngineOn: boolean,
     onWirelessChargeStart?: () => void,
     onLowBattery?: () => void,
-    onBatteryDead?: () => void
+    onBatteryDead?: () => void,
+    chargeSpeedMul = 1.0
   ): void {
     const clampedDt = Math.min(dt, 0.05);
     const chargingNow = this.placement === 'mounted' && scooterEngineOn;
@@ -491,7 +492,7 @@ export class PhoneMap {
     this.isWirelessCharging = chargingNow;
 
     if (chargingNow) {
-      this.battery = clamp(this.battery + 4.4 * clampedDt, 0, 100);
+      this.battery = clamp(this.battery + 4.4 * chargeSpeedMul * clampedDt, 0, 100);
       if (this.battery > 18) this.lowBatteryWarned = false;
       if (this.battery > 3) this.deadBatteryWarned = false;
     } else {
@@ -2099,7 +2100,7 @@ export class PhoneMap {
   private renderFinanceTab(delivery: DeliveryManager): string {
     const l = delivery.getDailyLedger();
     const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
-    const netSign = l.netProfit < 0 ? '-' : '';
+    const walletSign = l.walletBalance < 0 ? '-' : '';
     const today = new Date();
     const dateStr = `${today.getMonth() + 1}월 ${today.getDate()}일 · ${l.completedCount}건`;
 
@@ -2114,14 +2115,15 @@ export class PhoneMap {
         <div class="bc-rcpt-row inc"><span>거리 할증 합계</span><span>+${fmt(l.distanceBonusTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(l.rainBonusTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>🌙 심야 할증</span><span>+${fmt(l.nightBonusTotal)}</span></div>
+        <div class="bc-rcpt-row inc"><span>${l.riderTier.icon} ${l.riderTier.name} 보너스</span><span>+${fmt(l.tierBonusTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>안전 배달 팁 / 미션 보너스</span><span>+${fmt(l.tipTotal + l.missionBonusTotal)}</span></div>
         <div class="bc-rcpt-divider"></div>
         <div class="bc-rcpt-row ded"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(l.fineExpense)}</span></div>
         <div class="bc-rcpt-row ded"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(l.damageDeductionTotal)}</span></div>
-        <div class="bc-rcpt-row ded"><span>⛽ 유류비 · 🔧 수리비</span><span>-${fmt(l.fuelExpense + l.repairExpense)}</span></div>
+        <div class="bc-rcpt-row ded"><span>⛽ 유류 · 🔧 정비 · ⚙️ 업그레이드</span><span>-${fmt(l.fuelExpense + l.repairExpense + l.upgradeExpense + l.convenienceExpense)}</span></div>
         <div class="bc-rcpt-total">
-          <span>최종 실수령액 (Net Earnings)</span>
-          <span class="bc-rcpt-net ${l.netProfit < 0 ? 'neg' : ''}">${netSign}${fmt(l.netProfit)}</span>
+          <span>누적 지갑 잔고 (${l.riderTier.icon} ${l.lifetimeCompleted}건)</span>
+          <span class="bc-rcpt-net ${l.walletBalance < 0 ? 'neg' : ''}">${walletSign}${fmt(l.walletBalance)}</span>
         </div>
       </div>
       <button class="fin-open-btn" data-action="open_report">📊 전체 화면 정산 명세서 크게 보기</button>

@@ -38,6 +38,7 @@ export interface InteractionContext {
 
 export class Hud {
   private readonly modeBadge = document.getElementById('mode-badge')!;
+  private readonly tierBadge = document.getElementById('tier-badge')!;
   private readonly ratingBadge = document.getElementById('rating-badge')!;
   private readonly buffBadge = document.getElementById('buff-badge')!;
   private readonly weatherBadge = document.getElementById('weather-badge')!;
@@ -235,6 +236,13 @@ export class Hud {
     ctx: InteractionContext
   ): void {
     const isRiding = player.mode === 'riding';
+
+    // Update Rider Career Tier & Persistent Wallet Pill
+    const tier = delivery.getCurrentTier();
+    const shortTier = tier.name.replace(' 라이더', '');
+    this.tierBadge.textContent = `${tier.icon} ${shortTier} · ₩${delivery.totalEarnings.toLocaleString()}`;
+    this.tierBadge.style.borderColor = tier.color;
+    this.tierBadge.title = `${tier.icon} ${tier.name} (누적 ${delivery.lifetimeCompleted}건 · 건당 보너스 +₩${tier.bonusPerDelivery.toLocaleString()})`;
 
     // Update Rider Trust Rating badge (★ 5.0 -> drops -1.0 per pedestrian accident)
     const rating = delivery.riderRating;
@@ -516,8 +524,8 @@ export class Hud {
       }
       if (ctx.nearRepairShop) {
         return scooter.damageLevel > 0
-          ? `<kbd>E</kbd> 🔧 번개 오토바이 센터 (${scooter.damageLevel}단계 수리 · 기종 전환 · 커스텀 도색)`
-          : `<kbd>E</kbd> 🔧 번개 오토바이 센터 (오토바이 기종 변경 · 커스텀 도색)`;
+          ? `<kbd>E</kbd> 🔧 번개 오토바이 센터 (${scooter.damageLevel}단계 수리 · 기종 · 도색 · 장비 업그레이드)`
+          : `<kbd>E</kbd> 🔧 번개 오토바이 센터 (기종 변경 · 커스텀 도색 · 성능 업그레이드)`;
       }
       if (ctx.nearConvenienceStore) {
         return `<kbd>E</kbd> 🏪 K-24 편의점 이용 (에너지드링크 · 아메리카노 · 보조배터리)`;

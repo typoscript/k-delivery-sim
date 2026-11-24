@@ -28,6 +28,7 @@ import {
   MAX_CONCURRENT_ORDERS,
   getInstructionMeta,
 } from './delivery/DeliveryManager';
+import { RIDER_UPGRADES, getUpgradeEffects } from './delivery/RiderCareer';
 import { OrderDispatchManager } from './delivery/OrderDispatchManager';
 import { Hud } from './ui/Hud';
 import { ModalUi } from './ui/ModalUi';
@@ -69,6 +70,17 @@ const weather = new WeatherManager(scene);
 const visorRain = new VisorRainOverlay();
 const voiceNav = new VoiceNavigator();
 const delivery = new DeliveryManager(world.locations);
+
+const syncScooterUpgrades = () => {
+  const fx = getUpgradeEffects(delivery.career.upgrades);
+  scooterPhysics.setUpgradeModifiers({
+    accelMul: fx.accelMul,
+    speedMul: fx.speedMul,
+    fuelBurnMul: fx.fuelBurnMul,
+    gripMul: fx.gripMul,
+  });
+};
+syncScooterUpgrades();
 const dispatch = new OrderDispatchManager(world.locations, {
   onOfferArrived: (offer) => {
     audio.playDispatchCallAlert();
@@ -251,6 +263,14 @@ const finalizeCorridorSettlement = () => {
   const result = delivery.completePhotoSettlement();
   if (result) {
     audio.playChime('complete');
+    if (result.tierPromotedTo) {
+      audio.playMissionBonusFanfare();
+      voiceNav.speak(`축하합니다! ${result.tierPromotedTo.name} 등급으로 승급했습니다!`);
+      hud.showToast(
+        `🎉 승급 축하! ${result.tierPromotedTo.icon} ${result.tierPromotedTo.name} 달성! (건당 배달 보너스 +₩${result.tierPromotedTo.bonusPerDelivery.toLocaleString()})`,
+        5200
+      );
+    }
     if (result.missionJustCompleted) {
       pendingMissionBonusPopup = {
         target: delivery.getDailyMissionStatus().target,
@@ -397,7 +417,8 @@ const modalUi = new ModalUi({
     modalUi.renderRepairGarageContent(
       scooterPhysics.state.damageLevel,
       scooterPhysics.state.crashCount,
-      bikeGarage
+      bikeGarage,
+      delivery.career
     );
     const spec = SCOOTER_MODELS[modelId];
     hud.showToast(
@@ -421,13 +442,45 @@ const modalUi = new ModalUi({
     modalUi.renderRepairGarageContent(
       scooterPhysics.state.damageLevel,
       scooterPhysics.state.crashCount,
-      bikeGarage
+      bikeGarage,
+      delivery.career
     );
     const paint = SCOOTER_PAINTS[paintId];
     hud.showToast(
       `🎨 커스텀 도색 [${paint.name}] 적용 완료!${cost > 0 ? ` (-₩${cost.toLocaleString()})` : ''}`,
       2800
     );
+  },
+  onBuyUpgrade: (upgradeId, cost) => {
+    const spec = RIDER_UPGRADES[upgradeId];
+    if (delivery.hasUpgrade(upgradeId)) {
+      hud.showToast(`${spec.icon} ${spec.name} 장비는 이미 장착되어 있습니다!`, 2400);
+      return;
+    }
+    if (delivery.totalEarnings < cost) {
+      audio.playKeypadBeep(false);
+      const short = cost - delivery.totalEarnings;
+      hud.showToast(
+        `💰 지갑 잔액이 부족합니다! (필요 ₩${cost.toLocaleString()} · ₩${short.toLocaleString()} 더 필요)`,
+        3400
+      );
+      return;
+    }
+    if (delivery.buyUpgrade(upgradeId, cost)) {
+      syncScooterUpgrades();
+      audio.playRepairSound();
+      window.setTimeout(() => audio.playPaymentCompleteSound(), 320);
+      modalUi.renderRepairGarageContent(
+        scooterPhysics.state.damageLevel,
+        scooterPhysics.state.crashCount,
+        bikeGarage,
+        delivery.career
+      );
+      hud.showToast(
+        `⚙️ ${spec.icon} ${spec.name} 장착 완료! (${spec.statBadge} · 영구 저장됨)`,
+        4000
+      );
+    }
   },
   onConvenienceBuy: (item, cost) => {
     delivery.recordConvenienceExpense(cost);
@@ -497,7 +550,8 @@ const handleContextInteract = () => {
       modalUi.openRepairModal(
         scooterPhysics.state.damageLevel,
         scooterPhysics.state.crashCount,
-        bikeGarage
+        bikeGarage,
+        delivery.career
       );
       return;
     }
@@ -1557,13 +1611,19 @@ function animate(now: number): void {
   voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
   voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
 
-  // Step smartphone battery drain & handlebar-mount wireless charging!
+  // Step smartphone battery drain & handlebar-mount wireless charging (2x faster with fast_charger upgrade!)
+  const chargeSpeedMul = getUpgradeEffects(delivery.career.upgrades).chargeSpeedMul;
   hud.phoneMap.stepBattery(
     dt,
     scooterPhysics.state.engineOn,
     () => {
       audio.playWirelessChargeStart();
-      hud.showToast('⚡ 오토바이 거치대 무선충전 시작! (주행 중 배터리 자동 충전)', 2600);
+      hud.showToast(
+        chargeSpeedMul > 1.5
+          ? '⚡ 고속 무선충전 거치대 작동! (2배 속도로 초고속 충전 중)'
+          : '⚡ 오토바이 거치대 무선충전 시작! (주행 중 배터리 자동 충전)',
+        2600
+      );
     },
     () => {
       audio.playLowBatteryBeep();
@@ -1579,7 +1639,8 @@ function animate(now: number): void {
         '🪫 휴대폰 배터리 방전! 오토바이 거치대 [Tab] 시동 무선충전 또는 🏪 K-24 편의점에서 충전하세요',
         4600
       );
-    }
+    },
+    chargeSpeedMul
   );
 
   // Update 1-Minute First-Shift Interactive Onboarding Guide progress

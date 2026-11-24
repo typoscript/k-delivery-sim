@@ -34,6 +34,7 @@
         <div class="title-row">
           <button id="district-badge-btn" class="badge district-btn" title="수원시 출근 구역 변경 (P)">📍 수원 인계동 ▾</button>
           <span id="mode-badge" class="mode-pill foot">🚶 1인칭 도보</span>
+          <span id="tier-badge" class="tier-pill" title="누적 라이더 등급 & 영구 저장 지갑 잔고">🥉 브론즈 · ₩0</span>
           <span id="rating-badge" class="rating-pill" title="배달 기사 신뢰 평점 (5.0 만점)">★ 5.0</span>
           <span id="buff-badge" class="buff-pill hidden" title="편의점 음료 버프 활성화 중">⚡ 60s</span>
           <button id="weather-badge" class="weather-pill clear" title="날씨 전환: 맑음 / 흐림 / 비 (U)">☀️ 맑음</button>
@@ -571,6 +572,14 @@
           <div class="garage-section">
             <div class="garage-sec-title">🎨 커스텀 바디 도색 (6종 컬러)</div>
             <div id="repair-paint-grid" class="garage-paint-grid"></div>
+          </div>
+
+          <div class="garage-section">
+            <div class="garage-sec-title">
+              <span>⚙️ 성능 장비 업그레이드 (5종 · 영구 저장)</span>
+              <span id="repair-wallet-chip" class="garage-wallet-chip">지갑 ₩0</span>
+            </div>
+            <div id="repair-upgrade-list" class="garage-bike-list"></div>
           </div>
         </div>
       </div>

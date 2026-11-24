@@ -104,6 +104,12 @@ export class ScooterPhysics {
   private readonly spawnZ = ACTIVE_MAP_DATA.meta.scooterSpawn.z;
   private readonly spawnHeading = ACTIVE_MAP_DATA.meta.scooterSpawn.heading;
 
+  // Performance upgrade multipliers from 번개 오토바이 센터 (saved in localStorage)
+  private upgradeAccelMul = 1.0;
+  private upgradeSpeedMul = 1.0;
+  private upgradeFuelBurnMul = 1.0;
+  private upgradeGripMul = 1.0;
+
   constructor() {
     this.state = this.createInitialState();
   }
@@ -194,6 +200,18 @@ export class ScooterPhysics {
   public setBikeCustomization(modelId: ScooterModelId, paintId: ScooterPaintId): void {
     this.state.modelId = modelId;
     this.state.paintId = paintId;
+  }
+
+  public setUpgradeModifiers(mods: {
+    accelMul: number;
+    speedMul: number;
+    fuelBurnMul: number;
+    gripMul: number;
+  }): void {
+    this.upgradeAccelMul = mods.accelMul;
+    this.upgradeSpeedMul = mods.speedMul;
+    this.upgradeFuelBurnMul = mods.fuelBurnMul;
+    this.upgradeGripMul = mods.gripMul;
   }
 
   public getAccelMultiplier(): number {
@@ -382,10 +400,11 @@ export class ScooterPhysics {
       return;
     }
 
-    // --- 2. Mounted Riding Physics (Tuned per Scooter Model: PCX / Super Cub / Electric EV-PRO!) ---
+    // --- 2. Mounted Riding Physics (Tuned per Scooter Model + Permanent Upgrades!) ---
     const bikeSpec = SCOOTER_MODELS[s.modelId];
+    const effectiveMaxSpeed = bikeSpec.maxForwardSpeed * this.upgradeSpeedMul;
     const absSpeed = Math.abs(s.speed);
-    const speedRatio = clamp(absSpeed / bikeSpec.maxForwardSpeed, 0, 1);
+    const speedRatio = clamp(absSpeed / effectiveMaxSpeed, 0, 1);
 
     // Progressive steering limit: enough authority at 50-75 km/h to over-lean if you push too hard!
     const maxSteer =
@@ -406,9 +425,9 @@ export class ScooterPhysics {
       else s.steerAngle -= Math.sign(s.steerAngle) * delta;
     }
 
-    // Longitudinal acceleration / braking (affected by bike model, damageLevel -10%/stage, rain grip, & out-of-fuel!)
+    // Longitudinal acceleration / braking (affected by bike model, ECU upgrade, damageLevel -10%/stage, rain grip, & out-of-fuel!)
     const damageAccelMul = this.getAccelMultiplier();
-    const maxAccel = 7.6 * bikeSpec.accelMul * (1 - 0.58 * speedRatio) * damageAccelMul;
+    const maxAccel = 7.6 * bikeSpec.accelMul * this.upgradeAccelMul * (1 - 0.58 * speedRatio) * damageAccelMul;
     let brakeGripMul = road.isRaining ? 0.86 : 1.0;
     if (road.isRaining && road.surface === 'manhole') brakeGripMul = 0.55;
     else if (road.isRaining && road.surface === 'crosswalk_paint') brakeGripMul = 0.68;
@@ -456,10 +475,13 @@ export class ScooterPhysics {
       this.reverseHoldTimer = 0;
     }
 
-    // Real-time fuel / EV battery burn while engine is running (scaled by bike model efficiency!)
+    // Real-time fuel / EV battery burn while engine is running (scaled by bike model & Eco Tank upgrade!)
     if (s.engineOn) {
       const idleBurn = bikeSpec.isElectric ? 0.004 : 0.025;
-      const burnRate = (idleBurn + throttleAmt * (0.28 + speedRatio * 0.44)) * bikeSpec.fuelBurnMul;
+      const burnRate =
+        (idleBurn + throttleAmt * (0.28 + speedRatio * 0.44)) *
+        bikeSpec.fuelBurnMul *
+        this.upgradeFuelBurnMul;
       s.fuel = Math.max(0, s.fuel - burnRate * dt);
       s.lowFuelWarning = s.fuel <= 10;
       if (s.fuel <= 0.01) {
@@ -479,7 +501,7 @@ export class ScooterPhysics {
     if (isBraking && s.speed !== 0 && Math.sign(nextSpeed) !== Math.sign(s.speed)) {
       s.speed = 0;
     } else {
-      s.speed = clamp(nextSpeed, -SCOOTER_SPECS.maxReverseSpeed, bikeSpec.maxForwardSpeed);
+      s.speed = clamp(nextSpeed, -SCOOTER_SPECS.maxReverseSpeed, effectiveMaxSpeed);
     }
 
     if (!input.throttle && !input.brake && Math.abs(s.speed) < 0.06) {
@@ -529,7 +551,8 @@ export class ScooterPhysics {
     // Tire traction limit (wet road & slick metal manhole / white crosswalk paint dramatically cut grip!)
     let activeGripLimit =
       (isBraking || input.handbrake ? SCOOTER_SPECS.brakingLeanLimit : SCOOTER_SPECS.dryGripLeanLimit) *
-      bikeSpec.gripMul;
+      bikeSpec.gripMul *
+      this.upgradeGripMul;
 
     if (road.isRaining) {
       activeGripLimit *= isBraking || input.handbrake ? 0.78 : 0.84;
