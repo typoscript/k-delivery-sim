@@ -352,18 +352,40 @@ const modalUi = new ModalUi({
   onPosSuccess: (missionId) => {
     const res = delivery.completePosPickup(missionId);
     if (!res) return;
+    const regularUnlockSuffix = res.justBecameRegular
+      ? ` · 🎉 ${res.mission.order.shop.name} 단골 매장 등극! (다음 픽업부터 우선 조리 우대)`
+      : '';
     if (res.status === 'cooking') {
       audio.playKeypadBeep(true);
-      hud.showToast(
-        `🍳 ${res.mission.order.shop.name} [#${res.mission.order.orderNumber}] 조리 중 (남은 시간: ${res.waitSec}초) — 대기 중 탑승·휴대폰 조작 가능!`,
-        4200
-      );
+      if (res.isRegularPerk && res.savedWaitSec > 0) {
+        hud.showToast(
+          `⭐ 단골 매장 우대! ${res.mission.order.shop.name} 사장님이 먼저 챙겨주셨어요 (대기 -${res.savedWaitSec}초 → ${res.waitSec}초 남음)`,
+          4400
+        );
+      } else {
+        hud.showToast(
+          `🍳 ${res.mission.order.shop.name} [#${res.mission.order.orderNumber}] 조리 중 (남은 시간: ${res.waitSec}초) — 대기 중 탑승·휴대폰 조작 가능!${regularUnlockSuffix}`,
+          4400
+        );
+      }
     } else {
       audio.playChime('pickup');
-      hud.showToast(
-        `🛍️ [#${res.mission.order.orderNumber}] 픽업 완료! 오토바이 뒤편 배달통 [E]로 슬롯에 적재하세요`,
-        3800
-      );
+      if (res.isRegularPerk && res.savedWaitSec > 0) {
+        hud.showToast(
+          `⭐ 단골 매장 즉시 픽업! 사장님이 먼저 준비해 두셨어요 (-${res.savedWaitSec}초 단축) · 배달통 [E] 적재하세요`,
+          4200
+        );
+      } else if (res.isRegularPerk) {
+        hud.showToast(
+          `⭐ 단골 매장 [#${res.mission.order.orderNumber}] 픽업 완료! 오토바이 뒤편 배달통 [E]로 슬롯에 적재하세요`,
+          3800
+        );
+      } else {
+        hud.showToast(
+          `🛍️ [#${res.mission.order.orderNumber}] 픽업 완료! 오토바이 뒤편 배달통 [E]로 슬롯에 적재하세요${regularUnlockSuffix}`,
+          4200
+        );
+      }
     }
   },
   onPinSuccess: (missionId) => {
@@ -749,7 +771,11 @@ const handleContextInteract = () => {
 
     if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
     else hud.phoneMap.setZoomed(false);
-    modalUi.openPosKeypad(shopMission.order, hasPhone);
+    modalUi.openPosKeypad(
+      shopMission.order,
+      hasPhone,
+      delivery.isRegularShop(shopMission.order.shop.id)
+    );
     return;
   }
 

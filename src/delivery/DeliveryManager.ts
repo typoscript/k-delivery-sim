@@ -2,9 +2,13 @@ import { DeliveryLocation, FoodTempType, clamp } from '../types';
 import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import {
+  CustomerReview,
+  MAX_STORED_REVIEWS,
+  REGULAR_SHOP_THRESHOLD,
   RiderCareerSave,
   RiderTierSpec,
   UpgradeId,
+  generateCustomerReview,
   getRiderTier,
   getUpgradeEffects,
   loadRiderCareer,
@@ -262,6 +266,10 @@ export interface PosPickupResult {
   mission: ActiveMission;
   status: 'cooking' | 'picked_up';
   waitSec: number;
+  isRegularPerk: boolean;
+  savedWaitSec: number;
+  shopPickupCount: number;
+  justBecameRegular: boolean;
 }
 
 export interface CompletedMissionRecord {
@@ -291,6 +299,7 @@ export interface SettlementResult {
   completedCount: number;
   missionJustCompleted: boolean;
   missionBonusAwarded: number;
+  review: CustomerReview;
 }
 
 export interface RecommendedStop {
@@ -400,6 +409,40 @@ export class DeliveryManager {
     this.totalEarnings -= rounded;
     this.persistCareer();
     return true;
+  }
+
+  public getShopPickupCount(shopId: string): number {
+    return this.career.shopPickupCounts[shopId] ?? 0;
+  }
+
+  public isRegularShop(shopId: string): boolean {
+    return this.getShopPickupCount(shopId) >= REGULAR_SHOP_THRESHOLD;
+  }
+
+  public getRegularShops(): Array<{ shopId: string; name: string; count: number }> {
+    const out: Array<{ shopId: string; name: string; count: number }> = [];
+    for (const [shopId, count] of Object.entries(this.career.shopPickupCounts)) {
+      if (count >= REGULAR_SHOP_THRESHOLD) {
+        const localShop = this.shops.find((s) => s.id === shopId);
+        const name =
+          this.career.shopNames[shopId] ??
+          (localShop ? `${localShop.emoji} ${localShop.name}` : shopId);
+        out.push({ shopId, name, count });
+      }
+    }
+    out.sort((a, b) => b.count - a.count);
+    return out;
+  }
+
+  public getRecentReviews(): CustomerReview[] {
+    return this.career.reviews;
+  }
+
+  public getAverageReviewStars(): number | null {
+    const list = this.career.reviews;
+    if (list.length === 0) return null;
+    const sum = list.reduce((acc, r) => acc + r.stars, 0);
+    return Math.round((sum / list.length) * 10) / 10;
   }
 
   /** Backward-compatible primary mission accessor (carried / corridor / pinned / first active) */
@@ -779,19 +822,61 @@ export class DeliveryManager {
     const delayProb = busyCookShops.has(m.order.shop.id) || sameShopCount > 1 ? 0.8 : 0.45;
     const hasDelay = forceCookingDelay !== undefined ? forceCookingDelay : Math.random() < delayProb;
 
+    // Regular Store Perk: >= 2 previous pickups at this shop grants priority fast-track cooking!
+    const prevCount = this.getShopPickupCount(m.order.shop.id);
+    const isRegularPerk = prevCount >= REGULAR_SHOP_THRESHOLD;
+    const nextCount = prevCount + 1;
+    this.career.shopPickupCounts[m.order.shop.id] = nextCount;
+    this.career.shopNames[m.order.shop.id] = `${m.order.shop.emoji} ${m.order.shop.name}`;
+    const justBecameRegular = prevCount < REGULAR_SHOP_THRESHOLD && nextCount >= REGULAR_SHOP_THRESHOLD;
+    this.persistCareer();
+
     if (hasDelay) {
-      const waitSec = 5 + Math.floor(Math.random() * 6); // 5 ~ 10 seconds random
+      const rawWaitSec = 5 + Math.floor(Math.random() * 6); // 5 ~ 10 seconds random
+      if (isRegularPerk && rawWaitSec <= 6) {
+        // Regular store owner prioritized your order -> instant handoff!
+        m.phase = 'carrying_to_box';
+        m.pickedUp = true;
+        this.invalidateNavCache();
+        return {
+          mission: m,
+          status: 'picked_up',
+          waitSec: 0,
+          isRegularPerk: true,
+          savedWaitSec: rawWaitSec,
+          shopPickupCount: nextCount,
+          justBecameRegular,
+        };
+      }
+      const waitSec = isRegularPerk ? Math.max(2, Math.round(rawWaitSec * 0.45)) : rawWaitSec;
+      const savedWaitSec = rawWaitSec - waitSec;
       m.phase = 'cooking_wait';
       m.cookingDurationSec = waitSec;
       m.cookingRemainingSec = waitSec;
       this.invalidateNavCache();
-      return { mission: m, status: 'cooking', waitSec };
+      return {
+        mission: m,
+        status: 'cooking',
+        waitSec,
+        isRegularPerk,
+        savedWaitSec,
+        shopPickupCount: nextCount,
+        justBecameRegular,
+      };
     }
 
     m.phase = 'carrying_to_box';
     m.pickedUp = true;
     this.invalidateNavCache();
-    return { mission: m, status: 'picked_up', waitSec: 0 };
+    return {
+      mission: m,
+      status: 'picked_up',
+      waitSec: 0,
+      isRegularPerk,
+      savedWaitSec: 0,
+      shopPickupCount: nextCount,
+      justBecameRegular,
+    };
   }
 
   /** Collects the spawned 3D takeout food bag from the shop pickup tray into the rider's left hand */
@@ -937,16 +1022,43 @@ export class DeliveryManager {
       missionBonusAwarded = DAILY_MISSION_BONUS;
     }
 
-    // Smoothly restore +0.1 trust rating on clean high-integrity deliveries (up to 5.0)
-    if (m.foodIntegrity >= 90 && this.riderRating < 5.0) {
-      this.riderRating = Math.min(5.0, Math.round((this.riderRating + 0.1) * 10) / 10);
-    }
-    this.persistCareer();
-
     const now = new Date();
     const completedAt = `${String(now.getHours()).padStart(2, '0')}:${String(
       now.getMinutes()
     ).padStart(2, '0')}`;
+
+    const review = generateCustomerReview({
+      orderNumber: m.order.orderNumber,
+      shopId: m.order.shop.id,
+      shopName: m.order.shop.name,
+      shopEmoji: m.order.shop.emoji,
+      menuName: m.order.menuName,
+      customerName: m.order.customer.name,
+      unitNumber: m.order.unitNumber,
+      foodIntegrity: Math.round(m.foodIntegrity),
+      foodTemp: Math.round(m.foodTemp),
+      foodTempType: m.order.foodTempType,
+      isSpillSensitive: m.order.isSpillSensitive,
+      spillDamageAccum: Math.round(m.spillDamageAccum),
+      remainingRatio: m.order.timeLimitSec > 0 ? m.remainingTimeSec / m.order.timeLimitSec : 0.5,
+      isWalkupVilla: m.order.customer.residenceKind === 'walkup_villa',
+      isRain: rainBonus > 0,
+      isNight: nightBonus > 0,
+      deliveryInstruction: m.order.deliveryInstruction,
+      createdAt: completedAt,
+    });
+    this.career.reviews.unshift(review);
+    if (this.career.reviews.length > MAX_STORED_REVIEWS) {
+      this.career.reviews.length = MAX_STORED_REVIEWS;
+    }
+
+    // Smoothly adjust trust rating from clean 5-star or damaged 1~2-star customer reviews
+    if ((m.foodIntegrity >= 90 || review.stars === 5) && this.riderRating < 5.0) {
+      this.riderRating = Math.min(5.0, Math.round((this.riderRating + 0.1) * 10) / 10);
+    } else if (review.stars <= 2 && this.riderRating > 1.0) {
+      this.riderRating = Math.max(1.0, Math.round((this.riderRating - 0.1) * 10) / 10);
+    }
+    this.persistCareer();
 
     this.completedMissions.unshift({
       order: m.order,
@@ -978,6 +1090,7 @@ export class DeliveryManager {
       completedCount: this.completedCount,
       missionJustCompleted,
       missionBonusAwarded,
+      review,
     };
 
     m.phase = 'corridor_exit';

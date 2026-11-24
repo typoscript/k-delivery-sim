@@ -18,7 +18,7 @@ import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export type PhonePlacement = 'pocket' | 'in_hand' | 'mounted';
 export type PhoneTopNav = 'calls' | 'nav' | 'earnings';
-export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance';
+export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance' | 'reviews';
 
 export interface PhoneCallbacks {
   onAcceptOrder: (orderId: string) => void;
@@ -456,7 +456,7 @@ export class PhoneMap {
     } else if (next === 'nav') {
       if (this.activeTab !== 'route' && this.activeTab !== 'checklist') this.activeTab = 'route';
     } else {
-      this.activeTab = 'finance';
+      if (this.activeTab !== 'finance' && this.activeTab !== 'reviews') this.activeTab = 'finance';
     }
     this.syncTopNavHighlight();
     this.lastSheetFingerprint = '';
@@ -775,7 +775,7 @@ export class PhoneMap {
       this.syncPinTooltip(delivery, navPlan);
       this.syncCameraAlertBanner(mapInfo);
       this.syncCookingBanner(delivery);
-      this.syncDispatchPopup(activeOffer);
+      this.syncDispatchPopup(activeOffer, delivery);
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       this.renderMapToContext(
@@ -880,7 +880,7 @@ export class PhoneMap {
   }
 
   /** Syncs the interactive 20s circular progress call popup inside the zoomed smartphone UI */
-  private syncDispatchPopup(offer: DispatchOffer | null): void {
+  private syncDispatchPopup(offer: DispatchOffer | null, delivery: DeliveryManager): void {
     if (!offer) {
       this.dispatchPopupEl.classList.add('hidden');
       this.lastOfferPopupId = '';
@@ -913,7 +913,7 @@ export class PhoneMap {
         .map(
           (o, idx) => `
           <div class="dp-stop-item">
-            <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span> <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span></div>
+            <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} ${delivery.isRegularShop(o.shop.id) ? '<span class="regular-shop-tag">⭐단골</span> ' : ''}<span class="ord-tag">#${o.orderNumber}</span> <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span></div>
             <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? ' <span class="villa-tag">🪜계단+500</span>' : ''} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
           </div>`
         )
@@ -1768,7 +1768,8 @@ export class PhoneMap {
     const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}:${o.nightBonus}`).join(',');
     const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
     const finFp = `${delivery.totalEarnings}:${delivery.fuelExpense}:${delivery.repairExpense}:${delivery.fineExpense}`;
-    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|n:${delivery.isNightMode}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|${player.inCorridor}`;
+    const revFp = `${delivery.getRecentReviews().length}:${delivery.getRegularShops().length}`;
+    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|n:${delivery.isNightMode}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|rv:${revFp}|${player.inCorridor}`;
 
     if (fingerprint === this.lastSheetFingerprint) return;
     this.lastSheetFingerprint = fingerprint;
@@ -1776,6 +1777,7 @@ export class PhoneMap {
     const activeCnt = delivery.activeMissions.length;
     const doneCnt = delivery.completedMissions.length;
     const stopsCnt = navPlan.recommendedStops.length;
+    const revCnt = delivery.getRecentReviews().length;
     this.syncTopNavHighlight();
 
     // Context sub-pills matching the Baemin Connect top 3-tab structure ([콜 목록] / [내비] / [수익])
@@ -1802,6 +1804,17 @@ export class PhoneMap {
           </button>
         </div>
       `;
+    } else if (this.topNav === 'earnings') {
+      subNavHtml = `
+        <div class="bc-sub-pills">
+          <button class="bc-sub-btn ${this.activeTab === 'finance' ? 'active' : ''}" data-action="tab" data-tab="finance">
+            🧾 수익 정산
+          </button>
+          <button class="bc-sub-btn ${this.activeTab === 'reviews' ? 'active' : ''}" data-action="tab" data-tab="reviews">
+            ⭐ 고객 리뷰 (${revCnt})
+          </button>
+        </div>
+      `;
     }
 
     let bodyHtml = '';
@@ -1813,6 +1826,8 @@ export class PhoneMap {
       bodyHtml = this.renderChecklistTab(delivery);
     } else if (this.activeTab === 'route') {
       bodyHtml = this.renderRouteTab(delivery, navPlan);
+    } else if (this.activeTab === 'reviews') {
+      bodyHtml = this.renderReviewsTab(delivery);
     } else {
       bodyHtml = this.renderFinanceTab(delivery);
     }
@@ -1831,7 +1846,7 @@ export class PhoneMap {
           <div class="order-top">
             <span class="order-shop">
               <span class="dispatch-type-pill ${o.dispatchType === 'SINGLE' ? 'single' : 'alttle'}">${o.dispatchType === 'SINGLE' ? '한집' : '알뜰'}</span>
-              ${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span>
+              ${o.shop.emoji} ${o.shop.name} ${delivery.isRegularShop(o.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${o.orderNumber}</span>
             </span>
             <span class="order-fee">₩${(o.baseFee + o.rainBonus + o.nightBonus).toLocaleString()}</span>
           </div>
@@ -1938,10 +1953,10 @@ export class PhoneMap {
               ${typeBadge}
               <span class="step-badge ${stepCls}">${this.getPhaseShortLabel(m.phase, m.cargoSlot, m.cookingRemainingSec)}</span>
               <span class="mission-timer-pill ${timerCls}">⏱ ${remMin}:${remS}</span>
-              <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus).toLocaleString()}</span>
+              <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus + m.order.nightBonus).toLocaleString()}</span>
             </div>
             <div class="order-top">
-              <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}</span>
+              <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}</span>
             </div>
             <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b>${villaPill} <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
             <div class="order-menu" style="margin-top:2px">
@@ -2127,6 +2142,62 @@ export class PhoneMap {
         </div>
       </div>
       <button class="fin-open-btn" data-action="open_report">📊 전체 화면 정산 명세서 크게 보기</button>
+    `;
+  }
+
+  private renderReviewsTab(delivery: DeliveryManager): string {
+    const reviews = delivery.getRecentReviews();
+    const avg = delivery.getAverageReviewStars();
+    const regularShops = delivery.getRegularShops();
+
+    const regularChipsHtml =
+      regularShops.length > 0
+        ? regularShops
+            .slice(0, 6)
+            .map(
+              (rs) =>
+                `<span class="regular-shop-chip">${rs.name} <b>${rs.count}회</b></span>`
+            )
+            .join('')
+        : '<span class="regular-shop-empty">같은 매장 2회 이상 픽업 시 ⭐ 단골 매장 등극 (조리 대기 대폭 단축·우선 수령!)</span>';
+
+    const reviewCardsHtml =
+      reviews.length > 0
+        ? reviews
+            .map((r) => {
+              const starStr = '★'.repeat(r.stars) + '☆'.repeat(5 - r.stars);
+              const tagsHtml = r.tags.map((t) => `<span class="review-tag">${t}</span>`).join('');
+              return `
+                <div class="review-card ${r.stars <= 2 ? 'low' : r.stars === 5 ? 'perfect' : ''}">
+                  <div class="review-top">
+                    <span class="review-stars">${starStr} <b>${r.stars}.0</b></span>
+                    <span class="review-meta">${r.customerName} ${r.unitNumber} · ${r.createdAt}</span>
+                  </div>
+                  <div class="review-shop">${r.shopEmoji} ${r.shopName} · ${r.menuName} <span class="ord-tag">#${r.orderNumber}</span></div>
+                  <div class="review-comment">"${r.comment}"</div>
+                  <div class="review-tags">${tagsHtml}</div>
+                </div>
+              `;
+            })
+            .join('')
+        : '<div class="empty-tab-msg">아직 도착한 고객 리뷰가 없습니다.<br/>배달을 완료하면 음식 상태·온도·속도에 따라 생생한 한국형 고객 별점 리뷰가 쌓입니다!</div>';
+
+    return `
+      <div class="review-summary-card">
+        <div class="rev-sum-left">
+          <div class="rev-sum-label">평균 고객 별점</div>
+          <div class="rev-sum-score">${avg !== null ? `★ ${avg.toFixed(1)}` : '★ -.-'} <span>/ 5.0</span></div>
+        </div>
+        <div class="rev-sum-right">
+          <div class="rev-sum-stat">리뷰 <b>${reviews.length}건</b></div>
+          <div class="rev-sum-stat">⭐ 단골 매장 <b>${regularShops.length}곳</b></div>
+        </div>
+      </div>
+      <div class="regular-shops-strip">
+        <div class="reg-strip-title">⭐ 나의 단골 매장 우대 <span class="reg-perk-note">조리 대기 단축 · 즉시 수령</span></div>
+        <div class="reg-strip-chips">${regularChipsHtml}</div>
+      </div>
+      <div class="order-list">${reviewCardsHtml}</div>
     `;
   }
 

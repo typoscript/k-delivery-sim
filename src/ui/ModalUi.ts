@@ -357,16 +357,16 @@ export class ModalUi {
     this.settlementBackdrop.classList.add('hidden');
   }
 
-  public openPosKeypad(order: DeliveryOrder, hasPhone: boolean): void {
+  public openPosKeypad(order: DeliveryOrder, hasPhone: boolean, isRegularShop = false): void {
     this.closeAll();
     this.activeModal = 'pos';
     this.posMissionId = order.id;
     this.posExpected = order.orderNumber.toUpperCase();
     this.posValue = '';
     this.posHasPhone = hasPhone;
-    this.posShopTitle.textContent = `${order.shop.emoji} ${order.shop.name} 야외 픽업 POS`;
+    this.posShopTitle.textContent = `${order.shop.emoji} ${order.shop.name} 야외 픽업 POS${isRegularShop ? ' ⭐ 단골' : ''}`;
     this.posHint.textContent = hasPhone
-      ? `내 주문번호: ${order.orderNumber} (${order.menuName})`
+      ? `내 주문번호: ${order.orderNumber} (${order.menuName})${isRegularShop ? ' · ⭐ 단골 매장 우선 조리 우대' : ''}`
       : '📱 휴대폰이 오토바이에 있어 주문번호 자동 조회 불가 ([Esc] 후 폰 회수 또는 직접 입력)';
     this.posDisplay.textContent = '주문번호 입력';
     this.posDisplay.classList.add('placeholder');
@@ -841,6 +841,21 @@ export class ModalUi {
              (result.foodIntegrity / 100 - 1) * result.baseFee
            ).toLocaleString()}원</span></div>`;
 
+    const starsFilled = '★'.repeat(result.review.stars) + '☆'.repeat(5 - result.review.stars);
+    const reviewTagsHtml = result.review.tags
+      .map((t) => `<span class="st-rev-tag">${t}</span>`)
+      .join('');
+    const reviewBoxHtml = `
+      <div class="settlement-review-box">
+        <div class="st-rev-hdr">
+          <span>💬 방금 도착한 고객 리뷰</span>
+          <span class="st-rev-stars">${starsFilled} (${result.review.stars}.0)</span>
+        </div>
+        <div class="st-rev-comment">"${result.review.comment}"</div>
+        <div class="st-rev-tags">${reviewTagsHtml}</div>
+      </div>
+    `;
+
     this.settlementBreakdown.innerHTML = `
       <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
       ${rainRow}
@@ -850,6 +865,7 @@ export class ModalUi {
       ${villaRow}
       ${chatTipRow}
       ${tipRow}
+      ${reviewBoxHtml}
     `;
     const okBtn = document.getElementById('settlement-ok-btn');
     if (okBtn) {

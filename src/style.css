@@ -4470,3 +4470,267 @@ body.phone-3d-hover canvas {
 .garage-bike-btn.upg-locked {
   opacity: 0.65;
 }
+
+/* ======================== Customer Star-Rating Reviews & Regular Store Perk ======================== */
+.regular-shop-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b 0%, #eab308 100%);
+  color: #1e293b;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+.settlement-review-box {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: rgba(250, 204, 21, 0.11);
+  border: 1px solid rgba(250, 204, 21, 0.36);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.st-rev-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fde68a;
+}
+
+.st-rev-stars {
+  color: #facc15;
+  letter-spacing: 0.5px;
+}
+
+.st-rev-comment {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.4;
+}
+
+.st-rev-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.st-rev-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1.5px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+.review-summary-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(15, 23, 42, 0.08) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  margin-bottom: 7px;
+}
+
+.phone-device.night .review-summary-card {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(15, 23, 42, 0.6) 100%);
+}
+
+.rev-sum-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #b45309;
+}
+
+.phone-device.night .rev-sum-label {
+  color: #fde68a;
+}
+
+.rev-sum-score {
+  font-size: 18px;
+  font-weight: 900;
+  color: #d97706;
+  line-height: 1.15;
+}
+
+.phone-device.night .rev-sum-score {
+  color: #facc15;
+}
+
+.rev-sum-score span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.rev-sum-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 10.5px;
+  color: #475569;
+}
+
+.phone-device.night .rev-sum-right {
+  color: #cbd5e1;
+}
+
+.regular-shops-strip {
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  margin-bottom: 7px;
+}
+
+.phone-device.night .regular-shops-strip {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.reg-strip-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #334155;
+  margin-bottom: 5px;
+}
+
+.phone-device.night .reg-strip-title {
+  color: #f1f5f9;
+}
+
+.reg-perk-note {
+  font-size: 9px;
+  font-weight: 700;
+  color: #d97706;
+}
+
+.phone-device.night .reg-perk-note {
+  color: #fbbf24;
+}
+
+.reg-strip-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.regular-shop-chip {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.16);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.phone-device.night .regular-shop-chip {
+  color: #fde68a;
+}
+
+.regular-shop-empty {
+  font-size: 9.5px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.review-card {
+  padding: 8px 9px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phone-device.night .review-card {
+  background: rgba(30, 41, 59, 0.78);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.review-card.perfect {
+  border-left: 3px solid #f59e0b;
+}
+
+.review-card.low {
+  border-left: 3px solid #ef4444;
+}
+
+.review-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-stars {
+  font-size: 11px;
+  color: #f59e0b;
+  letter-spacing: 0.4px;
+}
+
+.review-meta {
+  font-size: 9.5px;
+  color: #64748b;
+}
+
+.phone-device.night .review-meta {
+  color: #94a3b8;
+}
+
+.review-shop {
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.phone-device.night .review-shop {
+  color: #cbd5e1;
+}
+
+.review-comment {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.38;
+}
+
+.phone-device.night .review-comment {
+  color: #f8fafc;
+}
+
+.review-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.review-tag {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.phone-device.night .review-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+}
