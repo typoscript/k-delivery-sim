@@ -27,8 +27,9 @@ import { Hud } from './ui/Hud';
 import { ModalUi } from './ui/ModalUi';
 import { VisorRainOverlay } from './ui/VisorRainOverlay';
 import { OnboardingAndSettings } from './ui/OnboardingAndSettings';
+import { DistrictSelectorUi } from './ui/DistrictSelectorUi';
 import { GameSettings, collidesWithWorld } from './types';
-import { SUWON_INGYE_DATA } from './data/suwonIngyeData';
+import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from './data/suwonDistricts';
 
 const app = document.getElementById('app')!;
 
@@ -106,9 +107,14 @@ const applyGameSettings = (s: GameSettings) => {
   renderer.shadowMap.needsUpdate = true;
 };
 
+const districtUi = new DistrictSelectorUi();
+
 const onboardingSettings = new OnboardingAndSettings({
   onApplySettings: (s) => {
     applyGameSettings(s);
+  },
+  onOpenDistrictSelector: () => {
+    districtUi.open();
   },
   onTutorialCompleted: () => {
     audio.playChime('complete');
@@ -1000,7 +1006,15 @@ window.addEventListener('keydown', (e) => {
     }
     case 'KeyO': {
       if (modalUi.activeModal === 'none') {
+        districtUi.close();
         onboardingSettings.toggleSettingsModal();
+      }
+      break;
+    }
+    case 'KeyP': {
+      if (modalUi.activeModal === 'none') {
+        onboardingSettings.closeSettingsModal();
+        districtUi.toggle();
       }
       break;
     }
@@ -1028,7 +1042,7 @@ window.addEventListener('keydown', (e) => {
       } else {
         scooterPhysics.reset();
         playerCtrl.reset();
-        camController.onFootYaw = SUWON_INGYE_DATA.meta.playerSpawn.heading;
+        camController.onFootYaw = ACTIVE_MAP_DATA.meta.playerSpawn.heading;
       }
       hud.stowPhoneToPocket();
       scooterMesh.setPhoneMounted(false);
@@ -1046,7 +1060,9 @@ window.addEventListener('keydown', (e) => {
       break;
     }
     case 'Escape': {
-      if (onboardingSettings.isSettingsOpen) {
+      if (districtUi.isOpen) {
+        districtUi.close();
+      } else if (onboardingSettings.isSettingsOpen) {
         onboardingSettings.closeSettingsModal();
       } else if (hud.phoneMap.isZoomed) {
         handleTogglePhoneZoom();
@@ -1078,7 +1094,10 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-hud.showToast('[Tab] 휴대폰 꺼내기 → [V] 확대에서 콜 수락 후 스마트폰 내비로 이동하세요!', 5200);
+hud.showToast(
+  `${ACTIVE_DISTRICT.icon} ${ACTIVE_DISTRICT.shortName} 출근 완료! [Tab]→[V] 콜 수락 · [P]로 수원 구역 변경 가능`,
+  5200
+);
 
 let lastTime = performance.now();
 let elapsed = 0;
@@ -1092,7 +1111,8 @@ function animate(now: number): void {
 
   const inCorridor = playerCtrl.state.inCorridor;
   const isRiding = playerCtrl.state.mode === 'riding';
-  const movementBlocked = modalUi.isBlockingMovement() || onboardingSettings.isSettingsOpen;
+  const movementBlocked =
+    modalUi.isBlockingMovement() || onboardingSettings.isSettingsOpen || districtUi.isOpen;
 
   if (!inCorridor) {
     world.updateLobbyDoors(dt);
@@ -1406,7 +1426,7 @@ function animate(now: number): void {
           ? corridorRoom.getCurrentVillaFloor(playerCtrl.state.y)
           : 1,
       visorWetHint: !inCorridor && weather.isRaining && visorRain.dropletDensity >= 0.35,
-      modalOpen: modalUi.activeModal !== 'none' || onboardingSettings.isSettingsOpen,
+      modalOpen: modalUi.activeModal !== 'none' || onboardingSettings.isSettingsOpen || districtUi.isOpen,
     }
   );
 

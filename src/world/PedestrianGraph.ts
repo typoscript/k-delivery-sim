@@ -1,4 +1,4 @@
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export type PedestrianNodeKind = 'corner_tactile' | 'sidewalk_mid';
 export type PedestrianEdgeKind = 'sidewalk' | 'crosswalk';
@@ -30,8 +30,8 @@ export class PedestrianGraph {
   public readonly adjacency: PedestrianEdge[][] = [];
 
   constructor() {
-    const osmNodes = SUWON_INGYE_DATA.nodes;
-    const osmEdges = SUWON_INGYE_DATA.edges;
+    const osmNodes = ACTIVE_MAP_DATA.nodes;
+    const osmEdges = ACTIVE_MAP_DATA.edges;
 
     // Track sidewalk endpoint nodes created near each OSM junction so sidewalks connect smoothly!
     const junctionSidewalkNodes: number[][] = Array.from({ length: osmNodes.length }, () => []);

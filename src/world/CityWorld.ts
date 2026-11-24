@@ -18,7 +18,7 @@ import {
   UpcomingCameraAlert,
   WeatherMode,
 } from '../types';
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export interface MapBuildingFootprint {
   x: number;
@@ -453,8 +453,8 @@ export class CityWorld {
     const whiteEdgeMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
     const plazaMat = new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 });
 
-    const nodes = SUWON_INGYE_DATA.nodes;
-    const edges = SUWON_INGYE_DATA.edges;
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    const edges = ACTIVE_MAP_DATA.edges;
 
     // Track max width incident to each node for smooth circular asphalt junction caps
     const nodeMaxW = new Float32Array(nodes.length);
@@ -526,8 +526,8 @@ export class CityWorld {
     });
     this.root.add(discInst);
 
-    // Pedestrian Plazas (나혜석거리 보행자 거리!)
-    for (const pl of SUWON_INGYE_DATA.pedestrianPlazas) {
+    // Pedestrian Plazas (나혜석거리 / 행리단길 / 수원역 로데오!)
+    for (const pl of ACTIVE_MAP_DATA.pedestrianPlazas) {
       for (let i = 0; i < pl.pts.length - 1; i++) {
         const [ax, az] = pl.pts[i];
         const [bx, bz] = pl.pts[i + 1];
@@ -606,7 +606,7 @@ export class CityWorld {
 
   /** Builds 14 Korean yellow/black striped rounded speed bumps on real Suwon residential/alley roads */
   private buildSpeedBumps(): void {
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
     const bumpMat = new THREE.MeshStandardMaterial({
       map: this.createSpeedBumpTexture(),
       roughness: 0.72,
@@ -618,7 +618,7 @@ export class CityWorld {
     });
 
     // Pick up to 14 well-spaced residential / alley / secondary road segments!
-    const candidates = SUWON_INGYE_DATA.edges
+    const candidates = ACTIVE_MAP_DATA.edges
       .filter((e) => !e.isMajor && e.dist >= 28 && e.width >= 7.0)
       .sort((a, b) => b.dist - a.dist);
 
@@ -718,7 +718,7 @@ export class CityWorld {
     const parkMat = new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 });
     const treeCoords: Array<[number, number, number]> = [];
 
-    for (const park of SUWON_INGYE_DATA.parks) {
+    for (const park of ACTIVE_MAP_DATA.parks) {
       if (park.pts.length < 3) continue;
       const shape = new THREE.Shape();
       shape.moveTo(park.pts[0][0], -park.pts[0][1]);
@@ -820,7 +820,7 @@ export class CityWorld {
     });
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.88 });
 
-    for (const b of SUWON_INGYE_DATA.buildings) {
+    for (const b of ACTIVE_MAP_DATA.buildings) {
       if (b.pts.length < 3) continue;
 
       const shape = new THREE.Shape();
@@ -881,7 +881,17 @@ export class CityWorld {
           b.name.includes('한라비발디') ||
           b.name.includes('수원프라자') ||
           b.name.includes('삼성화재') ||
-          b.name.includes('국민연금'))
+          b.name.includes('국민연금') ||
+          b.name.includes('신풍루') ||
+          b.name.includes('봉수당') ||
+          b.name.includes('수원화성박물관') ||
+          b.name.includes('아이파크미술관') ||
+          b.name.includes('팔달구청') ||
+          b.name.includes('타임빌라스') ||
+          b.name.includes('롯데백화점') ||
+          b.name.includes('AK') ||
+          b.name.includes('노보텔') ||
+          b.name.includes('수원역'))
       ) {
         const bgHex =
           b.kind === 'residential' ? '#1e3a8a' : b.name.includes('CGV') ? '#b91c1c' : '#0f172a';
@@ -901,15 +911,16 @@ export class CityWorld {
     }
   }
 
-  /** Builds the iconic Suwon City Hall Station (수원시청역 수인분당선) entrance landmark */
+  /** Builds the iconic district landmark canopy (수원시청역 / 화성행궁 / 수원역) */
   private buildSuwonStationLandmark(): void {
-    const st = SUWON_INGYE_DATA.meta.station;
+    const st = ACTIVE_MAP_DATA.meta.station;
+    const isPalace = ACTIVE_DISTRICT.id === 'haenggung';
     const g = new THREE.Group();
     g.position.set(st.x, 0, st.z);
 
-    const yellowMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b,
-      emissive: 0xd97706,
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: isPalace ? 0xb91c1c : 0xf59e0b,
+      emissive: isPalace ? 0x991b1b : 0xd97706,
       emissiveIntensity: 0.35,
       roughness: 0.35,
     });
@@ -921,21 +932,23 @@ export class CityWorld {
     });
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.5 });
 
-    // Subway exit canopy roof & glass walls
     const roof = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.35, 3.6), darkMat);
     roof.position.set(0, 3.25, 0);
-    const band = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.45, 3.7), yellowMat);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.45, 3.7), accentMat);
     band.position.set(0, 3.55, 0);
     const backWall = new THREE.Mesh(new THREE.BoxGeometry(6.2, 3.1, 0.14), glassMat);
     backWall.position.set(0, 1.55, -1.7);
 
-    // Tall yellow Suin-Bundang Line Totem Sign
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 5.2, 10), darkMat);
     pole.position.set(3.6, 2.6, 0);
     const signBoard = new THREE.Mesh(
-      new THREE.BoxGeometry(4.8, 1.25, 0.25),
+      new THREE.BoxGeometry(5.2, 1.25, 0.25),
       new THREE.MeshBasicMaterial({
-        map: this.createSignTexture('🚇 수원시청역 (수인분당선)', '#f59e0b', '#0f172a'),
+        map: this.createSignTexture(
+          st.name,
+          isPalace ? '#991b1b' : '#f59e0b',
+          isPalace ? '#fef08a' : '#0f172a'
+        ),
       })
     );
     signBoard.position.set(0, 4.4, 0);
@@ -943,14 +956,13 @@ export class CityWorld {
     g.add(roof, band, backWall, pole, signBoard);
     this.root.add(g);
 
-    this.zones.push({ name: '수원시청역 (인계동)', x: st.x, z: st.z, type: 'shop' });
-    this.zones.push({ name: '나혜석거리 상권', x: -120, z: 120, type: 'shop' });
+    this.zones.push({ name: ACTIVE_DISTRICT.shortName, x: st.x, z: st.z, type: 'shop' });
   }
 
   /** Builds K-Oil Self-Service Gas Station & Lightning Motorcycle Repair Center in open roadside bays */
   private buildServiceStations(): void {
-    const gas = SUWON_INGYE_DATA.serviceSpots.gas;
-    const rep = SUWON_INGYE_DATA.serviceSpots.repair;
+    const gas = ACTIVE_MAP_DATA.serviceSpots.gas;
+    const rep = ACTIVE_MAP_DATA.serviceSpots.repair;
 
     // 1. 인계 K-오일 셀프주유소
     const gasGroup = new THREE.Group();
@@ -1066,7 +1078,7 @@ export class CityWorld {
     });
     const benchMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.65 });
 
-    for (const bs of SUWON_INGYE_DATA.busStops) {
+    for (const bs of ACTIVE_MAP_DATA.busStops) {
       this.busStops.push({
         name: bs.name,
         x: bs.x,
@@ -1099,7 +1111,7 @@ export class CityWorld {
   }
 
   private initDeliveryLocations(): void {
-    for (const s of SUWON_INGYE_DATA.shops) {
+    for (const s of ACTIVE_MAP_DATA.shops) {
       this.locations.push({
         id: s.id,
         name: s.name,
@@ -1111,7 +1123,7 @@ export class CityWorld {
         menus: s.menus,
       });
     }
-    for (const r of SUWON_INGYE_DATA.residences) {
+    for (const r of ACTIVE_MAP_DATA.residences) {
       this.locations.push({
         id: r.id,
         name: r.name,
@@ -1232,7 +1244,7 @@ export class CityWorld {
     const lampGeo = new THREE.BoxGeometry(0.52, 0.14, 0.26);
 
     const lampPositions: Array<[number, number]> = [];
-    for (const n of SUWON_INGYE_DATA.nodes) {
+    for (const n of ACTIVE_MAP_DATA.nodes) {
       if (!n.isSignal) continue;
       lampPositions.push([n.x + 8.0, n.z + 8.0], [n.x - 8.0, n.z - 8.0]);
     }

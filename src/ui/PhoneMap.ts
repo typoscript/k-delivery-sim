@@ -14,7 +14,7 @@ import { DispatchOffer } from '../delivery/OrderDispatchManager';
 import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { TurnDirection } from '../world/RoadNavigator';
 import { clamp } from '../types';
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export type PhonePlacement = 'pocket' | 'in_hand' | 'mounted';
 export type PhoneTopNav = 'calls' | 'nav' | 'earnings';
@@ -92,8 +92,8 @@ export class PhoneMap {
 
   private followPlayer = true;
   private zoomLevel = 1.4;
-  private camX = SUWON_INGYE_DATA.meta.playerSpawn.x;
-  private camZ = SUWON_INGYE_DATA.meta.playerSpawn.z;
+  private camX = ACTIVE_MAP_DATA.meta.playerSpawn.x;
+  private camZ = ACTIVE_MAP_DATA.meta.playerSpawn.z;
   private lastSheetFingerprint = '';
   private last3DRenderTime = -1;
   private ripple3D: { x: number; y: number; bornAt: number } | null = null;
@@ -1904,9 +1904,9 @@ export class PhoneMap {
   }
 
   private resolveAreaName(px: number, pz: number, mapInfo: CityMapInfo): string {
-    const st = SUWON_INGYE_DATA.meta.station;
-    if (Math.hypot(px - st.x, pz - st.z) < 68) return '수원시청역 · 인계동';
-    let nearest = '수원 인계동';
+    const st = ACTIVE_MAP_DATA.meta.station;
+    if (Math.hypot(px - st.x, pz - st.z) < 68) return ACTIVE_DISTRICT.shortName;
+    let nearest = ACTIVE_DISTRICT.shortName;
     let bestDist = 95;
     for (const z of mapInfo.zones) {
       const d = Math.hypot(px - z.x, pz - z.z);
@@ -1990,7 +1990,7 @@ export class PhoneMap {
     const toY = (wz: number) => -(wz - viewCamZ) * scale;
 
     // 1. Real Suwon Ingye-dong Parks (효원공원 etc.)
-    for (const park of SUWON_INGYE_DATA.parks) {
+    for (const park of ACTIVE_MAP_DATA.parks) {
       if (park.pts.length < 3) continue;
       ctx.fillStyle = theme.park;
       ctx.beginPath();
@@ -2005,7 +2005,7 @@ export class PhoneMap {
     // 1.5. Pedestrian Plazas (나혜석거리)
     ctx.lineCap = 'round';
     ctx.strokeStyle = isNight ? '#3d332a' : '#e9d8c8';
-    for (const pl of SUWON_INGYE_DATA.pedestrianPlazas) {
+    for (const pl of ACTIVE_MAP_DATA.pedestrianPlazas) {
       if (pl.pts.length < 2) continue;
       ctx.lineWidth = Math.max(2.5, pl.width * scale);
       ctx.beginPath();
@@ -2017,8 +2017,8 @@ export class PhoneMap {
     }
 
     // 2. Real Suwon Ingye-dong OSM Road Network (218 segments!)
-    const osmNodes = SUWON_INGYE_DATA.nodes;
-    const osmEdges = SUWON_INGYE_DATA.edges;
+    const osmNodes = ACTIVE_MAP_DATA.nodes;
+    const osmEdges = ACTIVE_MAP_DATA.edges;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -2098,7 +2098,7 @@ export class PhoneMap {
 
     // 3.2. Suwon City Hall Station Subway Marker (🚇 수원시청역)
     {
-      const st = SUWON_INGYE_DATA.meta.station;
+      const st = ACTIVE_MAP_DATA.meta.station;
       const sx = toX(st.x);
       const sy = toY(st.z);
       ctx.fillStyle = '#f59e0b';
@@ -2115,7 +2115,7 @@ export class PhoneMap {
       ctx.font = '900 9px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('역', 0, 0.5);
+      ctx.fillText(st.badgeChar ?? '역', 0, 0.5);
       ctx.restore();
     }
 
@@ -2244,7 +2244,7 @@ export class PhoneMap {
     const sigHex = (c: 'green' | 'yellow' | 'red') =>
       c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
 
-    for (const sn of SUWON_INGYE_DATA.nodes) {
+    for (const sn of ACTIVE_MAP_DATA.nodes) {
       if (!sn.isSignal) continue;
       const mx = toX(sn.x);
       const my = toY(sn.z);

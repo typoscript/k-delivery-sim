@@ -9,7 +9,7 @@ import {
   clamp,
   wrapAngle,
 } from '../types';
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
 import {
@@ -159,9 +159,9 @@ export class RoadHazardManager {
   private overSpeedBeepTimer = 0;
 
   constructor(parent: THREE.Object3D) {
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
     this.adj = Array.from({ length: nodes.length }, () => []);
-    for (const e of SUWON_INGYE_DATA.edges) {
+    for (const e of ACTIVE_MAP_DATA.edges) {
       this.adj[e.a].push({ to: e.b, dist: e.dist, width: e.width, isMajor: e.isMajor });
       this.adj[e.b].push({ to: e.a, dist: e.dist, width: e.width, isMajor: e.isMajor });
     }
@@ -208,8 +208,8 @@ export class RoadHazardManager {
     edgeWidth: number,
     laneFrac = 0.25
   ): { x: number; z: number; heading: number } {
-    const a = SUWON_INGYE_DATA.nodes[fromId];
-    const b = SUWON_INGYE_DATA.nodes[toId];
+    const a = ACTIVE_MAP_DATA.nodes[fromId];
+    const b = ACTIVE_MAP_DATA.nodes[toId];
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const len = Math.max(0.1, edgeDist);
@@ -228,7 +228,7 @@ export class RoadHazardManager {
 
   private pickNextGraphEdge(fromNode: number, toNode: number, preferMajor: boolean): OsmAdjEdge {
     const outs = this.adj[toNode];
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
     const prev = nodes[fromNode];
     const cur = nodes[toNode];
     const inDx = cur.x - prev.x;
@@ -293,8 +293,8 @@ export class RoadHazardManager {
   }
 
   private buildSpeedCameras(): void {
-    const nodes = SUWON_INGYE_DATA.nodes;
-    const majorEdges = SUWON_INGYE_DATA.edges
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    const majorEdges = ACTIVE_MAP_DATA.edges
       .filter((e) => e.isMajor && e.dist >= 26)
       .sort((a, b) => b.dist - a.dist);
 
@@ -384,15 +384,15 @@ export class RoadHazardManager {
   }
 
   private buildParkedHazards(): void {
-    const nodes = SUWON_INGYE_DATA.nodes;
-    const spawn = SUWON_INGYE_DATA.meta.scooterSpawn;
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    const spawn = ACTIVE_MAP_DATA.meta.scooterSpawn;
     const logoTex = this.createParcelLogoTexture();
     const cargoMat = new THREE.MeshStandardMaterial({ map: logoTex, roughness: 0.55 });
     const cabMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.42 });
     const sedanMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 });
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
 
-    const candidates = SUWON_INGYE_DATA.edges
+    const candidates = ACTIVE_MAP_DATA.edges
       .filter((e) => e.width >= 8.4 && e.dist >= 24)
       .sort((a, b) => b.dist - a.dist);
 
@@ -537,7 +537,7 @@ export class RoadHazardManager {
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.6 });
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
 
-    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : SUWON_INGYE_DATA.nodes.map((n) => n.id);
+    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : ACTIVE_MAP_DATA.nodes.map((n) => n.id);
     const labels = ['경기남부청 인계지구대 1호차', '수원남부서 효원로 순찰차'];
 
     for (let i = 0; i < 2; i++) {
@@ -654,8 +654,8 @@ export class RoadHazardManager {
   }
 
   private buildConstructionZones(): void {
-    const nodes = SUWON_INGYE_DATA.nodes;
-    const spawn = SUWON_INGYE_DATA.meta.scooterSpawn;
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    const spawn = ACTIVE_MAP_DATA.meta.scooterSpawn;
     const coneOrangeMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45 });
     const coneStripeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, emissive: 0xffffff, emissiveIntensity: 0.2 });
     const coneBaseMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
@@ -666,7 +666,7 @@ export class RoadHazardManager {
     const bandGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.14, 10);
     const baseGeo = new THREE.BoxGeometry(0.46, 0.06, 0.46);
 
-    const candidates = SUWON_INGYE_DATA.edges
+    const candidates = ACTIVE_MAP_DATA.edges
       .filter((e) => e.isMajor && e.dist >= 32)
       .sort((a, b) => b.dist - a.dist);
 
@@ -754,7 +754,7 @@ export class RoadHazardManager {
     const headLightMat = new THREE.MeshStandardMaterial({ color: 0xfef9c3, emissive: 0xfef08a, emissiveIntensity: 2.2 });
     const tailLightMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 1.8 });
 
-    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : SUWON_INGYE_DATA.nodes.map((n) => n.id);
+    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : ACTIVE_MAP_DATA.nodes.map((n) => n.id);
 
     styles.forEach(([boxHex, colorCss, jacketHex, cruiseSpeed], idx) => {
       const startNode = pool[Math.floor((idx * pool.length) / styles.length + 3) % pool.length];
@@ -843,7 +843,7 @@ export class RoadHazardManager {
     const scFwdX = Math.sin(scooter.heading);
     const scFwdZ = Math.cos(scooter.heading);
     const blinkOn = Math.floor(elapsedTime * 3.2) % 2 === 0;
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
 
     // --- 1. Fixed Speed & Red-Light Enforcement Cameras + 80m Navi Warning ---
     let closestCam: UpcomingCameraAlert | null = null;

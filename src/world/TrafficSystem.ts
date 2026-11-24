@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export type SignalColor = 'green' | 'yellow' | 'red';
 export type VehicleDriveState = 'CRUISING' | 'DECELERATING' | 'STOPPED' | 'EMERGENCY_BRAKE';
@@ -83,8 +83,8 @@ export class TrafficSystem {
 
   public signalState: SignalStateSnapshot = { ns: 'green', ew: 'red', remainingSec: 6.5 };
 
-  private prevPlayerX = SUWON_INGYE_DATA.meta.scooterSpawn.x;
-  private prevPlayerZ = SUWON_INGYE_DATA.meta.scooterSpawn.z;
+  private prevPlayerX = ACTIVE_MAP_DATA.meta.scooterSpawn.x;
+  private prevPlayerZ = ACTIVE_MAP_DATA.meta.scooterSpawn.z;
   private violationCooldown = 0;
   private recycleTimer = 0;
 
@@ -101,9 +101,9 @@ export class TrafficSystem {
     this.busStops = busStops;
     scene.add(this.root);
 
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
     this.adj = Array.from({ length: nodes.length }, () => []);
-    for (const e of SUWON_INGYE_DATA.edges) {
+    for (const e of ACTIVE_MAP_DATA.edges) {
       this.adj[e.a].push({ to: e.b, dist: e.dist, width: e.width, isMajor: e.isMajor });
       this.adj[e.b].push({ to: e.a, dist: e.dist, width: e.width, isMajor: e.isMajor });
     }
@@ -138,7 +138,7 @@ export class TrafficSystem {
     const boxGeo = new THREE.BoxGeometry(1.5, 0.48, 0.26);
     const lampGeo = new THREE.CircleGeometry(0.14, 10);
 
-    for (const n of SUWON_INGYE_DATA.nodes) {
+    for (const n of ACTIVE_MAP_DATA.nodes) {
       if (!n.isSignal) continue;
       // Place 2 diagonal corner signal gantries at each signalized Suwon intersection
       const corners: Array<[number, number, number, boolean]> = [
@@ -308,8 +308,8 @@ export class TrafficSystem {
     edgeDist: number,
     edgeWidth: number
   ): { x: number; z: number; heading: number } {
-    const a = SUWON_INGYE_DATA.nodes[fromId];
-    const b = SUWON_INGYE_DATA.nodes[toId];
+    const a = ACTIVE_MAP_DATA.nodes[fromId];
+    const b = ACTIVE_MAP_DATA.nodes[toId];
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const len = Math.max(0.1, edgeDist);
@@ -340,7 +340,7 @@ export class TrafficSystem {
       [0x64748b, '#64748b', false],
     ];
 
-    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : SUWON_INGYE_DATA.nodes.map((n) => n.id);
+    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : ACTIVE_MAP_DATA.nodes.map((n) => n.id);
     const total = 24;
 
     for (let i = 0; i < total; i++) {
@@ -418,7 +418,7 @@ export class TrafficSystem {
 
   private pickNextEdge(v: AiVehicle): OsmAdjEdge {
     const outs = this.adj[v.toNode];
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
     const prevA = nodes[v.fromNode];
     const cur = nodes[v.toNode];
     const inDx = cur.x - prevA.x;
@@ -502,7 +502,7 @@ export class TrafficSystem {
         const movingNS = Math.abs(moveZ) >= Math.abs(moveX);
         const mySig = movingNS ? ns : ew;
         if (mySig === 'red') {
-          for (const sn of SUWON_INGYE_DATA.nodes) {
+          for (const sn of ACTIVE_MAP_DATA.nodes) {
             if (!sn.isSignal) continue;
             const prevD = Math.hypot(this.prevPlayerX - sn.x, this.prevPlayerZ - sn.z);
             const curD = Math.hypot(playerX - sn.x, playerZ - sn.z);
@@ -519,7 +519,7 @@ export class TrafficSystem {
     this.prevPlayerZ = playerZ;
 
     // 3. Step all 24 AI vehicles along the real Suwon OSM road graph
-    const nodes = SUWON_INGYE_DATA.nodes;
+    const nodes = ACTIVE_MAP_DATA.nodes;
     const blinkOn = Math.floor(elapsedTime * 3.2) % 2 === 0;
     this.recycleTimer += clampedDt;
 

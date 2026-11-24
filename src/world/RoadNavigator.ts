@@ -1,4 +1,4 @@
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export interface RoutePoint {
   x: number;
@@ -52,12 +52,12 @@ export class RoadNavigator {
   private readonly baseAdj: Array<Array<{ to: number; cost: number }>> = [];
 
   constructor() {
-    for (const n of SUWON_INGYE_DATA.nodes) {
+    for (const n of ACTIVE_MAP_DATA.nodes) {
       this.baseNodes.push({ id: n.id, x: n.x, z: n.z });
       this.baseAdj.push([]);
     }
 
-    for (const e of SUWON_INGYE_DATA.edges) {
+    for (const e of ACTIVE_MAP_DATA.edges) {
       // Slightly favor wider major boulevards (효원로/권광로/경수대로) over tiny alleys
       const weightMul = e.isMajor ? 0.92 : 1.05;
       const cost = Math.max(1, e.dist * weightMul);

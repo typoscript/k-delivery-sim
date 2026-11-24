@@ -1,5 +1,5 @@
 import { ObstacleBox, SlipSurfaceType, clamp, collidesWithWorld, wrapAngle } from '../types';
-import { SUWON_INGYE_DATA } from '../data/suwonIngyeData';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
 export interface ScooterInput {
   throttle: boolean;
@@ -92,9 +92,9 @@ export class ScooterPhysics {
     | null = null;
   private onSpeedBumpCallback: ((speedKmh: number, label: string) => void) | null = null;
 
-  private readonly spawnX = SUWON_INGYE_DATA.meta.scooterSpawn.x;
-  private readonly spawnZ = SUWON_INGYE_DATA.meta.scooterSpawn.z;
-  private readonly spawnHeading = SUWON_INGYE_DATA.meta.scooterSpawn.heading;
+  private readonly spawnX = ACTIVE_MAP_DATA.meta.scooterSpawn.x;
+  private readonly spawnZ = ACTIVE_MAP_DATA.meta.scooterSpawn.z;
+  private readonly spawnHeading = ACTIVE_MAP_DATA.meta.scooterSpawn.heading;
 
   constructor() {
     this.state = this.createInitialState();

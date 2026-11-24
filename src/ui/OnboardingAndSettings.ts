@@ -15,6 +15,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
 export interface SettingsCallbacks {
   onApplySettings: (settings: GameSettings) => void;
   onTutorialCompleted: () => void;
+  onOpenDistrictSelector?: () => void;
 }
 
 /**
@@ -73,6 +74,9 @@ export class OnboardingAndSettings {
       if (!btn) return;
       if (btn.dataset.action === 'close') {
         this.closeSettingsModal();
+      } else if (btn.dataset.action === 'open_districts') {
+        this.closeSettingsModal();
+        this.callbacks.onOpenDistrictSelector?.();
       } else if (btn.dataset.action === 'restart_tutorial') {
         this.restartTutorial();
         this.closeSettingsModal();

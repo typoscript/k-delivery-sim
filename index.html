@@ -32,7 +32,7 @@
       <!-- Top Left: Mode & Controls -->
       <div class="hud-panel top-left">
         <div class="title-row">
-          <span class="badge">K-DELIVERY · 수원 인계동</span>
+          <button id="district-badge-btn" class="badge district-btn" title="수원시 출근 구역 변경 (P)">📍 수원 인계동 ▾</button>
           <span id="mode-badge" class="mode-pill foot">🚶 1인칭 도보</span>
           <span id="rating-badge" class="rating-pill" title="배달 기사 신뢰 평점 (5.0 만점)">★ 5.0</span>
           <button id="weather-badge" class="weather-pill clear" title="날씨 전환: 맑음 / 흐림 / 비 (U)">☀️ 맑음</button>
@@ -51,7 +51,7 @@
           <div><kbd>U</kbd> / <kbd>G</kbd> <strong>날씨 전환 / 바이저 빗물 닦기</strong></div>
           <div><kbd>L</kbd> / <kbd>N</kbd> 라이트 / 낮·밤</div>
           <div><kbd>H</kbd> / <kbd>M</kbd> / <kbd>O</kbd> 경적 / 음소거 / 설정</div>
-          <div><kbd>Backspace</kbd> 위치 초기화</div>
+          <div><kbd>P</kbd> <strong>수원시 출근 구역 선택</strong> · <kbd>Backspace</kbd> 초기화</div>
         </div>
       </div>
 
@@ -624,10 +624,26 @@
             </label>
 
             <div class="set-footer-actions">
+              <button class="set-secondary-btn" data-action="open_districts">🗺️ 수원시 출근 구역 변경 (인계동 · 행궁동 · 수원역)</button>
               <button class="set-secondary-btn" data-action="restart_tutorial">🎓 첫 출근 튜토리얼 다시 보기</button>
               <button class="st-ok-btn" data-action="close">저장 및 닫기 (Esc)</button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 12. Suwon-si Multi-District Selector Modal (P key / Top HUD District Pill) -->
+      <div id="district-modal" class="modal-backdrop hidden">
+        <div class="district-card">
+          <div class="keypad-header">
+            <span>🗺️ 수원시 출근 구역 선택 (실측 OSM 맵)</span>
+            <button class="keypad-close" data-action="close">✕</button>
+          </div>
+          <div class="district-sub">
+            원하는 수원시 배달 상권을 선택하면 실제 OpenStreetMap 도로망·건물·매장으로 바로 출근합니다!
+          </div>
+          <div id="district-list" class="district-list"></div>
+          <button class="st-ok-btn" data-action="close" style="margin-top:10px">닫기 (Esc)</button>
         </div>
       </div>
     </div>
