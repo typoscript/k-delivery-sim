@@ -70,17 +70,6 @@ const weather = new WeatherManager(scene);
 const visorRain = new VisorRainOverlay();
 const voiceNav = new VoiceNavigator();
 const delivery = new DeliveryManager(world.locations);
-
-const syncScooterUpgrades = () => {
-  const fx = getUpgradeEffects(delivery.career.upgrades);
-  scooterPhysics.setUpgradeModifiers({
-    accelMul: fx.accelMul,
-    speedMul: fx.speedMul,
-    fuelBurnMul: fx.fuelBurnMul,
-    gripMul: fx.gripMul,
-  });
-};
-syncScooterUpgrades();
 const dispatch = new OrderDispatchManager(world.locations, {
   onOfferArrived: (offer) => {
     audio.playDispatchCallAlert();
@@ -110,6 +99,17 @@ const dispatch = new OrderDispatchManager(world.locations, {
 const scooterPhysics = new ScooterPhysics();
 const bikeGarage = loadBikeGarage();
 scooterPhysics.setBikeCustomization(bikeGarage.modelId, bikeGarage.paintId);
+
+const syncScooterUpgrades = () => {
+  const fx = getUpgradeEffects(delivery.career.upgrades);
+  scooterPhysics.setUpgradeModifiers({
+    accelMul: fx.accelMul,
+    speedMul: fx.speedMul,
+    fuelBurnMul: fx.fuelBurnMul,
+    gripMul: fx.gripMul,
+  });
+};
+syncScooterUpgrades();
 const playerCtrl = new PlayerController();
 const playerMesh = new PlayerMesh(scene);
 const camController = new CameraController(renderer.domElement);
