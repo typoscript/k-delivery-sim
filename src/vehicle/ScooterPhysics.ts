@@ -11,6 +11,8 @@ export interface ScooterInput {
 export interface RoadCondition {
   isRaining: boolean;
   surface: SlipSurfaceType;
+  onSpeedBump?: boolean;
+  speedBumpLabel?: string;
 }
 
 export type CrashCause =
@@ -37,6 +39,8 @@ export interface ScooterState {
   activeSlipSurface: SlipSurfaceType;
   wetSlipWarning: 'none' | 'manhole' | 'crosswalk_paint' | 'corner';
   pitchAngle: number; // suspension dive/squat
+  bumpJolt: number; // 0..1 vertical suspension shock bounce from speed bumps
+  lastLongAccel: number; // m/s^2 longitudinal acceleration for spill physics
 
   // Crash / fallen state
   crashed: boolean;
@@ -80,9 +84,12 @@ export class ScooterPhysics {
   private reverseHoldTimer = 0;
   private overLeanTimer = 0;
   private blinkerTurnAccum = 0;
+  private bumpCooldown = 0;
+  private wasOnSpeedBump = false;
   private onCrashCallback:
     | ((crashSide: number, impactSpeed: number, cause: CrashCause) => void)
     | null = null;
+  private onSpeedBumpCallback: ((speedKmh: number, label: string) => void) | null = null;
 
   private readonly spawnX = -62;
   private readonly spawnZ = -34.2;
@@ -96,6 +103,10 @@ export class ScooterPhysics {
     cb: (crashSide: number, impactSpeed: number, cause: CrashCause) => void
   ): void {
     this.onCrashCallback = cb;
+  }
+
+  public setOnSpeedBump(cb: (speedKmh: number, label: string) => void): void {
+    this.onSpeedBumpCallback = cb;
   }
 
   private createInitialState(): ScooterState {
@@ -113,6 +124,8 @@ export class ScooterPhysics {
       activeSlipSurface: 'none',
       wetSlipWarning: 'none',
       pitchAngle: 0,
+      bumpJolt: 0,
+      lastLongAccel: 0,
       crashed: false,
       crashSide: -1,
       slideVx: 0,
@@ -627,9 +640,29 @@ export class ScooterPhysics {
 
     s.wheelSpin += (s.speed * dt) / SCOOTER_SPECS.wheelRadius;
 
-    // Pitch on accel/brake
+    // Pitch on accel/brake + speed bump suspension shock!
     const longAccel = (s.speed - this.prevSpeed) / Math.max(dt, 0.0001);
     this.prevSpeed = s.speed;
+    s.lastLongAccel = longAccel;
+
+    if (this.bumpCooldown > 0) {
+      this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
+    }
+    const onBump = Boolean(road.onSpeedBump);
+    if (onBump && !this.wasOnSpeedBump && this.bumpCooldown <= 0 && absSpeed > 1.8) {
+      const speedKmh = absSpeed * 3.6;
+      const shock = clamp((speedKmh - 10) / 36, 0.16, 1.0);
+      s.bumpJolt = Math.max(s.bumpJolt, shock);
+      // Upward nose kick when hitting the speed bump!
+      s.pitchAngle = clamp(s.pitchAngle - shock * 0.12, -0.16, 0.12);
+      this.bumpCooldown = 0.65;
+      if (this.onSpeedBumpCallback) {
+        this.onSpeedBumpCallback(speedKmh, road.speedBumpLabel ?? '과속방지턱');
+      }
+    }
+    this.wasOnSpeedBump = onBump;
+    s.bumpJolt = Math.max(0, s.bumpJolt - dt * 2.8);
+
     const targetPitch = clamp(-longAccel * 0.011, -0.09, 0.09);
     s.pitchAngle += (targetPitch - s.pitchAngle) * Math.min(1, dt * 11);
 

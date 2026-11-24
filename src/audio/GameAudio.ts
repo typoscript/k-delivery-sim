@@ -800,6 +800,97 @@ export class GameAudio {
     }
   }
 
+  /** Deep double-thud suspension jolt ("덜컹-덜컹!") when crossing a speed bump */
+  public playSpeedBumpThud(intensity = 0.7): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const vol = Math.min(0.48, 0.18 + intensity * 0.3);
+    [0, 0.095].forEach((offset, idx) => {
+      const t = now + offset;
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(idx === 0 ? 128 : 104, t);
+      osc.frequency.exponentialRampToValueAtTime(38, t + 0.11);
+      g.gain.setValueAtTime(vol * (idx === 0 ? 1 : 0.8), t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.14);
+    });
+  }
+
+  /** Filtered liquid slosh cue when soup/drink spills inside top box from harsh lean/braking */
+  public playLiquidSlosh(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const bufLen = Math.floor(this.ctx.sampleRate * 0.24);
+    const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufLen) * Math.PI);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.setValueAtTime(480, now);
+    filt.frequency.exponentialRampToValueAtTime(1150, now + 0.11);
+    filt.frequency.exponentialRampToValueAtTime(420, now + 0.23);
+    filt.Q.value = 3.2;
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.24, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(this.masterGain);
+    src.start(now);
+  }
+
+  /** Crisp Korean messenger-style two-tone ping ("카톡/띠링!") for live customer chat messages */
+  public playCustomerChatPing(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const notes = [
+      { t: 0, f: 880, dur: 0.11 },
+      { t: 0.095, f: 1318.5, dur: 0.22 },
+    ];
+    for (const n of notes) {
+      const t = now + n.t;
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = n.f;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.25, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+      osc.connect(g);
+      g.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + n.dur + 0.02);
+    }
+  }
+
+  /** Subtle terrazzo stair footstep click while climbing walk-up villa stairs */
+  public playStairFootstep(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(175 + Math.random() * 35, now);
+    osc.frequency.exponentialRampToValueAtTime(62, now + 0.055);
+    g.gain.setValueAtTime(0.14, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.07);
+  }
+
   /**
    * Controls continuous rain ambience volume.
    * Immediately silences rain audio with zero fade tail when inside underground corridors (y = -500)!

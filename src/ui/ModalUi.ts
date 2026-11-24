@@ -390,8 +390,18 @@ export class ModalUi {
         const dist = Math.round(Math.hypot(playerX - m.order.customer.x, playerZ - m.order.customer.z));
         const isHere = dist <= 18;
         const canUnload = carrying === null;
+        const intPct = Math.round(m.foodIntegrity);
+        const tempPct = Math.round(m.foodTemp);
         const intColor =
-          m.foodIntegrity >= 80 ? '#34d399' : m.foodIntegrity >= 50 ? '#fbbf24' : '#f87171';
+          intPct >= 80 ? '#34d399' : intPct >= 50 ? '#fbbf24' : '#f87171';
+        const tempIcon = m.order.foodTempType === 'cold' ? '🧊' : '🔥';
+        const tempColor =
+          tempPct >= 80 ? '#34d399' : tempPct >= 50 ? '#fbbf24' : '#f87171';
+        const villaBadge =
+          m.order.customer.residenceKind === 'walkup_villa'
+            ? '<span class="villa-tag">🪜 계단 +₩500</span>'
+            : '';
+        const chatBadge = m.chatNote ? `<div class="chat-note-tag">💬 ${m.chatNote}</div>` : '';
 
         cards.push(`
           <div class="cargo-slot-card occupied ${isHere ? 'near-dest' : ''}">
@@ -401,13 +411,15 @@ export class ModalUi {
                 <span class="cs-ord-num">#${m.order.orderNumber}</span>
                 <span class="cs-dist ${isHere ? 'here' : ''}">${isHere ? `📍 바로 앞 (${dist}m)` : `${dist}m`}</span>
               </div>
-              <div class="cs-dest">${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b></div>
+              <div class="cs-dest">${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b>${villaBadge}</div>
               <div class="cs-meta">
-                <span>${m.order.shop.emoji} ${m.order.shop.name} · ${m.order.menuName}</span>
+                <span>${m.order.shop.emoji} ${m.order.shop.name} · ${m.order.menuName} <span class="food-meta-chip ${m.order.foodTempType === 'cold' ? 'cold' : m.order.isSpillSensitive ? 'spill' : ''}">${m.order.foodCategoryTag}</span></span>
               </div>
+              ${chatBadge}
               <div class="cs-foot-row">
                 <span class="cs-pin">현관 <b>${m.order.doorPinLabel}</b> · ${getInstructionMeta(m.order.deliveryInstruction).badge}</span>
-                <span class="cs-int" style="color:${intColor}">${m.foodIntegrity}%</span>
+                <span class="cs-int" style="color:${tempColor}">${tempIcon}${tempPct}%</span>
+                <span class="cs-int" style="color:${intColor}">상태 ${intPct}%</span>
               </div>
             </div>
             <button class="cs-btn unload" data-slot="${i}" ${canUnload ? '' : 'disabled'}>
@@ -623,10 +635,29 @@ export class ModalUi {
         ? `<div class="st-row rain-bonus"><span>🌧️ 우천 할증 보너스</span><span>+₩${result.rainBonus.toLocaleString()}</span></div>`
         : '';
 
+    const tempIcon = result.order.foodTempType === 'cold' ? '🧊 보냉' : '🔥 보온';
+    const tempRow =
+      result.tempBonus > 0
+        ? `<div class="st-row tip"><span>${tempIcon} 최적 온도 유지 (${result.foodTemp}%)</span><span>+₩${result.tempBonus.toLocaleString()}</span></div>`
+        : result.foodTemp < 50
+          ? `<div class="st-row warn"><span>${tempIcon} 온도 저하 (${result.foodTemp}%)</span><span>배달팁 감액 반영</span></div>`
+          : `<div class="st-row"><span>${tempIcon} 상태 (${result.foodTemp}%)</span><span>보통</span></div>`;
+
+    const villaRow =
+      result.villaStairBonus > 0
+        ? `<div class="st-row tip"><span>🪜 구축 빌라 계단 수고비</span><span>+₩${result.villaStairBonus.toLocaleString()}</span></div>`
+        : '';
+
+    const chatTipRow =
+      result.promisedTipBonus > 0
+        ? `<div class="st-row tip"><span>💬 고객 약속 조심배달 팁</span><span>+₩${result.promisedTipBonus.toLocaleString()}</span></div>`
+        : '';
+
+    const spillNote = result.spillDamageAccum > 0 ? ` · 국물/방지턱 -${result.spillDamageAccum}%` : '';
     const tipRow =
       result.tipPenalty === 0
         ? `<div class="st-row tip"><span>안전 배달 팁 (음식 상태 ${result.foodIntegrity}%)</span><span>+₩${result.tip.toLocaleString()}</span></div>`
-        : `<div class="st-row warn"><span>파손 배달팁 감액 (상태 ${result.foodIntegrity}%)</span><span>팁 ₩${result.tip.toLocaleString()} (-₩${result.tipPenalty.toLocaleString()})</span></div>
+        : `<div class="st-row warn"><span>파손 배달팁 감액 (상태 ${result.foodIntegrity}%${spillNote})</span><span>팁 ₩${result.tip.toLocaleString()} (-₩${result.tipPenalty.toLocaleString()})</span></div>
            <div class="st-row warn"><span>음식 파손 배상 차감</span><span>${Math.round(
              (result.foodIntegrity / 100 - 1) * result.baseFee
            ).toLocaleString()}원</span></div>`;
@@ -634,8 +665,18 @@ export class ModalUi {
     this.settlementBreakdown.innerHTML = `
       <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
       ${rainRow}
+      ${tempRow}
+      ${villaRow}
+      ${chatTipRow}
       ${tipRow}
     `;
+    const okBtn = document.getElementById('settlement-ok-btn');
+    if (okBtn) {
+      okBtn.textContent =
+        result.order.customer.residenceKind === 'walkup_villa'
+          ? '확인 (계단으로 1층 복귀)'
+          : '확인 (엘리베이터로 복귀)';
+    }
     this.settlementTotal.textContent = `+₩${result.earned.toLocaleString()}`;
     this.settlementCumul.textContent = `오늘 누적 수익 ₩${result.totalEarnings.toLocaleString()} (${result.completedCount}건 완료)`;
     this.settlementBackdrop.classList.remove('hidden');

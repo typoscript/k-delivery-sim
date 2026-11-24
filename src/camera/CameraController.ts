@@ -142,6 +142,10 @@ export class CameraController {
 
     scooterMesh.root.updateMatrixWorld(true);
     scooterMesh.getFirstPersonEyeWorld(this.tmpEye);
+    // Physical vertical suspension bounce when hitting a speed bump at speed!
+    if (scooter.bumpJolt > 0.01) {
+      this.tmpEye.y += Math.sin(scooter.bumpJolt * Math.PI) * 0.14 * scooter.bumpJolt;
+    }
     this.smoothedEyeY = this.tmpEye.y;
 
     // Horizon tilts smoothly with the scooter's physical cornering lean (~62% roll)

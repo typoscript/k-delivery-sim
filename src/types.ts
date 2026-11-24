@@ -4,6 +4,18 @@ export const CITY_WORLD_LIMIT = 285;
 
 export type WeatherMode = 'clear' | 'cloudy' | 'rain';
 export type SlipSurfaceType = 'none' | 'manhole' | 'crosswalk_paint';
+export type ResidenceKind = 'apartment' | 'walkup_villa' | 'officetel';
+export type FoodTempType = 'hot' | 'cold';
+
+export interface SpeedBumpInfo {
+  id: string;
+  x: number;
+  z: number;
+  axis: 'ew' | 'ns'; // 'ew' spans road along X (bar along Z), 'ns' spans road along Z (bar along X)
+  halfLength: number; // half width across road (~6.4m)
+  halfWidth: number; // half depth along travel direction (~1.15m)
+  label: string;
+}
 
 export interface ObstacleBox {
   minX: number;
@@ -25,6 +37,7 @@ export interface DeliveryLocation {
   x: number;
   z: number;
   type: 'shop' | 'residential';
+  residenceKind?: ResidenceKind;
   menus?: string[];
   emoji: string;
   facesNorth?: boolean;

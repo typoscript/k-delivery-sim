@@ -11,6 +11,7 @@ import {
   PolicePatrolMarker,
   ServiceStationInfo,
   SlipSurfaceType,
+  SpeedBumpInfo,
   SpeedCameraMarker,
   UpcomingCameraAlert,
   WeatherMode,
@@ -34,6 +35,7 @@ export interface CityMapInfo {
   serviceStations: ServiceStationInfo[];
   speedCameras?: SpeedCameraMarker[];
   policePatrols?: PolicePatrolMarker[];
+  speedBumps?: SpeedBumpInfo[];
   upcomingCamera?: UpcomingCameraAlert | null;
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
@@ -47,6 +49,7 @@ export class CityWorld {
   public readonly locations: DeliveryLocation[] = [];
   public readonly busStops: BusStopPoint[] = [];
   public readonly serviceStations: ServiceStationInfo[] = [];
+  public readonly speedBumps: SpeedBumpInfo[] = [];
   public readonly mapInfo: CityMapInfo;
 
   private readonly scene: THREE.Scene;
@@ -150,12 +153,14 @@ export class CityWorld {
       zones: this.zones,
       busStops: this.busStops,
       serviceStations: this.serviceStations,
+      speedBumps: this.speedBumps,
       obstacles: this.obstacles,
       buildings: this.buildings,
     };
 
     this.buildBaseGround();
     this.buildRoadGrid();
+    this.buildSpeedBumps();
     this.buildSidewalksAndBlocks();
     this.buildServiceStations();
     this.buildBusStops();
@@ -474,6 +479,117 @@ export class CityWorld {
       }
     }
     this.root.add(manholeInst);
+  }
+
+  /** Creates Korean diagonal yellow-and-black speed bump warning stripe texture */
+  private createSpeedBumpTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 64;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, 256, 64);
+
+    ctx.fillStyle = '#facc15';
+    for (let x = -64; x < 320; x += 36) {
+      ctx.beginPath();
+      ctx.moveTo(x, 64);
+      ctx.lineTo(x + 18, 64);
+      ctx.lineTo(x + 36, 0);
+      ctx.lineTo(x + 18, 0);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1, 5);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  /** Builds 14 Korean yellow/black striped rounded speed bumps near residential zones & commercial strips */
+  private buildSpeedBumps(): void {
+    const specs: Array<{ x: number; z: number; axis: 'ew' | 'ns'; label: string }> = [
+      // Residential apartment & villa entrances (z = 40, z = 120, z = -40, z = -120)
+      { x: 64, z: 40, axis: 'ew', label: '햇살아파트 앞 과속방지턱' },
+      { x: 96, z: 40, axis: 'ew', label: '햇살102동 진입 과속방지턱' },
+      { x: 78, z: -40, axis: 'ew', label: '그린빌라 단지 과속방지턱' },
+      { x: 40, z: 74, axis: 'ns', label: '햇살단지 서측 과속방지턱' },
+      { x: 0, z: 40, axis: 'ew', label: '리버뷰 단지 앞 과속방지턱' },
+      { x: 0, z: 120, axis: 'ew', label: '파크뷰 단지 앞 과속방지턱' },
+      { x: -80, z: 120, axis: 'ew', label: '하늘오피스텔 앞 과속방지턱' },
+      { x: 80, z: 120, axis: 'ew', label: '블루힐 단지 과속방지턱' },
+      { x: 0, z: -120, axis: 'ew', label: '소나무빌라 앞 과속방지턱' },
+      // Commercial & mid-block traffic calming bumps
+      { x: -80, z: -40, axis: 'ew', label: '상가거리 서측 과속방지턱' },
+      { x: 160, z: -40, axis: 'ew', label: '동부 상가 과속방지턱' },
+      { x: -160, z: -40, axis: 'ew', label: '서부 상가 과속방지턱' },
+      { x: -40, z: 80, axis: 'ns', label: '리버뷰 서측 과속방지턱' },
+      { x: 120, z: 80, axis: 'ns', label: '햇살단지 동측 과속방지턱' },
+    ];
+
+    const bumpMat = new THREE.MeshStandardMaterial({
+      map: this.createSpeedBumpTexture(),
+      roughness: 0.72,
+      metalness: 0.08,
+    });
+    const signPoleMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.5, roughness: 0.5 });
+    const signFaceMat = new THREE.MeshBasicMaterial({
+      map: this.createSignTexture('⚠️ 과속방지턱', '#facc15', '#0f172a'),
+    });
+
+    // Smooth curved hump cross-section: rotateZ(PI/2) puts arch bulge upward (+Y), length along X, travel depth along Z
+    const humpLength = 12.6;
+    const humpGeo = new THREE.CylinderGeometry(0.16, 0.16, humpLength, 12, 1, false, 0, Math.PI);
+    humpGeo.rotateZ(Math.PI / 2);
+    humpGeo.scale(1, 1, 7.2); // 16cm tall, 2.3m wide arch along travel direction, 12.6m across the 2 lanes!
+
+    specs.forEach((sp, i) => {
+      this.speedBumps.push({
+        id: `bump-${i + 1}`,
+        x: sp.x,
+        z: sp.z,
+        axis: sp.axis,
+        halfLength: humpLength * 0.5,
+        halfWidth: 1.25,
+        label: sp.label,
+      });
+
+      const hump = new THREE.Mesh(humpGeo, bumpMat);
+      hump.receiveShadow = true;
+      hump.castShadow = true;
+      // 'ew' road runs along X -> rotateY(PI/2) so hump spans Z; 'ns' road runs along Z -> hump spans X
+      hump.rotation.set(0, sp.axis === 'ew' ? Math.PI / 2 : 0, 0);
+      hump.position.set(sp.x, 0.03, sp.z);
+      this.root.add(hump);
+
+      // Small yellow curb warning sign on one side of the speed bump
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.0, 6), signPoleMat);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 0.05), signFaceMat);
+      const sx = sp.axis === 'ew' ? sp.x : sp.x + 7.6;
+      const sz = sp.axis === 'ew' ? sp.z + 7.6 : sp.z;
+      pole.position.set(sx, 1.0, sz);
+      board.position.set(sx, 1.85, sz);
+      if (sp.axis === 'ew') board.rotation.y = Math.PI / 2;
+      this.root.add(pole, board);
+    });
+  }
+
+  /** Checks if position (x, z) is currently crossing any road speed bump */
+  public getSpeedBumpAt(x: number, z: number): SpeedBumpInfo | null {
+    for (const b of this.speedBumps) {
+      if (b.axis === 'ew') {
+        if (Math.abs(x - b.x) <= b.halfWidth && Math.abs(z - b.z) <= b.halfLength) {
+          return b;
+        }
+      } else {
+        if (Math.abs(z - b.z) <= b.halfWidth && Math.abs(x - b.x) <= b.halfLength) {
+          return b;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -1383,19 +1499,19 @@ export class CityWorld {
         menus: ['소금빵 4개 + 아메리카노', '생크림 케이크 박스', '샌드위치 + 라떼 세트'],
       },
 
-      // 12 Residential Delivery Buildings (7 core + 5 new outer complexes!)
-      { id: 'res-sun-101', name: '햇살 아파트 101동', x: 68, z: 55, type: 'residential', emoji: '🏢' },
-      { id: 'res-sun-102', name: '햇살 아파트 102동', x: 94, z: 81, type: 'residential', emoji: '🏢' },
-      { id: 'res-villa-a', name: '그린빌라 A동', x: 66, z: -23.5, type: 'residential', emoji: '🏠' },
-      { id: 'res-villa-b', name: '그린빌라 B동', x: 92, z: -23.5, type: 'residential', emoji: '🏠' },
-      { id: 'res-villa-c', name: '그린빌라 C동', x: 79, z: 25, type: 'residential', emoji: '🏠', facesNorth: true },
-      { id: 'res-river-201', name: '리버뷰 201동', x: -14, z: 68, type: 'residential', emoji: '🏢' },
-      { id: 'res-river-202', name: '리버뷰 202동', x: 15, z: 68, type: 'residential', emoji: '🏢' },
-      { id: 'res-park-301', name: '파크뷰 301동', x: -14, z: 138.5, type: 'residential', emoji: '🏢' },
-      { id: 'res-park-302', name: '파크뷰 302동', x: 14, z: 138.5, type: 'residential', emoji: '🏢' },
-      { id: 'res-sky-off', name: '하늘 오피스텔', x: -80, z: 138, type: 'residential', emoji: '🏬' },
-      { id: 'res-blue-401', name: '블루힐 401동', x: 80, z: 138.5, type: 'residential', emoji: '🏢' },
-      { id: 'res-pine-villa', name: '소나무 빌라', x: 0, z: -138.5, type: 'residential', emoji: '🏠', facesNorth: true }
+      // 12 Residential Delivery Buildings (7 core + 5 new outer complexes! 4 walk-up villas with NO elevator!)
+      { id: 'res-sun-101', name: '햇살 아파트 101동', x: 68, z: 55, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-sun-102', name: '햇살 아파트 102동', x: 94, z: 81, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-villa-a', name: '그린빌라 A동', x: 66, z: -23.5, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠' },
+      { id: 'res-villa-b', name: '그린빌라 B동', x: 92, z: -23.5, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠' },
+      { id: 'res-villa-c', name: '그린빌라 C동', x: 79, z: 25, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠', facesNorth: true },
+      { id: 'res-river-201', name: '리버뷰 201동', x: -14, z: 68, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-river-202', name: '리버뷰 202동', x: 15, z: 68, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-park-301', name: '파크뷰 301동', x: -14, z: 138.5, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-park-302', name: '파크뷰 302동', x: 14, z: 138.5, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-sky-off', name: '하늘 오피스텔', x: -80, z: 138, type: 'residential', residenceKind: 'officetel', emoji: '🏬' },
+      { id: 'res-blue-401', name: '블루힐 401동', x: 80, z: 138.5, type: 'residential', residenceKind: 'apartment', emoji: '🏢' },
+      { id: 'res-pine-villa', name: '소나무 빌라', x: 0, z: -138.5, type: 'residential', residenceKind: 'walkup_villa', emoji: '🏠', facesNorth: true }
     );
   }
 

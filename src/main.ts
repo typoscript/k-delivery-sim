@@ -104,10 +104,13 @@ const enterElevatorToCorridor = (missionId: string) => {
     );
     return;
   }
+  const isVilla = m.order.customer.residenceKind === 'walkup_villa';
   audio.playElevatorDing();
   hud.stowPhoneToPocket();
   modalUi.playElevatorTransition(
-    `🛗 [#${m.order.orderNumber}] ${m.order.customer.name} ${m.order.unitNumber} 이동 중...`,
+    isVilla
+      ? `🪜 [#${m.order.orderNumber}] ${m.order.customer.name} 계단실 진입 중... (엘리베이터 없음 · ${m.order.unitNumber})`
+      : `🛗 [#${m.order.orderNumber}] ${m.order.customer.name} ${m.order.unitNumber} 이동 중...`,
     () => {
       // Midpoint while screen is completely black: occlude entire outdoor world + nav line + rain & audio!
       world.setOutdoorVisible(false);
@@ -116,34 +119,38 @@ const enterElevatorToCorridor = (missionId: string) => {
       weather.update(0, 0, 0, 0, true, world.isNight);
       audio.updateWeatherAudio(0, true);
 
-      corridorRoom.configureForUnit(m.order.unitNumber);
+      corridorRoom.configureForUnit(m.order.unitNumber, m.order.customer.residenceKind ?? 'apartment');
       corridorRoom.root.visible = true;
 
       delivery.enterCorridor(missionId);
-      const sp = corridorRoom.elevatorSpawn;
+      const sp = corridorRoom.getSpawnPoint();
       playerCtrl.teleportTo(sp.x, sp.y, sp.z, sp.heading, true);
       camController.onFootYaw = sp.heading;
       camController.resetLook();
     },
     () => {
-      audio.playElevatorDing();
+      if (!isVilla) audio.playElevatorDing();
       const inst = getInstructionMeta(m.order.deliveryInstruction);
+      const prefix = isVilla
+        ? `🪜 구축 빌라 (엘리베이터 없음)! 계단을 올라 ${m.order.unitNumber}`
+        : `🏢 ${m.order.unitNumber}`;
       const actionMsg =
         m.order.deliveryInstruction === 'KNOCK_DOOR'
-          ? `🏢 ${m.order.unitNumber} 앞에서 [E]로 노크 후 음식을 내려놓으세요 (${inst.badge})`
+          ? `${prefix} 앞에서 [E]로 노크 후 음식을 내려놓으세요 (${inst.badge})`
           : m.order.deliveryInstruction === 'MEET_FACE'
-            ? `🏢 ${m.order.unitNumber} 옆 인터폰 벨을 [E]로 눌러 대면 전달하세요 (${inst.badge})`
-            : `🏢 ${m.order.unitNumber} 문 앞 발매트에서 [E]를 눌러 음식을 내려놓으세요 (${inst.badge})`;
-      hud.showToast(actionMsg, 4200);
+            ? `${prefix} 옆 인터폰 벨을 [E]로 눌러 대면 전달하세요 (${inst.badge})`
+            : `${prefix} 문 앞 발매트에서 [E]를 눌러 음식을 내려놓으세요 (${inst.badge})`;
+      hud.showToast(actionMsg, 4600);
     }
   );
 };
 
 const exitCorridorToStreet = () => {
-  audio.playElevatorDing();
+  const wasVilla = corridorRoom.isVillaMode;
+  if (!wasVilla) audio.playElevatorDing();
   hud.stowPhoneToPocket();
   modalUi.playElevatorTransition(
-    '🛗 1층 로비로 내려가는 중...',
+    wasVilla ? '🚪 빌라 1층 현관 출구로 나가는 중...' : '🛗 1층 로비로 내려가는 중...',
     () => {
       corridorRoom.root.visible = false;
 
@@ -287,15 +294,18 @@ const modalUi = new ModalUi({
     }
   },
   onPinSuccess: (missionId) => {
-    const unlocked = delivery.unlockLobbyDoor(missionId);
-    if (unlocked) {
-      audio.playChime('accept');
-      world.setLobbyDoorOpen(unlocked.order.customer.id);
-      hud.showToast(
-        `🔓 ${unlocked.order.customer.name} 공동현관 개방! [E]를 눌러 엘리베이터에 탑승하세요`,
-        3400
-      );
-    }
+      const unlocked = delivery.unlockLobbyDoor(missionId);
+      if (unlocked) {
+        audio.playChime('accept');
+        world.setLobbyDoorOpen(unlocked.order.customer.id);
+        const isVilla = unlocked.order.customer.residenceKind === 'walkup_villa';
+        hud.showToast(
+          isVilla
+            ? `🔓 ${unlocked.order.customer.name} 공동현관 개방! (엘리베이터 없음) [E]를 눌러 계단으로 올라가세요`
+            : `🔓 ${unlocked.order.customer.name} 공동현관 개방! [E]를 눌러 엘리베이터에 탑승하세요`,
+          3600
+        );
+      }
   },
   onCargoSlotAction: handleCargoSlotAction,
   onFuelTick: () => audio.playFuelPumpTick(),
@@ -328,7 +338,12 @@ const modalUi = new ModalUi({
       hud.showToast(`🏆 일일 배달 미션 달성! +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
       return;
     }
-    hud.showToast('배달 완료! 복도 엘리베이터 앞에서 [E]를 눌러 1층으로 내려가세요', 3600);
+    hud.showToast(
+      corridorRoom.isVillaMode
+        ? '배달 완료! 계단을 내려와 1층 현관 출구 앞에서 [E]를 눌러 밖으로 나가세요'
+        : '배달 완료! 복도 엘리베이터 앞에서 [E]를 눌러 1층으로 내려가세요',
+      3800
+    );
   },
   onKeypadBeep: (ok) => audio.playKeypadBeep(ok),
 });
@@ -378,8 +393,12 @@ const handleContextInteract = () => {
     if (!cm) return;
 
     if (cm.phase === 'in_corridor') {
-      if (!corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z)) {
-        hud.showToast(`${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`);
+      if (!corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
+        hud.showToast(
+          corridorRoom.isVillaMode
+            ? `🪜 계단을 올라 ${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
+            : `${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
+        );
         return;
       }
 
@@ -446,10 +465,14 @@ const handleContextInteract = () => {
     }
 
     if (cm.phase === 'corridor_exit') {
-      if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z)) {
+      if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
         exitCorridorToStreet();
       } else {
-        hud.showToast('복도 끝 엘리베이터 앞으로 이동해서 [E]를 누르세요');
+        hud.showToast(
+          corridorRoom.isVillaMode
+            ? '🪜 계단을 내려와 1층 현관 출구 앞으로 이동해서 [E]를 누르세요'
+            : '복도 끝 엘리베이터 앞으로 이동해서 [E]를 누르세요'
+        );
       }
       return;
     }
@@ -810,6 +833,22 @@ scooterPhysics.setOnCrash((crashSide, impactSpeed, cause) => {
   }
 });
 
+// Wire Korean Road Speed Bump suspension thud & high-speed cargo shock damage!
+scooterPhysics.setOnSpeedBump((speedKmh, label) => {
+  const intensity = Math.min(1, Math.max(0.2, (speedKmh - 10) / 36));
+  audio.playSpeedBumpThud(intensity);
+  const res = delivery.applySpeedBumpImpact(speedKmh);
+  if (res.damagedCount > 0) {
+    if (res.spillHit) {
+      audio.playLiquidSlosh();
+    }
+    hud.showToast(
+      `⚠️ ${label} 고속 통과 (${Math.round(speedKmh)}km/h)! 서스펜션 충격으로 배달통 음식 -${res.maxLoss}% 파손 (22km/h 이하 서행 권장)`,
+      3600
+    );
+  }
+});
+
 // Input state
 const pressed = new Set<string>();
 
@@ -930,7 +969,7 @@ window.addEventListener('keydown', (e) => {
     }
     case 'Backspace': {
       if (playerCtrl.state.inCorridor) {
-        const sp = corridorRoom.elevatorSpawn;
+        const sp = corridorRoom.getSpawnPoint();
         playerCtrl.teleportTo(sp.x, sp.y, sp.z, sp.heading, true);
         camController.onFootYaw = sp.heading;
       } else {
@@ -1112,11 +1151,14 @@ function animate(now: number): void {
     ? []
     : [...world.obstacles, ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
 
+  const activeBump = inCorridor ? null : world.getSpeedBumpAt(scooterPhysics.state.x, scooterPhysics.state.z);
   const roadCondition = inCorridor
-    ? { isRaining: false, surface: 'none' as const }
+    ? { isRaining: false, surface: 'none' as const, onSpeedBump: false }
     : {
         isRaining: weather.isRaining,
         surface: world.getSlipSurfaceAt(scooterPhysics.state.x, scooterPhysics.state.z),
+        onSpeedBump: activeBump !== null,
+        speedBumpLabel: activeBump?.label,
       };
 
   if (isRiding && !movementBlocked) {
@@ -1164,17 +1206,30 @@ function animate(now: number): void {
       camController.onFootYaw,
       scooterPhysics.state,
       allObstacles,
-      (x, z) => corridorRoom.clampPlayerInside(x, z)
+      (x, z) => corridorRoom.clampPlayerInside(x, z),
+      (x, z) => corridorRoom.getFloorYAt(x, z),
+      () => audio.playStairFootstep()
     );
   }
 
-  // Step active mission delivery countdowns, peak-time cooking timers, & 20s dispatch state machine
+  // Step active mission delivery countdowns, peak-time cooking timers, cargo physics & live customer chat!
   delivery.stepTimers(dt, (readyMission) => {
     audio.playFoodReadyDingDong();
     hud.showToast(
       `🔔 ${readyMission.order.shop.emoji} ${readyMission.order.shop.name} [#${readyMission.order.orderNumber}]: "음식이 준비되었습니다!" 픽업대 트레이에서 [E]로 수령하세요`,
       4600
     );
+  });
+  delivery.stepCargoPhysics(dt, scooterPhysics.state, isRiding, (ordNo, menuName) => {
+    audio.playLiquidSlosh();
+    hud.showToast(
+      `🍲 [#${ordNo}] ${menuName} 국물/음료 출렁임! 급코너·급브레이크 시 음식 상태가 감소합니다`,
+      2600
+    );
+  });
+  delivery.stepCustomerChatEvents(dt, inCorridor, isRiding, (chatEv) => {
+    audio.playCustomerChatPing();
+    hud.showCustomerChatPopup(chatEv);
   });
   dispatch.step(dt, delivery, inCorridor, modalUi.isBlockingMovement());
 
@@ -1274,9 +1329,14 @@ function animate(now: number): void {
       scooterOnRepairPad:
         !inCorridor && world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z),
       nearCorridorTargetDoor:
-        inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z),
+        inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
       nearCorridorElevator:
-        inCorridor && corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z),
+        inCorridor && corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
+      isVillaCorridor: inCorridor && corridorRoom.isVillaMode,
+      villaCurrentFloor:
+        inCorridor && corridorRoom.isVillaMode
+          ? corridorRoom.getCurrentVillaFloor(playerCtrl.state.y)
+          : 1,
       modalOpen: modalUi.activeModal !== 'none',
     }
   );

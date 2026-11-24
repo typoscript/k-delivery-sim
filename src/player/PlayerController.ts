@@ -22,6 +22,8 @@ export interface PlayerState {
   grounded: boolean;
   canMountScooter: boolean;
   distanceToScooter: number;
+  stamina: number; // 0..100 (used when climbing walk-up villa stairs / sprinting)
+  climbingStairs: boolean;
 
   // Lowside crash tumble recovery
   knockdownTimer: number;
@@ -63,6 +65,8 @@ export class PlayerController {
       grounded: true,
       canMountScooter: false,
       distanceToScooter: 0,
+      stamina: 100,
+      climbingStairs: false,
       knockdownTimer: 0,
       knockdownRoll: 0,
       tumbleVx: 0,
@@ -112,6 +116,8 @@ export class PlayerController {
     p.heading = heading;
     p.moveSpeed = 0;
     p.grounded = true;
+    p.stamina = 100;
+    p.climbingStairs = false;
     p.knockdownTimer = 0;
     p.knockdownRoll = 0;
   }
@@ -204,7 +210,9 @@ export class PlayerController {
     cameraYaw: number,
     scooter: ScooterState,
     obstacles: ObstacleBox[],
-    corridorClamp?: (x: number, z: number) => [number, number]
+    corridorClamp?: (x: number, z: number) => [number, number],
+    corridorFloorY?: (x: number, z: number) => number,
+    onStairStep?: () => void
   ): void {
     const p = this.state;
     const clampedDt = Math.min(dt, 0.05);
@@ -278,7 +286,11 @@ export class PlayerController {
     // In 1st-person, player's heading always aligns with look direction
     p.heading = wrapAngle(cameraYaw);
 
-    const targetSpeed = len > 0.01 ? (input.sprint ? SPRINT_SPEED : WALK_SPEED) : 0;
+    const prevBaseY = p.baseY;
+    const exhaustedMul = p.stamina < 15 ? 0.68 : 1.0;
+    const stairSprintAllowed = input.sprint && p.stamina > 8;
+    const targetSpeed =
+      len > 0.01 ? (stairSprintAllowed ? SPRINT_SPEED : WALK_SPEED) * exhaustedMul : 0;
     if (len > 0.01) {
       dirX /= len;
       dirZ /= len;
@@ -287,6 +299,7 @@ export class PlayerController {
     const accelRate = targetSpeed > p.moveSpeed ? 20 : 24;
     p.moveSpeed += clamp(targetSpeed - p.moveSpeed, -accelRate * clampedDt, accelRate * clampedDt);
 
+    const prevWalkStep = Math.floor(p.walkCycle / 1.45);
     if (p.moveSpeed > 0.05 && len > 0.01) {
       const nx = p.x + dirX * p.moveSpeed * clampedDt;
       const nz = p.z + dirZ * p.moveSpeed * clampedDt;
@@ -308,6 +321,33 @@ export class PlayerController {
       }
 
       p.walkCycle += p.moveSpeed * clampedDt * 2.1;
+    }
+
+    // Update indoor floor elevation (supports multi-story walk-up villa staircases!)
+    let ascending = false;
+    if (p.inCorridor && corridorFloorY) {
+      const nextFloorY = corridorFloorY(p.x, p.z);
+      const dy = nextFloorY - prevBaseY;
+      ascending = dy > 0.002;
+      p.baseY = nextFloorY;
+      p.climbingStairs = Math.abs(dy) > 0.002;
+      const curWalkStep = Math.floor(p.walkCycle / 1.45);
+      if (p.climbingStairs && curWalkStep !== prevWalkStep && onStairStep) {
+        onStairStep();
+      }
+    } else {
+      p.climbingStairs = false;
+    }
+
+    // Stamina drain when climbing walk-up villa stairs (faster if sprinting), smooth recovery otherwise
+    if (ascending) {
+      const drain = input.sprint ? 24 : 11;
+      p.stamina = clamp(p.stamina - drain * clampedDt, 0, 100);
+    } else if (p.inCorridor && input.sprint && p.moveSpeed > 4.8) {
+      p.stamina = clamp(p.stamina - 8 * clampedDt, 0, 100);
+    } else {
+      const recover = p.moveSpeed < 0.2 ? 28 : 14;
+      p.stamina = clamp(p.stamina + recover * clampedDt, 0, 100);
     }
 
     // Jump & gravity relative to current floor level (0 outdoors, -500 inside corridor)

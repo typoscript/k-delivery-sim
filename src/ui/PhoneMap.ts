@@ -632,7 +632,10 @@ export class PhoneMap {
       return;
     }
     const inst = getInstructionMeta(focus.order.deliveryInstruction);
-    this.pinTooltipEl.innerHTML = `🔑 공동현관 <b>${focus.order.doorPinLabel}</b> · ${inst.badge}`;
+    const villaTxt =
+      focus.order.customer.residenceKind === 'walkup_villa' ? ' · 🪜계단' : '';
+    const chatTxt = focus.chatNote ? ` · 💬${focus.chatNote}` : '';
+    this.pinTooltipEl.innerHTML = `🔑 <b>${focus.order.doorPinLabel}</b> · ${focus.order.unitNumber}${villaTxt} · ${inst.badge}${chatTxt}`;
     this.pinTooltipEl.classList.remove('hidden');
   }
 
@@ -717,8 +720,8 @@ export class PhoneMap {
         .map(
           (o, idx) => `
           <div class="dp-stop-item">
-            <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span></div>
-            <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
+            <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span> <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span></div>
+            <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? ' <span class="villa-tag">🪜계단+500</span>' : ''} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
           </div>`
         )
         .join('');
@@ -1534,7 +1537,7 @@ export class PhoneMap {
     const activeFp = delivery.activeMissions
       .map(
         (m) =>
-          `${m.order.id}:${m.phase}:${m.cargoSlot}:${m.foodIntegrity}:${Math.ceil(m.cookingRemainingSec)}:${this.activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
+          `${m.order.id}:${m.phase}:${m.cargoSlot}:${Math.round(m.foodIntegrity)}:${Math.round(m.foodTemp)}:${m.order.unitNumber}:${m.order.deliveryInstruction}:${m.chatNote ?? ''}:${Math.ceil(m.cookingRemainingSec)}:${this.activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
       )
       .join(',');
     const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}`).join(',');
@@ -1608,11 +1611,13 @@ export class PhoneMap {
             <span class="order-fee">₩${(o.baseFee + o.rainBonus).toLocaleString()}</span>
           </div>
           <div class="order-menu">
-            ${o.menuName} · <span class="inst-badge">${getInstructionMeta(o.deliveryInstruction).badge}</span>
+            ${o.menuName}
+            <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span>
+            <span class="inst-badge">${getInstructionMeta(o.deliveryInstruction).badge}</span>
             ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 할증 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
           </div>
           <div class="order-bottom">
-            <span class="order-dest">→ ${o.customer.name} ${o.unitNumber} (${o.distanceMeters}m)</span>
+            <span class="order-dest">→ ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜계단+500</span>' : ''} (${o.distanceMeters}m)</span>
             <button class="order-accept-btn" data-action="accept" data-id="${o.id}" ${canAccept ? '' : 'disabled'}>
               ${full ? '3건 만석' : '수락'}
             </button>
@@ -1681,8 +1686,12 @@ export class PhoneMap {
           slotPill = `<span class="slot-pill hand">🛍️ 손에 휴대</span>`;
         }
 
+        const intPct = Math.round(m.foodIntegrity);
+        const tempPct = Math.round(m.foodTemp);
         const intColor =
-          m.foodIntegrity >= 80 ? '#10b981' : m.foodIntegrity >= 50 ? '#f59e0b' : '#ef4444';
+          intPct >= 80 ? '#10b981' : intPct >= 50 ? '#f59e0b' : '#ef4444';
+        const tempCls = tempPct >= 80 ? 'good' : tempPct >= 50 ? 'warn' : 'bad';
+        const tempIcon = m.order.foodTempType === 'cold' ? '🧊' : '🔥';
         const remSec = Math.ceil(m.remainingTimeSec);
         const remMin = Math.floor(remSec / 60);
         const remS = String(remSec % 60).padStart(2, '0');
@@ -1691,6 +1700,11 @@ export class PhoneMap {
           m.order.dispatchType === 'SINGLE'
             ? '<span class="dispatch-type-pill single">한집</span>'
             : '<span class="dispatch-type-pill alttle">알뜰</span>';
+        const villaPill =
+          m.order.customer.residenceKind === 'walkup_villa'
+            ? '<span class="villa-tag">🪜계단+500</span>'
+            : '';
+        const chatRow = m.chatNote ? `<div class="chat-note-tag">💬 ${m.chatNote}</div>` : '';
 
         return `
           <div class="accepted-card ${isFocused ? 'focused' : ''}">
@@ -1703,11 +1717,15 @@ export class PhoneMap {
             <div class="order-top">
               <span>${m.order.shop.emoji} ${m.order.shop.name} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}</span>
             </div>
-            <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b> <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
+            <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b>${villaPill} <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
+            <div class="order-menu" style="margin-top:2px">
+              ${m.order.menuName} <span class="food-meta-chip ${m.order.foodTempType === 'cold' ? 'cold' : m.order.isSpillSensitive ? 'spill' : ''}">${m.order.foodCategoryTag}</span>
+            </div>
+            ${chatRow}
             <div class="order-codes-row">
-              <span>주문 <b>${m.order.orderNumber}</b></span>
               <span>현관 <b>${m.order.doorPinLabel}</b></span>
-              <span style="color:${intColor};font-weight:800">${m.foodIntegrity}%</span>
+              <span class="temp-pill ${tempCls}">${tempIcon}${tempPct}%</span>
+              <span style="color:${intColor};font-weight:800">상태 ${intPct}%</span>
             </div>
             <div class="accepted-actions">
               ${

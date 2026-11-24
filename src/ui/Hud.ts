@@ -3,6 +3,7 @@ import { ScooterState } from '../vehicle/ScooterPhysics';
 import { CityMapInfo } from '../world/CityWorld';
 import {
   CARGO_SLOT_COUNT,
+  CustomerChatEvent,
   DeliveryManager,
   MAX_CONCURRENT_ORDERS,
   NavigationPlan,
@@ -21,6 +22,8 @@ export interface InteractionContext {
   scooterOnRepairPad: boolean;
   nearCorridorTargetDoor: boolean;
   nearCorridorElevator: boolean;
+  isVillaCorridor: boolean;
+  villaCurrentFloor: number;
   modalOpen: boolean;
 }
 
@@ -43,6 +46,16 @@ export class Hud {
   private readonly ftSpeedEl = document.getElementById('ft-speed')!;
   private readonly ftTimeEl = document.getElementById('ft-time')!;
   private readonly ftAmountEl = document.getElementById('ft-amount')!;
+  private readonly chatPopupEl = document.getElementById('customer-chat-popup')!;
+  private readonly ccSenderEl = document.getElementById('cc-sender')!;
+  private readonly ccTitleEl = document.getElementById('cc-title')!;
+  private readonly ccMessageEl = document.getElementById('cc-message')!;
+  private readonly ccEffectEl = document.getElementById('cc-effect')!;
+  private readonly ccCloseBtn = document.getElementById('cc-close-btn')!;
+  private readonly villaStairHud = document.getElementById('villa-stair-hud')!;
+  private readonly vsFloorText = document.getElementById('vs-floor-text')!;
+  private readonly vsStaminaVal = document.getElementById('vs-stamina-val')!;
+  private readonly vsStaminaFill = document.getElementById('vs-stamina-fill')!;
   private readonly toast = document.getElementById('toast')!;
   private readonly cookingHudBar = document.getElementById('cooking-hud-bar')!;
   private readonly cookingHudTitle = document.getElementById('cooking-hud-title')!;
@@ -67,11 +80,13 @@ export class Hud {
   private toastTimer: number | null = null;
   private accidentBannerTimer: number | null = null;
   private fineTicketTimer: number | null = null;
+  private chatPopupTimer: number | null = null;
 
   constructor(phoneCallbacks: PhoneCallbacks, onToggleWeather?: () => void) {
     this.phoneMap = new PhoneMap(phoneCallbacks);
     this.toggleHelpBtn.addEventListener('click', () => this.toggleHelp());
     this.ftCloseBtn.addEventListener('click', () => this.hideFineTicketPopup());
+    this.ccCloseBtn.addEventListener('click', () => this.hideCustomerChatPopup());
     if (onToggleWeather) {
       this.weatherBadge.addEventListener('click', () => onToggleWeather());
     }
@@ -170,6 +185,30 @@ export class Hud {
     }
   }
 
+  /** Displays non-blocking Korean Messenger Customer Chat Event Popup */
+  public showCustomerChatPopup(ev: CustomerChatEvent, durationMs = 6800): void {
+    this.ccSenderEl.textContent = `💬 고객 메시지 · #${ev.orderNumber} (${ev.customerName})`;
+    this.ccTitleEl.textContent = ev.title;
+    this.ccMessageEl.textContent = ev.message;
+    this.ccEffectEl.textContent = ev.effectBadge;
+    this.chatPopupEl.classList.remove('hidden');
+
+    if (this.chatPopupTimer !== null) {
+      window.clearTimeout(this.chatPopupTimer);
+    }
+    this.chatPopupTimer = window.setTimeout(() => {
+      this.hideCustomerChatPopup();
+    }, durationMs);
+  }
+
+  public hideCustomerChatPopup(): void {
+    this.chatPopupEl.classList.add('hidden');
+    if (this.chatPopupTimer !== null) {
+      window.clearTimeout(this.chatPopupTimer);
+      this.chatPopupTimer = null;
+    }
+  }
+
   public update(
     player: PlayerState,
     scooter: ScooterState,
@@ -211,7 +250,11 @@ export class Hud {
     if (player.inCorridor) {
       const unit = corridorM?.order.unitNumber ?? '';
       const ordNo = corridorM ? `#${corridorM.order.orderNumber} ` : '';
-      this.modeBadge.textContent = `🏢 실내 복도 (${ordNo}${unit})`;
+      if (ctx.isVillaCorridor) {
+        this.modeBadge.textContent = `🏠 구축 빌라 계단 ${ctx.villaCurrentFloor}F (${ordNo}${unit})`;
+      } else {
+        this.modeBadge.textContent = `🏢 실내 복도 (${ordNo}${unit})`;
+      }
       this.modeBadge.className = 'mode-pill foot';
     } else if (player.mode === 'knockdown') {
       this.modeBadge.textContent = '💥 전도! 일어나는 중';
@@ -259,9 +302,29 @@ export class Hud {
       this.cookingHudBar.classList.add('hidden');
     }
 
+    // Walk-up Villa Stairwell Floor & Stamina HUD
+    if (player.inCorridor && ctx.isVillaCorridor && corridorM) {
+      this.villaStairHud.classList.remove('hidden');
+      const stPct = Math.round(player.stamina);
+      this.vsFloorText.textContent =
+        corridorM.phase === 'corridor_exit'
+          ? `🏠 현재 ${ctx.villaCurrentFloor}F · 1F 현관으로 하강`
+          : `🏠 현재 ${ctx.villaCurrentFloor}F · 목표 ${corridorM.order.unitNumber}`;
+      this.vsStaminaVal.textContent = stPct < 20 ? `😮‍💨 숨참 (${stPct}%)` : `체력 ${stPct}%`;
+      this.vsStaminaFill.style.width = `${stPct}%`;
+      this.vsStaminaFill.className =
+        stPct < 25 ? 'vs-fill danger' : stPct < 55 ? 'vs-fill warn' : 'vs-fill';
+    } else {
+      this.villaStairHud.classList.add('hidden');
+    }
+
     this.ridingCluster.classList.toggle('hidden', !isRiding);
     const showSlip =
-      isRiding && (scooter.outOfFuel || scooter.slipWarning || scooter.wetSlipWarning !== 'none');
+      isRiding &&
+      (scooter.outOfFuel ||
+        scooter.slipWarning ||
+        scooter.wetSlipWarning !== 'none' ||
+        delivery.activeSpillWarning);
     if (showSlip) {
       if (scooter.outOfFuel) {
         this.slipWarningEl.textContent =
@@ -272,8 +335,11 @@ export class Hud {
       } else if (scooter.wetSlipWarning === 'crosswalk_paint') {
         this.slipWarningEl.textContent =
           '⚠ 빗길 횡단보도 페인트선! 감속·직진 통과하지 않으면 미끄러집니다!';
-      } else {
+      } else if (scooter.slipWarning) {
         this.slipWarningEl.textContent = '⚠ 코너 기울기 과다! 감속하지 않으면 넘어집니다!';
+      } else {
+        this.slipWarningEl.textContent =
+          '🍲 국물·음료 출렁임 주의! 코너 감속·급제동을 줄여 음식 파손을 막으세요!';
       }
     }
     this.slipWarningEl.classList.toggle('hidden', !showSlip);
@@ -370,7 +436,9 @@ export class Hud {
         return '🔔 "누구세요? 배달이요!" — 고객이 문을 열고 수령 중...';
       }
       if (corridorM.phase === 'corridor_exit' && ctx.nearCorridorElevator) {
-        return '<kbd>E</kbd> 🛗 엘리베이터 타고 1층으로 내려가기';
+        return ctx.isVillaCorridor
+          ? '<kbd>E</kbd> 🚪 빌라 1층 현관 출구로 나가기'
+          : '<kbd>E</kbd> 🛗 엘리베이터 타고 1층으로 내려가기';
       }
       return null;
     }
@@ -426,6 +494,9 @@ export class Hud {
           return `<kbd>E</kbd> 🔑 ${lobbyM.order.customer.name} 공동현관 PIN 입력 ([#${lobbyM.order.orderNumber}])`;
         }
         if (lobbyM.phase === 'lobby_unlocked') {
+          if (lobbyM.order.customer.residenceKind === 'walkup_villa') {
+            return `<kbd>E</kbd> 🪜 계단으로 올라가기 (엘리베이터 없음 · ${lobbyM.order.unitNumber} · 수고비 +₩500)`;
+          }
           return `<kbd>E</kbd> 🛗 엘리베이터 탑승 (${lobbyM.order.unitNumber} 이동)`;
         }
       }

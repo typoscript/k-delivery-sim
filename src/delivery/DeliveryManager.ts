@@ -1,10 +1,14 @@
-import { DeliveryLocation } from '../types';
+import { DeliveryLocation, FoodTempType, clamp } from '../types';
 import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
+import { ScooterState } from '../vehicle/ScooterPhysics';
 
 export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
 export const INTERACT_ZONE_RADIUS = 3.6;
 export const RAIN_SURCHARGE_BONUS = 1500;
+export const VILLA_STAIR_BONUS = 500; // 엘리베이터 없는 구축 빌라 계단 수고비 +₩500
+export const OPTIMAL_TEMP_BONUS = 300; // 보온/보냉 최적 온도 유지 보너스 +₩300
+export const PROMISED_CAREFUL_TIP = 1000; // 고객 채팅 조심배달 약속 팁 +₩1,000
 export const BASE_FLAT_FEE = 3200;
 export const SINGLE_FLAT_FEE = 4500; // 한집배달 기본 4,500원 + 거리할증
 export const SINGLE_TIME_LIMIT_SEC = 300; // 한집배달 제한시간 300초
@@ -68,6 +72,75 @@ export function generateRandomInstruction(): DeliveryInstruction {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+export interface FoodPhysicsMeta {
+  tempType: FoodTempType;
+  isSpillSensitive: boolean;
+  categoryTag: string;
+}
+
+/** Classifies Korean delivery menu items into hot/cold & spill-sensitive physics categories */
+export function classifyMenuFood(menuName: string, shopId: string): FoodPhysicsMeta {
+  const isCold =
+    menuName.includes('아이스') ||
+    menuName.includes('스무디') ||
+    menuName.includes('생크림 케이크') ||
+    menuName.includes('콜라') && shopId === 'shop-coffee';
+
+  const isSoupOrDrink =
+    menuName.includes('마라탕') ||
+    menuName.includes('국밥') ||
+    menuName.includes('육개장') ||
+    menuName.includes('오뎅탕') ||
+    menuName.includes('우동') ||
+    menuName.includes('라볶이') ||
+    menuName.includes('아메리카노') ||
+    menuName.includes('라떼') ||
+    menuName.includes('스무디') ||
+    shopId === 'shop-mara' ||
+    shopId === 'shop-gukbap' ||
+    shopId === 'shop-coffee';
+
+  const isFragile = menuName.includes('케이크') || menuName.includes('피자');
+
+  if (isCold && isSoupOrDrink) {
+    return { tempType: 'cold', isSpillSensitive: true, categoryTag: '🧊 음료·쏟음/녹음 주의' };
+  }
+  if (isCold) {
+    return { tempType: 'cold', isSpillSensitive: isFragile, categoryTag: isFragile ? '🍰 보냉·흔들림 주의' : '🧊 보냉 주의' };
+  }
+  if (isSoupOrDrink) {
+    return { tempType: 'hot', isSpillSensitive: true, categoryTag: '🍲 국물·흔들림 주의' };
+  }
+  if (isFragile) {
+    return { tempType: 'hot', isSpillSensitive: true, categoryTag: '🍕 수평·흔들림 주의' };
+  }
+  return { tempType: 'hot', isSpillSensitive: false, categoryTag: '🔥 따끈 보온' };
+}
+
+/** Generates realistic floor & unit numbers based on Korean building type (walk-up villa 2~4F vs apt 3~16F) */
+export function generateUnitNumberForLocation(loc: DeliveryLocation): string {
+  if (loc.residenceKind === 'walkup_villa') {
+    const floor = 2 + Math.floor(Math.random() * 3); // 2F ~ 4F (no elevator!)
+    const unit = 1 + Math.floor(Math.random() * 2); // 01 ~ 02
+    return `${floor}0${unit}호`;
+  }
+  const floor = 3 + Math.floor(Math.random() * 14); // 3F ~ 16F
+  const unit = 1 + Math.floor(Math.random() * 4); // 01 ~ 04
+  return `${floor}0${unit}호`;
+}
+
+export type CustomerChatKind = 'change_to_photo' | 'fix_unit_number' | 'extra_tip_careful';
+
+export interface CustomerChatEvent {
+  missionId: string;
+  orderNumber: string;
+  customerName: string;
+  kind: CustomerChatKind;
+  title: string;
+  message: string;
+  effectBadge: string;
+}
+
 /** Generates realistic Korean apartment entrance keypad patterns */
 export function generateKoreanLobbyPin(): { code: string; label: string } {
   let digits = '';
@@ -118,6 +191,9 @@ export interface DeliveryOrder {
   doorPin: string; // exact keypad sequence, e.g., "🔔1234", "🔑5678📞", "4829"
   doorPinLabel: string; // Korean pattern hint, e.g., "종모양(🔔) + 1234"
   menuName: string;
+  foodTempType: FoodTempType;
+  isSpillSensitive: boolean;
+  foodCategoryTag: string;
   baseFee: number;
   rainBonus: number; // +1500 when generated in Rain mode!
   distanceMeters: number;
@@ -141,12 +217,19 @@ export interface ActiveMission {
   order: DeliveryOrder;
   phase: MissionPhase;
   foodIntegrity: number; // 0..100
+  foodTemp: number; // 0..100 (hot retention or cold retention after pickup)
+  spillDamageAccum: number; // cumulative damage caused by soup/drink slosh & speed bumps
   startedAt: number;
   remainingTimeSec: number; // counts down from order.timeLimitSec (300s / 500s)
   cookingDurationSec: number; // total cooking delay assigned (5..10s, 0 if instant)
   cookingRemainingSec: number; // live countdown while in 'cooking_wait'
   cargoSlot: number | null; // 0 | 1 | 2 when inside top-box
   pickedUp: boolean;
+  chatEventTriggered: boolean;
+  chatTriggerDelaySec: number; // >0 if scheduled to trigger mid-ride
+  chatLoadedElapsedSec: number;
+  chatNote: string | null;
+  promisedExtraTip: number; // +₩1,000 if customer asked for careful delivery & integrity >= 85%
 }
 
 export interface PosPickupResult {
@@ -167,6 +250,11 @@ export interface SettlementResult {
   baseFee: number;
   rainBonus: number;
   foodIntegrity: number;
+  foodTemp: number;
+  spillDamageAccum: number;
+  tempBonus: number;
+  villaStairBonus: number;
+  promisedTipBonus: number;
   tip: number;
   tipPenalty: number;
   earned: number;
@@ -356,10 +444,27 @@ export class DeliveryManager {
     return `D-${10 + (this.orderSeq % 89)}`;
   }
 
-  private generateUnitNumber(): string {
-    const floor = 3 + Math.floor(Math.random() * 14); // 3F ~ 16F
-    const unit = 1 + Math.floor(Math.random() * 4); // 01 ~ 04
-    return `${floor}0${unit}호`;
+  private createActiveMission(order: DeliveryOrder, startedAt: number): ActiveMission {
+    // ~62% of orders get a live Korean mid-delivery customer chat event once loaded on scooter!
+    const willChat = Math.random() < 0.62;
+    return {
+      order,
+      phase: 'to_pickup',
+      foodIntegrity: 100,
+      foodTemp: 100,
+      spillDamageAccum: 0,
+      startedAt,
+      remainingTimeSec: order.timeLimitSec,
+      cookingDurationSec: 0,
+      cookingRemainingSec: 0,
+      cargoSlot: null,
+      pickedUp: false,
+      chatEventTriggered: false,
+      chatTriggerDelaySec: willChat ? 4.5 + Math.random() * 6.5 : 0,
+      chatLoadedElapsedSec: 0,
+      chatNote: null,
+      promisedExtraTip: 0,
+    };
   }
 
   public setWeatherRaining(raining: boolean): void {
@@ -396,6 +501,7 @@ export class DeliveryManager {
       const baseFee = baseFlatFee + distBonus;
 
       const pinObj = generateKoreanLobbyPin();
+      const foodMeta = classifyMenuFood(menuName, shop.id);
       orders.push({
         id: `ORD-${this.orderSeq++}`,
         orderNumber: this.generateOrderNumber(usedNumbers),
@@ -405,10 +511,13 @@ export class DeliveryManager {
         timeLimitSec: isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
         shop,
         customer,
-        unitNumber: this.generateUnitNumber(),
+        unitNumber: generateUnitNumberForLocation(customer),
         doorPin: pinObj.code,
         doorPinLabel: pinObj.label,
         menuName,
+        foodTempType: foodMeta.tempType,
+        isSpillSensitive: foodMeta.isSpillSensitive,
+        foodCategoryTag: foodMeta.categoryTag,
         baseFee,
         rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
         distanceMeters,
@@ -423,17 +532,7 @@ export class DeliveryManager {
     const found = this.availableOrders.find((o) => o.id === orderId);
     if (!found) return null;
 
-    this.activeMissions.push({
-      order: found,
-      phase: 'to_pickup',
-      foodIntegrity: 100,
-      startedAt: performance.now(),
-      remainingTimeSec: found.timeLimitSec,
-      cookingDurationSec: 0,
-      cookingRemainingSec: 0,
-      cargoSlot: null,
-      pickedUp: false,
-    });
+    this.activeMissions.push(this.createActiveMission(found, performance.now()));
     this.availableOrders = this.availableOrders.filter((o) => o.id !== orderId);
 
     // Keep at least 3 fresh calls ready so bundled pickups feel lively
@@ -452,17 +551,7 @@ export class DeliveryManager {
     }
     const now = performance.now();
     for (const o of orders) {
-      this.activeMissions.push({
-        order: o,
-        phase: 'to_pickup',
-        foodIntegrity: 100,
-        startedAt: now,
-        remainingTimeSec: o.timeLimitSec,
-        cookingDurationSec: 0,
-        cookingRemainingSec: 0,
-        cargoSlot: null,
-        pickedUp: false,
-      });
+      this.activeMissions.push(this.createActiveMission(o, now));
     }
     this.invalidateNavCache();
     return true;
@@ -532,6 +621,7 @@ export class DeliveryManager {
       const baseFee = baseFlatFee + distBonus;
 
       const pinObj = generateKoreanLobbyPin();
+      const foodMeta = classifyMenuFood(menuName, shop.id);
       this.availableOrders.push({
         id: `ORD-${this.orderSeq++}`,
         orderNumber: this.generateOrderNumber(usedNumbers),
@@ -541,10 +631,13 @@ export class DeliveryManager {
         timeLimitSec: isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
         shop,
         customer,
-        unitNumber: this.generateUnitNumber(),
+        unitNumber: generateUnitNumberForLocation(customer),
         doorPin: pinObj.code,
         doorPinLabel: pinObj.label,
         menuName,
+        foodTempType: foodMeta.tempType,
+        isSpillSensitive: foodMeta.isSpillSensitive,
+        foodCategoryTag: foodMeta.categoryTag,
         baseFee,
         rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
         distanceMeters,
@@ -712,20 +805,30 @@ export class DeliveryManager {
 
     const integrityFactor = m.foodIntegrity / 100;
     const maxTip = 500;
-    const tip = m.foodIntegrity >= 95 ? maxTip : m.foodIntegrity >= 70 ? 200 : 0;
+    const baseTip = m.foodIntegrity >= 95 ? maxTip : m.foodIntegrity >= 70 ? 200 : 0;
+    // Cold/melted or lukewarm food (<50%) forfeits half of the safety tip
+    const tip = m.foodTemp < 50 ? Math.round((baseTip * 0.5) / 100) * 100 : baseTip;
     const tipPenalty = maxTip - tip;
+
+    const tempBonus = m.foodTemp >= 80 ? OPTIMAL_TEMP_BONUS : 0;
+    const villaStairBonus = m.order.customer.residenceKind === 'walkup_villa' ? VILLA_STAIR_BONUS : 0;
+    const promisedTipBonus =
+      m.promisedExtraTip > 0 && m.foodIntegrity >= 85 ? m.promisedExtraTip : 0;
+
     const rainBonus = m.order.rainBonus;
-    const earned = Math.round((m.order.baseFee * integrityFactor + tip + rainBonus) / 100) * 100;
+    const extraBonuses = tempBonus + villaStairBonus + promisedTipBonus;
+    const earned =
+      Math.round((m.order.baseFee * integrityFactor + tip + rainBonus + extraBonuses) / 100) * 100;
 
     // Record itemized income breakdown into daily ledger (respects SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee)
     const flatRef = m.order.baseFlatFee || BASE_FLAT_FEE;
     const basePart = Math.min(m.order.baseFee, flatRef);
     const distPart = Math.max(0, m.order.baseFee - basePart);
-    const damageDed = Math.max(0, Math.round(m.order.baseFee * (1 - integrityFactor) / 100) * 100);
+    const damageDed = Math.max(0, Math.round((m.order.baseFee * (1 - integrityFactor)) / 100) * 100);
     this.baseFeeTotal += basePart;
     this.distanceBonusTotal += distPart;
     this.rainBonusTotal += rainBonus;
-    this.tipTotal += tip;
+    this.tipTotal += tip + extraBonuses;
     this.damageDeductionTotal += damageDed;
 
     this.totalEarnings += earned;
@@ -750,7 +853,7 @@ export class DeliveryManager {
     this.completedMissions.unshift({
       order: m.order,
       earned,
-      foodIntegrity: m.foodIntegrity,
+      foodIntegrity: Math.round(m.foodIntegrity),
       completedAt,
     });
     if (this.completedMissions.length > 12) {
@@ -761,7 +864,12 @@ export class DeliveryManager {
       order: m.order,
       baseFee: m.order.baseFee,
       rainBonus,
-      foodIntegrity: m.foodIntegrity,
+      foodIntegrity: Math.round(m.foodIntegrity),
+      foodTemp: Math.round(m.foodTemp),
+      spillDamageAccum: Math.round(m.spillDamageAccum),
+      tempBonus,
+      villaStairBonus,
+      promisedTipBonus,
       tip,
       tipPenalty,
       earned,
@@ -831,6 +939,197 @@ export class DeliveryManager {
       }
     }
     return best;
+  }
+
+  private spillWarnCooldown = 0;
+  public activeSpillWarning = false;
+
+  /**
+   * Steps real-time food temperature (hot cooling / cold melting) and liquid/fragile slosh physics!
+   * - Cold drinks/desserts lose temperature ~1.45x faster than hot food -> strategic bundle ordering!
+   * - Harsh corner lean (>25°) or hard braking/accel (>9.2 m/s²) spills soup/coffee inside top box!
+   */
+  public stepCargoPhysics(
+    dt: number,
+    scooter: ScooterState,
+    isRiding: boolean,
+    onSpillPulse?: (orderNumber: string, menuName: string) => void
+  ): void {
+    const clampedDt = Math.min(dt, 0.05);
+    this.spillWarnCooldown = Math.max(0, this.spillWarnCooldown - clampedDt);
+
+    let spillingNow = false;
+    let spillSample: ActiveMission | null = null;
+
+    const absLean = Math.abs(scooter.leanAngle);
+    const absLongAcc = Math.abs(scooter.lastLongAccel);
+    const speedKmh = Math.abs(scooter.speed) * 3.6;
+
+    // Harsh maneuver check while riding with cargo
+    const harshLean = isRiding && !scooter.crashed && speedKmh > 20 && absLean > 0.44; // > ~25°
+    const harshLong = isRiding && !scooter.crashed && speedKmh > 14 && absLongAcc > 9.4;
+
+    for (const m of this.activeMissions) {
+      if (!m.pickedUp || m.phase === 'corridor_exit') continue;
+
+      // 1. Temperature retention decay (insulated cargo box slows decay by ~40% vs hand-carrying!)
+      const inInsulatedBox = m.phase === 'cargo_loaded';
+      const baseRate = m.order.foodTempType === 'cold' ? 0.62 : 0.42; // % per second in box
+      const tempRate = inInsulatedBox ? baseRate : baseRate * 1.55;
+      m.foodTemp = clamp(m.foodTemp - tempRate * clampedDt, 0, 100);
+
+      // 2. Real-time liquid/fragile spill damage inside top box from harsh lean or sudden braking
+      if (inInsulatedBox && m.order.isSpillSensitive && (harshLean || harshLong)) {
+        const leanFactor = harshLean ? (absLean - 0.44) * 10.5 : 0;
+        const brakeFactor = harshLong ? (absLongAcc - 9.4) * 1.45 : 0;
+        const dmg = (leanFactor + brakeFactor) * clampedDt;
+        if (dmg > 0) {
+          m.foodIntegrity = clamp(m.foodIntegrity - dmg, 20, 100);
+          m.spillDamageAccum += dmg;
+          spillingNow = true;
+          if (!spillSample) spillSample = m;
+        }
+      }
+    }
+
+    this.activeSpillWarning = spillingNow;
+    if (spillingNow && spillSample && this.spillWarnCooldown <= 0) {
+      this.spillWarnCooldown = 2.6;
+      if (onSpillPulse) {
+        onSpillPulse(spillSample.order.orderNumber, spillSample.order.menuName);
+      }
+    }
+  }
+
+  /** Applies suspension shock damage to loaded cargo when crossing a speed bump above 22 km/h */
+  public applySpeedBumpImpact(speedKmh: number): {
+    damagedCount: number;
+    maxLoss: number;
+    spillHit: boolean;
+  } {
+    if (speedKmh <= 22) {
+      return { damagedCount: 0, maxLoss: 0, spillHit: false };
+    }
+    const excess = clamp((speedKmh - 22) / 36, 0.25, 1.0);
+    let damagedCount = 0;
+    let maxLoss = 0;
+    let spillHit = false;
+
+    for (const id of this.cargoSlots) {
+      if (!id) continue;
+      const m = this.getMissionById(id);
+      if (!m || m.phase !== 'cargo_loaded') continue;
+      const loss = Math.round(
+        m.order.isSpillSensitive ? 6 + excess * 10 : 3 + excess * 5
+      );
+      m.foodIntegrity = clamp(m.foodIntegrity - loss, 15, 100);
+      m.spillDamageAccum += loss;
+      damagedCount++;
+      if (loss > maxLoss) maxLoss = loss;
+      if (m.order.isSpillSensitive) spillHit = true;
+    }
+
+    return { damagedCount, maxLoss, spillHit };
+  }
+
+  /**
+   * Fires live Korean mid-delivery customer chat events while riding with loaded cargo:
+   *  1. Baby sleeping -> changes deliveryInstruction live to PHOTO_DOOR!
+   *  2. Wrong unit number typo -> updates unitNumber live on the same floor!
+   *  3. Careful soup/rain request -> promises +₩1,000 extra tip if integrity >= 85%!
+   */
+  public stepCustomerChatEvents(
+    dt: number,
+    inCorridor: boolean,
+    isRiding: boolean,
+    onChatEvent: (ev: CustomerChatEvent) => void
+  ): void {
+    if (inCorridor || !isRiding) return;
+    const clampedDt = Math.min(dt, 0.05);
+
+    for (const m of this.activeMissions) {
+      if (m.phase !== 'cargo_loaded' || m.chatEventTriggered || m.chatTriggerDelaySec <= 0) {
+        continue;
+      }
+      m.chatLoadedElapsedSec += clampedDt;
+      if (m.chatLoadedElapsedSec < m.chatTriggerDelaySec) continue;
+
+      m.chatEventTriggered = true;
+      const ev = this.triggerChatEventForMission(m);
+      if (ev) {
+        this.invalidateNavCache();
+        onChatEvent(ev);
+        break; // At most one popup per frame
+      }
+    }
+  }
+
+  private triggerChatEventForMission(m: ActiveMission): CustomerChatEvent | null {
+    const o = m.order;
+    const candidates: Array<'change_to_photo' | 'fix_unit_number' | 'extra_tip_careful'> = [];
+
+    if (o.deliveryInstruction !== 'PHOTO_DOOR') {
+      candidates.push('change_to_photo');
+    }
+    candidates.push('fix_unit_number');
+    candidates.push('extra_tip_careful');
+    if (o.isSpillSensitive || this.isWeatherRaining) {
+      // Slightly weight careful-delivery tip chat for soup/drinks & rain
+      candidates.push('extra_tip_careful');
+    }
+
+    const kind = candidates[Math.floor(Math.random() * candidates.length)];
+
+    if (kind === 'change_to_photo') {
+      o.deliveryInstruction = 'PHOTO_DOOR';
+      m.chatNote = '👶 아기 수면 → 문 앞 사진으로 변경됨';
+      return {
+        missionId: o.id,
+        orderNumber: o.orderNumber,
+        customerName: `${o.customer.name} ${o.unitNumber}`,
+        kind,
+        title: '요청사항 실시간 변경!',
+        message: '아기가 방금 잠들었어요ㅠㅠ 노크/벨 누르지 마시고 문 앞에 놓고 사진만 찍어주세요!',
+        effectBadge: '📸 문 앞 사진으로 자동 변경',
+      };
+    }
+
+    if (kind === 'fix_unit_number') {
+      const oldUnit = o.unitNumber;
+      const match = oldUnit.match(/(\d+)/);
+      const num = match ? parseInt(match[1], 10) : 301;
+      const floor = Math.floor(num / 100);
+      const curU = num % 100;
+      const maxU = o.customer.residenceKind === 'walkup_villa' ? 2 : 4;
+      const nextU = (curU % maxU) + 1;
+      const newUnit = `${floor}0${nextU}호`;
+      o.unitNumber = newUnit;
+      m.chatNote = `🏠 호수 정정: ${oldUnit} → ${newUnit}`;
+      return {
+        missionId: o.id,
+        orderNumber: o.orderNumber,
+        customerName: `${o.customer.name} 고객님`,
+        kind,
+        title: '배달 호수 오기재 정정!',
+        message: `죄송해요 호수를 잘못 적었어요! ${oldUnit} 말고 ${newUnit}로 가져다주세요 🙇`,
+        effectBadge: `🏠 목적지 ${oldUnit} → ${newUnit} 변경`,
+      };
+    }
+
+    m.promisedExtraTip = PROMISED_CAREFUL_TIP;
+    m.chatNote = '🙏 조심 배달 약속 팁 +₩1,000 (상태 85%↑)';
+    const customMsg = o.isSpillSensitive
+      ? `${o.menuName} 국물/음료 안 쏟아지게 천천히 와주세요! 안전하게 오시면 팁 +₩1,000 더 드릴게요 🙏`
+      : `천천히 안전운전해서 와주세요! 음식 깔끔하게 오시면 팁 +₩1,000 챙겨드릴게요 🙏`;
+    return {
+      missionId: o.id,
+      orderNumber: o.orderNumber,
+      customerName: `${o.customer.name} ${o.unitNumber}`,
+      kind,
+      title: '고객 응원 & 추가 팁 약속!',
+      message: customMsg,
+      effectBadge: '💰 음식 85%↑ 유지 시 +₩1,000 팁',
+    };
   }
 
   /** Applies crash impact damage to ALL food bags currently loaded in the 3 cargo box slots */

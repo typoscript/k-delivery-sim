@@ -9,8 +9,10 @@ import {
   RAIN_SURCHARGE_BONUS,
   SINGLE_FLAT_FEE,
   SINGLE_TIME_LIMIT_SEC,
+  classifyMenuFood,
   generateKoreanLobbyPin,
   generateRandomInstruction,
+  generateUnitNumberForLocation,
 } from './DeliveryManager';
 
 export type DispatchOfferState = 'IDLE' | 'OFFERING' | 'COOLDOWN';
@@ -195,12 +197,6 @@ export class OrderDispatchManager {
     return `K-${this.orderSeq++}`;
   }
 
-  private generateUnitNumber(): string {
-    const floor = 3 + Math.floor(Math.random() * 14);
-    const unit = 1 + Math.floor(Math.random() * 4);
-    return `${floor}0${unit}호`;
-  }
-
   private createOffer(type: DispatchOrderType, delivery: DeliveryManager): DispatchOffer | null {
     const usedNumbers = new Set<string>([
       ...delivery.activeMissions.map((m) => m.order.orderNumber),
@@ -245,6 +241,8 @@ export class OrderDispatchManager {
 
       const pinObj = generateKoreanLobbyPin();
       const deliveryInstruction = generateRandomInstruction();
+      const foodMeta = classifyMenuFood(menuName, shop.id);
+      const unitNumber = generateUnitNumberForLocation(customer);
 
       if (type === 'SINGLE') {
         // 한집배달: 기본 ₩4,500 + 거리 할증, 제한시간 300초
@@ -258,10 +256,13 @@ export class OrderDispatchManager {
           timeLimitSec: SINGLE_TIME_LIMIT_SEC,
           shop,
           customer,
-          unitNumber: this.generateUnitNumber(),
+          unitNumber,
           doorPin: pinObj.code,
           doorPinLabel: pinObj.label,
           menuName,
+          foodTempType: foodMeta.tempType,
+          isSpillSensitive: foodMeta.isSpillSensitive,
+          foodCategoryTag: foodMeta.categoryTag,
           baseFee: SINGLE_FLAT_FEE + distBonus,
           rainBonus,
           distanceMeters,
@@ -277,10 +278,13 @@ export class OrderDispatchManager {
           timeLimitSec: ALTTLE_TIME_LIMIT_SEC,
           shop,
           customer,
-          unitNumber: this.generateUnitNumber(),
+          unitNumber,
           doorPin: pinObj.code,
           doorPinLabel: pinObj.label,
           menuName,
+          foodTempType: foodMeta.tempType,
+          isSpillSensitive: foodMeta.isSpillSensitive,
+          foodCategoryTag: foodMeta.categoryTag,
           baseFee: ALTTLE_FLAT_FEE,
           rainBonus,
           distanceMeters,
