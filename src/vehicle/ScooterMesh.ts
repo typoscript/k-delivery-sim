@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 import { SCOOTER_SPECS, ScooterState } from './ScooterPhysics';
+import {
+  SCOOTER_MODELS,
+  SCOOTER_PAINTS,
+  ScooterModelId,
+  ScooterPaintId,
+} from './ScooterModels';
 
 export class ScooterMesh {
   public readonly root = new THREE.Group();
@@ -45,6 +51,16 @@ export class ScooterMesh {
   private readonly dashRightLedMat: THREE.MeshStandardMaterial;
   private readonly leftBlinkerGlow: THREE.PointLight;
   private readonly rightBlinkerGlow: THREE.PointLight;
+
+  // Dynamic bike model & custom paint materials / trim groups (PCX / Super Cub / Electric EV-PRO)
+  private readonly bodyPaintMat: THREE.MeshStandardMaterial;
+  private readonly accentPaintMat: THREE.MeshStandardMaterial;
+  private readonly seatMat: THREE.MeshStandardMaterial;
+  private readonly boxMat: THREE.MeshStandardMaterial;
+  private readonly exhaustMesh: THREE.Mesh;
+  private readonly pcxTrimGroup = new THREE.Group();
+  private readonly cubTrimGroup = new THREE.Group();
+  private readonly evTrimGroup = new THREE.Group();
 
   constructor(scene: THREE.Scene, phoneScreenTexture: THREE.CanvasTexture) {
     this.headlightMat = new THREE.MeshStandardMaterial({
@@ -122,31 +138,39 @@ export class ScooterMesh {
 
     this.root.add(this.bodyTiltGroup);
 
-    const bodyPaint = new THREE.MeshStandardMaterial({
+    this.bodyPaintMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
       roughness: 0.3,
       metalness: 0.25,
     });
-    const accentPaint = new THREE.MeshStandardMaterial({
+    const bodyPaint = this.bodyPaintMat;
+    this.accentPaintMat = new THREE.MeshStandardMaterial({
       color: 0x0ea5e9,
       roughness: 0.35,
       metalness: 0.2,
     });
+    const accentPaint = this.accentPaintMat;
     const darkMat = new THREE.MeshStandardMaterial({
       color: 0x1e242c,
       roughness: 0.72,
       metalness: 0.2,
+    });
+    this.seatMat = new THREE.MeshStandardMaterial({
+      color: 0x1e242c,
+      roughness: 0.72,
+      metalness: 0.15,
     });
     const chromeMat = new THREE.MeshStandardMaterial({
       color: 0xcbd5e1,
       roughness: 0.22,
       metalness: 0.85,
     });
-    const boxMat = new THREE.MeshStandardMaterial({
+    this.boxMat = new THREE.MeshStandardMaterial({
       color: 0x14b8a6,
       roughness: 0.42,
       metalness: 0.1,
     });
+    const boxMat = this.boxMat;
 
     // --- Rear Wheel (at z = 0) ---
     this.rearWheel = this.createWheel();
@@ -168,15 +192,76 @@ export class ScooterMesh {
     sideTrim.position.set(0, 0.58, 0.14);
     this.bodyTiltGroup.add(sideTrim);
 
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.76), darkMat);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.76), this.seatMat);
     seat.position.set(0, 0.82, 0.22);
     seat.castShadow = true;
     this.bodyTiltGroup.add(seat);
 
-    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.62, 10), chromeMat);
-    exhaust.rotation.x = Math.PI / 2 - 0.16;
-    exhaust.position.set(-0.27, 0.36, 0.08);
-    this.bodyTiltGroup.add(exhaust);
+    this.exhaustMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.62, 10), chromeMat);
+    this.exhaustMesh.rotation.x = Math.PI / 2 - 0.16;
+    this.exhaustMesh.position.set(-0.27, 0.36, 0.08);
+    this.bodyTiltGroup.add(this.exhaustMesh);
+
+    // --- Model-Specific 3D Trim Kits (Visible in both 3D & 1st-Person Handlebar View!) ---
+    // 1) PCX 125 Trim: Tall sporty smoked windscreen & sharp fairing winglets
+    const pcxScreenMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      transparent: true,
+      opacity: 0.46,
+      roughness: 0.12,
+      metalness: 0.3,
+    });
+    const pcxScreen = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.34, 0.025), pcxScreenMat);
+    pcxScreen.position.set(0, 1.24, 1.24);
+    pcxScreen.rotation.x = -0.45;
+    this.pcxTrimGroup.add(pcxScreen);
+    for (const s of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 0.34), accentPaint);
+      wing.position.set(s * 0.26, 0.78, 1.08);
+      this.pcxTrimGroup.add(wing);
+    }
+    this.bodyTiltGroup.add(this.pcxTrimGroup);
+
+    // 2) Classic Super Cub 110 Trim: Retro cream leg-shield wings + chrome round headlight bezel + luggage bar
+    const retroCreamMat = new THREE.MeshStandardMaterial({ color: 0xfef9c3, roughness: 0.42 });
+    for (const s of [-1, 1]) {
+      const legWing = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.56, 0.1), retroCreamMat);
+      legWing.position.set(s * 0.28, 0.66, 1.12);
+      legWing.rotation.y = s * 0.35;
+      this.cubTrimGroup.add(legWing);
+    }
+    const roundLampRim = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.14, 16), chromeMat);
+    roundLampRim.rotation.x = Math.PI / 2;
+    roundLampRim.position.set(0, 1.14, 1.3);
+    const roundLampGlass = new THREE.Mesh(new THREE.CylinderGeometry(0.088, 0.088, 0.15, 16), this.headlightMat);
+    roundLampGlass.rotation.x = Math.PI / 2;
+    roundLampGlass.position.set(0, 1.14, 1.31);
+    const frontBasket = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.18, 0.2), chromeMat);
+    frontBasket.position.set(0, 0.9, 1.43);
+    this.cubTrimGroup.add(roundLampRim, roundLampGlass, frontBasket);
+    this.cubTrimGroup.visible = false;
+    this.bodyTiltGroup.add(this.cubTrimGroup);
+
+    // 3) High-Output Electric EV-PRO Trim: Cyber-cyan LED lightbar + glowing battery frame bars + aero visor
+    const evCyanMat = new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      emissive: 0x06b6d4,
+      emissiveIntensity: 1.8,
+      roughness: 0.2,
+    });
+    const evLightBar = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.055, 0.08), evCyanMat);
+    evLightBar.position.set(0, 0.94, 1.38);
+    const evVisor = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.03), darkMat);
+    evVisor.position.set(0, 1.24, 1.24);
+    evVisor.rotation.x = -0.62;
+    for (const s of [-1, 1]) {
+      const battBar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.84), evCyanMat);
+      battBar.position.set(s * 0.255, 0.42, 0.56);
+      this.evTrimGroup.add(battBar);
+    }
+    this.evTrimGroup.add(evLightBar, evVisor);
+    this.evTrimGroup.visible = false;
+    this.bodyTiltGroup.add(this.evTrimGroup);
 
     // --- Rear Delivery Thermal Box ---
     const rack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.48), darkMat);
@@ -568,19 +653,35 @@ export class ScooterMesh {
     }
   }
 
+  public applyCustomization(modelId: ScooterModelId, paintId: ScooterPaintId): void {
+    const paint = SCOOTER_PAINTS[paintId];
+    this.bodyPaintMat.color.setHex(paint.bodyHex);
+    this.accentPaintMat.color.setHex(paint.accentHex);
+    this.boxMat.color.setHex(paint.boxHex);
+
+    // Classic Super Cub gets warm saddle-brown leather seat; PCX/EV get matte charcoal
+    this.seatMat.color.setHex(modelId === 'cub' ? 0x7c3f1d : 0x1e242c);
+    this.exhaustMesh.visible = modelId !== 'electric';
+
+    this.pcxTrimGroup.visible = modelId === 'pcx';
+    this.cubTrimGroup.visible = modelId === 'cub';
+    this.evTrimGroup.visible = modelId === 'electric';
+  }
+
   private renderDashboardCluster(state: ScooterState, elapsedTime: number): void {
     const ctx = this.dashCtx;
     const w = this.dashCanvas.width;
     const h = this.dashCanvas.height;
+    const spec = SCOOTER_MODELS[state.modelId];
 
-    ctx.fillStyle = '#090f1a';
+    ctx.fillStyle = spec.isElectric ? '#051520' : '#090f1a';
     ctx.fillRect(0, 0, w, h);
 
-    ctx.strokeStyle = state.lowFuelWarning ? '#ef4444' : '#1e3a5f';
+    ctx.strokeStyle = state.lowFuelWarning ? '#ef4444' : spec.isElectric ? '#06b6d4' : '#1e3a5f';
     ctx.lineWidth = 4;
     ctx.strokeRect(2, 2, w - 4, h - 4);
 
-    // Top row: Speed + Fuel % + Damage warning
+    // Top row: Speed + Model Badge + Fuel/Battery %
     const kmh = Math.round(Math.abs(state.speed) * 3.6);
     ctx.fillStyle = '#f8fafc';
     ctx.font = 'bold 28px monospace';
@@ -596,22 +697,35 @@ export class ScooterMesh {
       ctx.fillStyle = '#fb923c';
       ctx.font = 'bold 13px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`🔧 -${state.damageLevel * 10}%`, w * 0.56, 28);
+      ctx.fillText(`🔧 -${state.damageLevel * 10}%`, w * 0.54, 28);
+    } else {
+      ctx.fillStyle = spec.isElectric ? '#22d3ee' : state.modelId === 'cub' ? '#fde68a' : '#94a3b8';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(spec.shortBadge, w * 0.54, 28);
     }
 
     const fuelPct = Math.round(state.fuel);
     const lowBlink = state.lowFuelWarning && Math.floor(elapsedTime * 4) % 2 === 0;
-    ctx.fillStyle = state.outOfFuel || lowBlink ? '#ef4444' : state.lowFuelWarning ? '#fca5a5' : '#34d399';
+    ctx.fillStyle =
+      state.outOfFuel || lowBlink
+        ? '#ef4444'
+        : state.lowFuelWarning
+          ? '#fca5a5'
+          : spec.isElectric
+            ? '#22d3ee'
+            : '#34d399';
     ctx.font = 'bold 18px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(state.outOfFuel ? 'EMPTY!' : `⛽${fuelPct}%`, w - 12, 28);
+    const energyIcon = spec.isElectric ? '⚡' : '⛽';
+    ctx.fillText(state.outOfFuel ? 'EMPTY!' : `${energyIcon}${fuelPct}%`, w - 12, 28);
 
-    // Bottom row: 10-segment 3D Fuel Bar Gauge (E [||||||||..] F)
+    // Bottom row: 10-segment 3D Fuel/Battery Bar Gauge (E [||||||||..] F)
     ctx.fillStyle = '#ef4444';
     ctx.font = 'bold 15px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('E', 14, 68);
-    ctx.fillStyle = '#38bdf8';
+    ctx.fillStyle = spec.isElectric ? '#22d3ee' : '#38bdf8';
     ctx.textAlign = 'right';
     ctx.fillText('F', w - 14, 68);
 
@@ -626,7 +740,15 @@ export class ScooterMesh {
       const active = i < filled && state.fuel > 0.01;
       if (active) {
         ctx.fillStyle =
-          state.lowFuelWarning ? (lowBlink ? '#ef4444' : '#7f1d1d') : i < 2 ? '#f59e0b' : '#22c55e';
+          state.lowFuelWarning
+            ? lowBlink
+              ? '#ef4444'
+              : '#7f1d1d'
+            : i < 2
+              ? '#f59e0b'
+              : spec.isElectric
+                ? '#06b6d4'
+                : '#22c55e';
       } else {
         ctx.fillStyle = '#1e293b';
       }

@@ -547,21 +547,31 @@
         </div>
       </div>
 
-      <!-- 8. Neighborhood Motorcycle Repair Center Modal -->
+      <!-- 8. Neighborhood Motorcycle Repair & Custom Garage Modal (Repair + 3 Bike Models + 6 Custom Paints!) -->
       <div id="repair-modal" class="modal-backdrop hidden">
-        <div class="service-card repair-card">
+        <div class="service-card repair-card garage-card">
           <div class="keypad-header">
-            <span>🔧 번개 오토바이 센터</span>
+            <span>🔧 번개 오토바이 센터 · 정비 &amp; 기종 · 도색</span>
             <button class="keypad-close" data-action="close">✕</button>
           </div>
           <div id="repair-diag-box" class="svc-meter-box"></div>
-          <div class="svc-cost-row">
+          <div id="repair-cost-wrap" class="svc-cost-row">
             <span>정비 수리비</span>
-            <strong id="repair-modal-cost">₩2,500</strong>
+            <strong id="repair-modal-cost">₩0</strong>
           </div>
           <button id="repair-confirm-btn" class="svc-action-btn repair" data-action="confirm_repair">
             🔧 수리 및 결제 완료 (E / Enter)
           </button>
+
+          <div class="garage-section">
+            <div class="garage-sec-title">🏍️ 배달 오토바이 기종 전환 (보유 시 무료 교체)</div>
+            <div id="repair-bike-list" class="garage-bike-list"></div>
+          </div>
+
+          <div class="garage-section">
+            <div class="garage-sec-title">🎨 커스텀 바디 도색 (6종 컬러)</div>
+            <div id="repair-paint-grid" class="garage-paint-grid"></div>
+          </div>
         </div>
       </div>
 
@@ -633,7 +643,7 @@
             </label>
 
             <div class="set-footer-actions">
-              <button class="set-secondary-btn" data-action="open_districts">🗺️ 수원시 출근 구역 변경 (인계동 · 행궁동 · 수원역)</button>
+              <button class="set-secondary-btn" data-action="open_districts">🗺️ 수원시 출근 구역 변경 (인계동 · 행궁동 · 수원역 · 광교)</button>
               <button class="set-secondary-btn" data-action="restart_tutorial">🎓 첫 출근 튜토리얼 다시 보기</button>
               <button class="st-ok-btn" data-action="close">저장 및 닫기 (Esc)</button>
             </div>

@@ -1116,19 +1116,52 @@ export class GameAudio {
       return;
     }
 
-    const freq = 58 + scooter.rpmNorm * 135;
-    this.engineOsc1.frequency.setTargetAtTime(freq, now, 0.04);
-    this.engineOsc2.frequency.setTargetAtTime(freq * 1.99, now, 0.04);
-    this.engineFilter.frequency.setTargetAtTime(
-      220 + scooter.rpmNorm * 580 + scooter.throttleAmount * 220,
-      now,
-      0.05
-    );
-    this.engineGain.gain.setTargetAtTime(
-      0.14 + scooter.throttleAmount * 0.14 + scooter.rpmNorm * 0.08,
-      now,
-      0.06
-    );
+    if (scooter.modelId === 'electric') {
+      // Ultra-quiet futuristic EV inverter motor whirr (silent at standstill, silky pitch rise with speed!)
+      const evSpeedFrac = Math.min(1, Math.abs(scooter.speed) / 23.9);
+      const evFreq = 210 + evSpeedFrac * 560 + scooter.throttleAmount * 90;
+      this.engineOsc1.type = 'sine';
+      this.engineOsc2.type = 'triangle';
+      this.engineOsc1.frequency.setTargetAtTime(evFreq, now, 0.05);
+      this.engineOsc2.frequency.setTargetAtTime(evFreq * 1.5, now, 0.05);
+      this.engineFilter.frequency.setTargetAtTime(900 + evSpeedFrac * 1400, now, 0.05);
+      const evGain = (evSpeedFrac * 0.08 + scooter.throttleAmount * 0.045);
+      this.engineGain.gain.setTargetAtTime(evGain, now, 0.06);
+    } else if (scooter.modelId === 'cub') {
+      // Classic Super Cub low-pitch warm single-cylinder retro thump!
+      const cubFreq = 42 + scooter.rpmNorm * 98;
+      this.engineOsc1.type = 'sawtooth';
+      this.engineOsc2.type = 'triangle';
+      this.engineOsc1.frequency.setTargetAtTime(cubFreq, now, 0.04);
+      this.engineOsc2.frequency.setTargetAtTime(cubFreq * 2.0, now, 0.04);
+      this.engineFilter.frequency.setTargetAtTime(
+        180 + scooter.rpmNorm * 420 + scooter.throttleAmount * 160,
+        now,
+        0.05
+      );
+      this.engineGain.gain.setTargetAtTime(
+        0.13 + scooter.throttleAmount * 0.13 + scooter.rpmNorm * 0.07,
+        now,
+        0.06
+      );
+    } else {
+      // Standard PCX 125 crisp CVT scooter engine
+      const freq = 58 + scooter.rpmNorm * 135;
+      this.engineOsc1.type = 'sawtooth';
+      this.engineOsc2.type = 'triangle';
+      this.engineOsc1.frequency.setTargetAtTime(freq, now, 0.04);
+      this.engineOsc2.frequency.setTargetAtTime(freq * 1.99, now, 0.04);
+      this.engineFilter.frequency.setTargetAtTime(
+        220 + scooter.rpmNorm * 580 + scooter.throttleAmount * 220,
+        now,
+        0.05
+      );
+      this.engineGain.gain.setTargetAtTime(
+        0.14 + scooter.throttleAmount * 0.14 + scooter.rpmNorm * 0.08,
+        now,
+        0.06
+      );
+    }
 
     // Tire screech scales smoothly when corner lean approaches traction limit
     const screechAmt = scooter.slipWarning ? Math.min((scooter.leanRisk - 0.7) * 0.85, 0.28) : 0;

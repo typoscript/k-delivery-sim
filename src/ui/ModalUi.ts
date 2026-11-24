@@ -10,6 +10,13 @@ import {
   getInstructionMeta,
 } from '../delivery/DeliveryManager';
 import { PhotoProofResult } from '../camera/PhotoProofValidator';
+import {
+  BikeGarageSave,
+  SCOOTER_MODEL_LIST,
+  SCOOTER_PAINT_LIST,
+  ScooterModelId,
+  ScooterPaintId,
+} from '../vehicle/ScooterModels';
 
 export type ActiveModalType =
   | 'none'
@@ -34,6 +41,8 @@ export interface ModalCallbacks {
   onFuelTick: () => void;
   onFuelComplete: (addedPercent: number, cost: number) => void;
   onRepairConfirm: (cost: number) => void;
+  onSelectBikeModel: (modelId: ScooterModelId, cost: number) => void;
+  onSelectBikePaint: (paintId: ScooterPaintId, cost: number) => void;
   onConvenienceBuy: (item: ConvenienceItemKind, cost: number) => void;
   onTakePhoto: () => void;
   onSettlementClose: () => void;
@@ -93,10 +102,14 @@ export class ModalUi {
   private fuelTimer: number | null = null;
   private isFueling = false;
 
-  // Motorcycle Repair Center Modal
+  // Motorcycle Repair & Custom Garage Center Modal
   private readonly repairBackdrop = document.getElementById('repair-modal')!;
   private readonly repairDiagBox = document.getElementById('repair-diag-box')!;
+  private readonly repairCostWrap = document.getElementById('repair-cost-wrap')!;
   private readonly repairCostEl = document.getElementById('repair-modal-cost')!;
+  private readonly repairConfirmBtn = document.getElementById('repair-confirm-btn') as HTMLButtonElement;
+  private readonly repairBikeList = document.getElementById('repair-bike-list')!;
+  private readonly repairPaintGrid = document.getElementById('repair-paint-grid')!;
   private repairCost = 0;
 
   // 24h Convenience Store Modal
@@ -225,7 +238,7 @@ export class ModalUi {
       }
     });
 
-    // Repair Center modal actions
+    // Repair & Custom Garage Center modal actions
     this.repairBackdrop.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       if (target === this.repairBackdrop) {
@@ -236,10 +249,18 @@ export class ModalUi {
       if (!btn) return;
       if (btn.dataset.action === 'close') {
         this.closeAll();
-      } else if (btn.dataset.action === 'confirm_repair') {
+      } else if (btn.dataset.action === 'confirm_repair' && this.repairCost > 0) {
         const cost = this.repairCost;
         this.closeAll();
         this.callbacks.onRepairConfirm(cost);
+      } else if (btn.dataset.bikeModel) {
+        const modelId = btn.dataset.bikeModel as ScooterModelId;
+        const cost = Number(btn.dataset.cost || 0);
+        this.callbacks.onSelectBikeModel(modelId, cost);
+      } else if (btn.dataset.bikePaint) {
+        const paintId = btn.dataset.bikePaint as ScooterPaintId;
+        const cost = Number(btn.dataset.cost || 0);
+        this.callbacks.onSelectBikePaint(paintId, cost);
       }
     });
 
@@ -520,23 +541,91 @@ export class ModalUi {
     }, 95);
   }
 
-  public openRepairModal(damageLevel: number, crashCount: number): void {
+  public openRepairModal(damageLevel: number, crashCount: number, garage: BikeGarageSave): void {
     this.closeAll();
     this.activeModal = 'repair';
+    this.renderRepairGarageContent(damageLevel, crashCount, garage);
+    this.repairBackdrop.classList.remove('hidden');
+  }
+
+  public renderRepairGarageContent(
+    damageLevel: number,
+    crashCount: number,
+    garage: BikeGarageSave
+  ): void {
     this.repairCost = damageLevel * REPAIR_COST_PER_DAMAGE_STAGE;
     const accelPenalty = damageLevel * 10;
 
-    this.repairDiagBox.innerHTML = `
-      <div class="svc-meter-row">
-        <span>차량 파손 단계</span>
-        <strong style="color:#fb923c">${damageLevel}단계 / 3 (누적 전도 ${crashCount}회)</strong>
-      </div>
-      <div class="svc-status-text">• 사이드미러 축 틀어짐 및 주행 흔들림 발생</div>
-      <div class="svc-status-text">• 구동계 충격으로 가속력 <b>-${accelPenalty}%</b> 저하 중</div>
-      <div class="svc-status-text" style="color:#34d399">→ 수리 완료 시 외관·사이드미러·가속력 100% 즉시 복구</div>
-    `;
-    this.repairCostEl.textContent = `₩${this.repairCost.toLocaleString()}`;
-    this.repairBackdrop.classList.remove('hidden');
+    if (damageLevel > 0) {
+      this.repairDiagBox.innerHTML = `
+        <div class="svc-meter-row">
+          <span>차량 파손 단계</span>
+          <strong style="color:#fb923c">${damageLevel}단계 / 3 (누적 전도 ${crashCount}회)</strong>
+        </div>
+        <div class="svc-status-text">• 사이드미러 축 틀어짐 및 가속력 <b>-${accelPenalty}%</b> 저하 중</div>
+      `;
+      this.repairCostWrap.classList.remove('hidden');
+      this.repairCostEl.textContent = `₩${this.repairCost.toLocaleString()}`;
+      this.repairConfirmBtn.classList.remove('hidden');
+      this.repairConfirmBtn.disabled = false;
+    } else {
+      this.repairDiagBox.innerHTML = `
+        <div class="svc-meter-row">
+          <span>차량 정비 상태</span>
+          <strong style="color:#34d399">양호 ✓ (파손 없음)</strong>
+        </div>
+        <div class="svc-status-text">아래에서 오토바이 기종을 변경하거나 커스텀 도색을 적용할 수 있습니다!</div>
+      `;
+      this.repairCostWrap.classList.add('hidden');
+      this.repairConfirmBtn.classList.add('hidden');
+    }
+
+    this.repairBikeList.innerHTML = SCOOTER_MODEL_LIST.map((m) => {
+      const isCurrent = garage.modelId === m.id;
+      const isOwned = garage.ownedModels.includes(m.id);
+      const cost = isOwned ? 0 : m.price;
+      const badgeClass = isCurrent ? 'active' : isOwned ? 'owned' : '';
+      const badgeText = isCurrent
+        ? '✓ 탑승 중'
+        : isOwned
+          ? '무료 교체'
+          : `₩${m.price.toLocaleString()}`;
+      const fuelText = m.isElectric
+        ? '⚡ EV 정숙모터'
+        : m.fuelBurnMul < 0.7
+          ? '⛽ 초고연비'
+          : '⛽ 표준 연비';
+      return `
+        <button class="garage-bike-btn ${isCurrent ? 'active' : ''}" data-bike-model="${m.id}" data-cost="${cost}">
+          <div class="gb-info">
+            <div class="gb-name">${m.icon} ${m.name}</div>
+            <div class="gb-desc">${m.tagline}</div>
+            <div class="gb-stats">
+              <span class="gb-stat-pill">최고 ${m.maxKmh}km/h</span>
+              <span class="gb-stat-pill">가속 ${Math.round(m.accelMul * 100)}%</span>
+              <span class="gb-stat-pill">${fuelText}</span>
+            </div>
+          </div>
+          <span class="gb-price-tag ${badgeClass}">${badgeText}</span>
+        </button>
+      `;
+    }).join('');
+
+    this.repairPaintGrid.innerHTML = SCOOTER_PAINT_LIST.map((p) => {
+      const isCurrent = garage.paintId === p.id;
+      const isOwned = garage.ownedPaints.includes(p.id);
+      const cost = isOwned ? 0 : p.price;
+      const priceTxt = isCurrent ? '적용 중' : isOwned ? '무료' : `₩${p.price.toLocaleString()}`;
+      return `
+        <button class="garage-paint-btn ${isCurrent ? 'active' : ''}" data-bike-paint="${p.id}" data-cost="${cost}">
+          <span class="gp-swatch" style="background:${p.swatchHex}"></span>
+          <span class="gp-meta">
+            <span>${p.name}</span>
+            <span class="gp-price">${priceTxt}</span>
+          </span>
+        </button>
+      `;
+    }).join('');
   }
 
   public openConvenienceModal(staminaPct: number, batteryPct: number): void {
@@ -811,7 +900,7 @@ export class ModalUi {
       e.preventDefault();
       if (e.key === 'Escape') {
         this.closeAll();
-      } else if (e.key === 'Enter' || e.code === 'KeyE' || e.code === 'Space') {
+      } else if ((e.key === 'Enter' || e.code === 'Space') && this.repairCost > 0) {
         const cost = this.repairCost;
         this.closeAll();
         this.callbacks.onRepairConfirm(cost);

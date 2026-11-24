@@ -1,5 +1,6 @@
 import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
+import { SCOOTER_MODELS } from '../vehicle/ScooterModels';
 import { CityMapInfo } from '../world/CityWorld';
 import {
   CARGO_SLOT_COUNT,
@@ -289,12 +290,13 @@ export class Hud {
       this.modeBadge.textContent = '💥 전도! 일어나는 중';
       this.modeBadge.className = 'mode-pill danger';
     } else if (isRiding) {
+      const bikeSpec = SCOOTER_MODELS[scooter.modelId];
       this.modeBadge.textContent =
         loadedCount > 0
-          ? `🛵 라이딩 · 📦 배달통 ${loadedCount}/${CARGO_SLOT_COUNT}칸`
+          ? `${bikeSpec.icon} ${bikeSpec.shortBadge} · 📦 배달통 ${loadedCount}/${CARGO_SLOT_COUNT}칸`
           : activeCount > 0
-            ? `🛵 라이딩 · 묶음 ${activeCount}/${MAX_CONCURRENT_ORDERS}건`
-            : '🛵 1인칭 라이딩';
+            ? `${bikeSpec.icon} ${bikeSpec.shortBadge} · 묶음 ${activeCount}/${MAX_CONCURRENT_ORDERS}건`
+            : `${bikeSpec.icon} ${bikeSpec.shortBadge} 라이딩`;
       this.modeBadge.className = 'mode-pill riding';
     } else if (carrying) {
       this.modeBadge.textContent = `🛍️ 도보 · [#${carrying.order.orderNumber}] 음식 휴대 중`;
@@ -360,7 +362,9 @@ export class Hud {
     if (showSlip) {
       if (scooter.outOfFuel) {
         this.slipWarningEl.textContent =
-          '⛽ 연료 고갈! 가속 불가 — 하차(F) 후 K-오일 주유소에서 주유하세요!';
+          SCOOTER_MODELS[scooter.modelId].isElectric
+            ? '⚡ EV 배터리 방전! 하차(F) 후 K-오일 충전소에서 급속 충전하세요!'
+            : '⛽ 연료 고갈! 가속 불가 — 하차(F) 후 K-오일 주유소에서 주유하세요!';
       } else if (scooter.wetSlipWarning === 'manhole') {
         this.slipWarningEl.textContent =
           '⚠ 빗길 금속 맨홀 뚜껑! 브레이크·급회전 시 접지력 상실로 전도됩니다!';
@@ -511,12 +515,9 @@ export class Hud {
           : '⛽ 오토바이를 주유소 노란 주유 패드 위에 세운 뒤 주유하세요';
       }
       if (ctx.nearRepairShop) {
-        if (!ctx.scooterOnRepairPad) {
-          return '🔧 오토바이를 정비소 주황 패드 위에 세운 뒤 수리하세요';
-        }
         return scooter.damageLevel > 0
-          ? `<kbd>E</kbd> 🔧 오토바이 센터 정비 (${scooter.damageLevel}단계 파손 복구)`
-          : '🔧 오토바이 상태 양호 (수리 불필요)';
+          ? `<kbd>E</kbd> 🔧 번개 오토바이 센터 (${scooter.damageLevel}단계 수리 · 기종 전환 · 커스텀 도색)`
+          : `<kbd>E</kbd> 🔧 번개 오토바이 센터 (오토바이 기종 변경 · 커스텀 도색)`;
       }
       if (ctx.nearConvenienceStore) {
         return `<kbd>E</kbd> 🏪 K-24 편의점 이용 (에너지드링크 · 아메리카노 · 보조배터리)`;

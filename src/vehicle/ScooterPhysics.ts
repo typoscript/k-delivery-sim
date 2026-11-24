@@ -1,5 +1,11 @@
 import { ObstacleBox, SlipSurfaceType, clamp, collidesWithWorld, wrapAngle } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import {
+  SCOOTER_MODELS,
+  ScooterModelId,
+  ScooterPaintId,
+  loadBikeGarage,
+} from './ScooterModels';
 
 export interface ScooterInput {
   throttle: boolean;
@@ -52,8 +58,10 @@ export interface ScooterState {
   rpmNorm: number; // 0..1 for audio
   throttleAmount: number;
 
-  // Phase 3: Fuel & Damage Systems
-  fuel: number; // 0..100%
+  // Phase 3: Fuel & Damage Systems + Bike Model Customization
+  modelId: ScooterModelId;
+  paintId: ScooterPaintId;
+  fuel: number; // 0..100% (or EV battery % when electric)
   lowFuelWarning: boolean; // <= 10%
   outOfFuel: boolean; // <= 0% (cannot accelerate!)
   damageLevel: number; // 0..3 (each crash reduces acceleration by 10% & shakes side mirrors)
@@ -111,6 +119,7 @@ export class ScooterPhysics {
   }
 
   private createInitialState(): ScooterState {
+    const garage = loadBikeGarage();
     return {
       x: this.spawnX,
       z: this.spawnZ,
@@ -133,6 +142,8 @@ export class ScooterPhysics {
       slideVz: 0,
       rpmNorm: 0,
       throttleAmount: 0,
+      modelId: garage.modelId,
+      paintId: garage.paintId,
       fuel: 100,
       lowFuelWarning: false,
       outOfFuel: false,
@@ -178,6 +189,11 @@ export class ScooterPhysics {
 
   public repairVehicle(): void {
     this.state.damageLevel = 0;
+  }
+
+  public setBikeCustomization(modelId: ScooterModelId, paintId: ScooterPaintId): void {
+    this.state.modelId = modelId;
+    this.state.paintId = paintId;
   }
 
   public getAccelMultiplier(): number {
@@ -366,13 +382,16 @@ export class ScooterPhysics {
       return;
     }
 
-    // --- 2. Mounted Riding Physics ---
+    // --- 2. Mounted Riding Physics (Tuned per Scooter Model: PCX / Super Cub / Electric EV-PRO!) ---
+    const bikeSpec = SCOOTER_MODELS[s.modelId];
     const absSpeed = Math.abs(s.speed);
-    const speedRatio = clamp(absSpeed / SCOOTER_SPECS.maxForwardSpeed, 0, 1);
+    const speedRatio = clamp(absSpeed / bikeSpec.maxForwardSpeed, 0, 1);
 
     // Progressive steering limit: enough authority at 50-75 km/h to over-lean if you push too hard!
-    const maxSteer = SCOOTER_SPECS.maxSteerAngle / (1 + Math.pow(absSpeed / 10.5, 1.2));
-    const steerRate = 2.6 - 1.05 * speedRatio;
+    const maxSteer =
+      (SCOOTER_SPECS.maxSteerAngle * Math.min(1.12, bikeSpec.steerAgilityMul)) /
+      (1 + Math.pow(absSpeed / 10.5, 1.2));
+    const steerRate = (2.6 - 1.05 * speedRatio) * bikeSpec.steerAgilityMul;
     const returnRate = 3.8 + 2.4 * speedRatio;
 
     let steerDir = 0;
@@ -387,9 +406,9 @@ export class ScooterPhysics {
       else s.steerAngle -= Math.sign(s.steerAngle) * delta;
     }
 
-    // Longitudinal acceleration / braking (affected by damageLevel -10%/stage, rain grip, & out-of-fuel!)
+    // Longitudinal acceleration / braking (affected by bike model, damageLevel -10%/stage, rain grip, & out-of-fuel!)
     const damageAccelMul = this.getAccelMultiplier();
-    const maxAccel = 7.6 * (1 - 0.6 * speedRatio) * damageAccelMul;
+    const maxAccel = 7.6 * bikeSpec.accelMul * (1 - 0.58 * speedRatio) * damageAccelMul;
     let brakeGripMul = road.isRaining ? 0.86 : 1.0;
     if (road.isRaining && road.surface === 'manhole') brakeGripMul = 0.55;
     else if (road.isRaining && road.surface === 'crosswalk_paint') brakeGripMul = 0.68;
@@ -437,9 +456,10 @@ export class ScooterPhysics {
       this.reverseHoldTimer = 0;
     }
 
-    // Real-time fuel burn while engine is running (idle + throttle/speed load)
+    // Real-time fuel / EV battery burn while engine is running (scaled by bike model efficiency!)
     if (s.engineOn) {
-      const burnRate = 0.025 + throttleAmt * (0.28 + speedRatio * 0.44);
+      const idleBurn = bikeSpec.isElectric ? 0.004 : 0.025;
+      const burnRate = (idleBurn + throttleAmt * (0.28 + speedRatio * 0.44)) * bikeSpec.fuelBurnMul;
       s.fuel = Math.max(0, s.fuel - burnRate * dt);
       s.lowFuelWarning = s.fuel <= 10;
       if (s.fuel <= 0.01) {
@@ -459,7 +479,7 @@ export class ScooterPhysics {
     if (isBraking && s.speed !== 0 && Math.sign(nextSpeed) !== Math.sign(s.speed)) {
       s.speed = 0;
     } else {
-      s.speed = clamp(nextSpeed, -SCOOTER_SPECS.maxReverseSpeed, SCOOTER_SPECS.maxForwardSpeed);
+      s.speed = clamp(nextSpeed, -SCOOTER_SPECS.maxReverseSpeed, bikeSpec.maxForwardSpeed);
     }
 
     if (!input.throttle && !input.brake && Math.abs(s.speed) < 0.06) {
@@ -508,7 +528,8 @@ export class ScooterPhysics {
 
     // Tire traction limit (wet road & slick metal manhole / white crosswalk paint dramatically cut grip!)
     let activeGripLimit =
-      isBraking || input.handbrake ? SCOOTER_SPECS.brakingLeanLimit : SCOOTER_SPECS.dryGripLeanLimit;
+      (isBraking || input.handbrake ? SCOOTER_SPECS.brakingLeanLimit : SCOOTER_SPECS.dryGripLeanLimit) *
+      bikeSpec.gripMul;
 
     if (road.isRaining) {
       activeGripLimit *= isBraking || input.handbrake ? 0.78 : 0.84;

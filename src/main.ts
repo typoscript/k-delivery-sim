@@ -9,6 +9,12 @@ import { PedestrianCollisionEvent, PedestrianManager } from './world/PedestrianM
 import { RoadHazardManager } from './world/RoadHazardManager';
 import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
+import {
+  SCOOTER_MODELS,
+  SCOOTER_PAINTS,
+  loadBikeGarage,
+  saveBikeGarage,
+} from './vehicle/ScooterModels';
 import { OnFootInput, PlayerController } from './player/PlayerController';
 import { PlayerMesh } from './player/PlayerMesh';
 import { HandheldPhone3D } from './player/HandheldPhone3D';
@@ -90,6 +96,8 @@ const dispatch = new OrderDispatchManager(world.locations, {
   },
 });
 const scooterPhysics = new ScooterPhysics();
+const bikeGarage = loadBikeGarage();
+scooterPhysics.setBikeCustomization(bikeGarage.modelId, bikeGarage.paintId);
 const playerCtrl = new PlayerController();
 const playerMesh = new PlayerMesh(scene);
 const camController = new CameraController(renderer.domElement);
@@ -373,6 +381,54 @@ const modalUi = new ModalUi({
       3800
     );
   },
+  onSelectBikeModel: (modelId, cost) => {
+    if (bikeGarage.modelId === modelId) return;
+    if (cost > 0) {
+      delivery.recordRepairExpense(cost);
+    }
+    if (!bikeGarage.ownedModels.includes(modelId)) {
+      bikeGarage.ownedModels.push(modelId);
+    }
+    bikeGarage.modelId = modelId;
+    saveBikeGarage(bikeGarage);
+    scooterPhysics.setBikeCustomization(bikeGarage.modelId, bikeGarage.paintId);
+    scooterMesh.applyCustomization(bikeGarage.modelId, bikeGarage.paintId);
+    audio.playRepairSound();
+    modalUi.renderRepairGarageContent(
+      scooterPhysics.state.damageLevel,
+      scooterPhysics.state.crashCount,
+      bikeGarage
+    );
+    const spec = SCOOTER_MODELS[modelId];
+    hud.showToast(
+      `${spec.icon} ${spec.name} 기종으로 변경했습니다!${cost > 0 ? ` (-₩${cost.toLocaleString()})` : ' (보유 기종 무료 교체)'}`,
+      3600
+    );
+  },
+  onSelectBikePaint: (paintId, cost) => {
+    if (bikeGarage.paintId === paintId) return;
+    if (cost > 0) {
+      delivery.recordRepairExpense(cost);
+    }
+    if (!bikeGarage.ownedPaints.includes(paintId)) {
+      bikeGarage.ownedPaints.push(paintId);
+    }
+    bikeGarage.paintId = paintId;
+    saveBikeGarage(bikeGarage);
+    scooterPhysics.setBikeCustomization(bikeGarage.modelId, bikeGarage.paintId);
+    scooterMesh.applyCustomization(bikeGarage.modelId, bikeGarage.paintId);
+    audio.playKeypadBeep(true);
+    modalUi.renderRepairGarageContent(
+      scooterPhysics.state.damageLevel,
+      scooterPhysics.state.crashCount,
+      bikeGarage
+    );
+    const paint = SCOOTER_PAINTS[paintId];
+    hud.showToast(
+      `🎨 커스텀 도색 [${paint.name}] 적용 완료!${cost > 0 ? ` (-₩${cost.toLocaleString()})` : ''}`,
+      2800
+    );
+  },
   onConvenienceBuy: (item, cost) => {
     delivery.recordConvenienceExpense(cost);
     audio.playConvenienceChime();
@@ -436,17 +492,13 @@ const handleContextInteract = () => {
     }
 
     if (world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z)) {
-      if (!world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z)) {
-        hud.showToast('🔧 먼저 오토바이를 정비소 주황 패드 위에 주차하세요!', 3200);
-        return;
-      }
-      if (scooterPhysics.state.damageLevel === 0) {
-        hud.showToast('🔧 오토바이 상태가 양호합니다! 수리가 필요 없습니다', 2600);
-        return;
-      }
       if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
       else hud.phoneMap.setZoomed(false);
-      modalUi.openRepairModal(scooterPhysics.state.damageLevel, scooterPhysics.state.crashCount);
+      modalUi.openRepairModal(
+        scooterPhysics.state.damageLevel,
+        scooterPhysics.state.crashCount,
+        bikeGarage
+      );
       return;
     }
 
@@ -826,6 +878,7 @@ const hud = new Hud(
 
 // 3D Scooter, 3D Right-Hand Smartphone, 3D Left-Hand Takeout Food Bag!
 const scooterMesh = new ScooterMesh(scene, hud.phoneMap.screenTexture);
+scooterMesh.applyCustomization(bikeGarage.modelId, bikeGarage.paintId);
 const handheldPhone3D = new HandheldPhone3D(camera, hud.phoneMap.screenTexture);
 const handheldFoodBag3D = new HandheldFoodBag3D(camera);
 

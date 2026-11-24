@@ -4249,3 +4249,160 @@ body.phone-3d-hover canvas {
   font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
+
+
+/* ======================== Motorcycle Custom Garage (3 Models + 6 Custom Paints) ======================== */
+.garage-card {
+  width: min(460px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.garage-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.garage-sec-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #cbd5e1;
+  letter-spacing: 0.02em;
+}
+
+.garage-bike-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.garage-bike-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fafc;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.garage-bike-btn:hover {
+  border-color: #38bdf8;
+  background: rgba(30, 41, 59, 0.9);
+  transform: translateY(-1px);
+}
+
+.garage-bike-btn.active {
+  border-color: #10b981;
+  background: rgba(6, 78, 59, 0.42);
+}
+
+.gb-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gb-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.gb-desc {
+  font-size: 10.8px;
+  color: #94a3b8;
+}
+
+.gb-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.gb-stat-pill {
+  font-size: 9.8px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.14);
+  color: #7dd3fc;
+}
+
+.gb-price-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: #ea580c;
+  color: #ffffff;
+}
+
+.gb-price-tag.owned {
+  background: #0284c7;
+}
+
+.gb-price-tag.active {
+  background: #059669;
+}
+
+.garage-paint-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.garage-paint-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.14s ease, transform 0.12s ease;
+}
+
+.garage-paint-btn:hover {
+  border-color: #38bdf8;
+  transform: translateY(-1px);
+}
+
+.garage-paint-btn.active {
+  border-color: #10b981;
+  background: rgba(6, 78, 59, 0.45);
+}
+
+.gp-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  flex-shrink: 0;
+}
+
+.gp-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.2;
+}
+
+.gp-price {
+  font-size: 9.5px;
+  color: #94a3b8;
+}
