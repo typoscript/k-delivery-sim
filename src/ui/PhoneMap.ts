@@ -903,9 +903,10 @@ export class PhoneMap {
         ? '🚀 한집배달 · 단건 직행'
         : '🛵 알뜰배달 · 2건 묶음';
 
-      const rainTag = offer.totalRainBonus > 0 ? ` (🌧️우천+₩${offer.totalRainBonus.toLocaleString()})` : '';
+      const rainTag = offer.totalRainBonus > 0 ? ` · 🌧️우천+₩${offer.totalRainBonus.toLocaleString()}` : '';
+      const nightTag = offer.totalNightBonus > 0 ? ` · 🌙심야+₩${offer.totalNightBonus.toLocaleString()}` : '';
       this.dpFeeEl.textContent = `₩${offer.totalFee.toLocaleString()}`;
-      this.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}`;
+      this.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}${nightTag}`;
 
       this.dpStopsEl.innerHTML = offer.orders
         .map(
@@ -1763,10 +1764,10 @@ export class PhoneMap {
           `${m.order.id}:${m.phase}:${m.cargoSlot}:${Math.round(m.foodIntegrity)}:${Math.round(m.foodTemp)}:${m.order.unitNumber}:${m.order.deliveryInstruction}:${m.chatNote ?? ''}:${Math.ceil(m.cookingRemainingSec)}:${this.activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
       )
       .join(',');
-    const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}`).join(',');
+    const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}:${o.nightBonus}`).join(',');
     const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
     const finFp = `${delivery.totalEarnings}:${delivery.fuelExpense}:${delivery.repairExpense}:${delivery.fineExpense}`;
-    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|${player.inCorridor}`;
+    const fingerprint = `${this.activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|n:${delivery.isNightMode}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|${player.inCorridor}`;
 
     if (fingerprint === this.lastSheetFingerprint) return;
     this.lastSheetFingerprint = fingerprint;
@@ -1831,13 +1832,14 @@ export class PhoneMap {
               <span class="dispatch-type-pill ${o.dispatchType === 'SINGLE' ? 'single' : 'alttle'}">${o.dispatchType === 'SINGLE' ? '한집' : '알뜰'}</span>
               ${o.shop.emoji} ${o.shop.name} <span class="ord-tag">#${o.orderNumber}</span>
             </span>
-            <span class="order-fee">₩${(o.baseFee + o.rainBonus).toLocaleString()}</span>
+            <span class="order-fee">₩${(o.baseFee + o.rainBonus + o.nightBonus).toLocaleString()}</span>
           </div>
           <div class="order-menu">
             ${o.menuName}
             <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span>
             <span class="inst-badge">${getInstructionMeta(o.deliveryInstruction).badge}</span>
-            ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 할증 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
+            ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
+            ${o.nightBonus > 0 ? `<span class="night-bonus-tag">🌙 심야 +₩${o.nightBonus.toLocaleString()}</span>` : ''}
           </div>
           <div class="order-bottom">
             <span class="order-dest">→ ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜계단+500</span>' : ''} (${o.distanceMeters}m)</span>
@@ -2111,6 +2113,7 @@ export class PhoneMap {
         <div class="bc-rcpt-row inc"><span>기본 배달료 합계</span><span>+${fmt(l.baseFeeTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>거리 할증 합계</span><span>+${fmt(l.distanceBonusTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(l.rainBonusTotal)}</span></div>
+        <div class="bc-rcpt-row inc"><span>🌙 심야 할증</span><span>+${fmt(l.nightBonusTotal)}</span></div>
         <div class="bc-rcpt-row inc"><span>안전 배달 팁 / 미션 보너스</span><span>+${fmt(l.tipTotal + l.missionBonusTotal)}</span></div>
         <div class="bc-rcpt-divider"></div>
         <div class="bc-rcpt-row ded"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(l.fineExpense)}</span></div>

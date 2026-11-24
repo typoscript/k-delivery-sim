@@ -6,6 +6,7 @@ import {
   DeliveryOrder,
   DispatchOrderType,
   MAX_CONCURRENT_ORDERS,
+  NIGHT_SURCHARGE_BONUS,
   RAIN_SURCHARGE_BONUS,
   SINGLE_FLAT_FEE,
   SINGLE_TIME_LIMIT_SEC,
@@ -23,6 +24,7 @@ export interface DispatchOffer {
   orders: DeliveryOrder[]; // 1 order for SINGLE, 2 orders for ALTTLE_BUNDLE
   totalFee: number;
   totalRainBonus: number;
+  totalNightBonus: number;
   totalDistanceMeters: number;
   timeLimitSec: number; // 300s (SINGLE) | 500s (ALTTLE_BUNDLE)
   remainingOfferSec: number; // 20s countdown
@@ -208,6 +210,7 @@ export class OrderDispatchManager {
 
     const count = type === 'ALTTLE_BUNDLE' ? 2 : 1;
     const rainBonus = delivery.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0;
+    const nightBonus = delivery.isNightMode ? NIGHT_SURCHARGE_BONUS : 0;
     const orders: DeliveryOrder[] = [];
 
     // For ALTTLE_BUNDLE, prefer geographically reasonable pairs (different customers)
@@ -265,6 +268,7 @@ export class OrderDispatchManager {
           foodCategoryTag: foodMeta.categoryTag,
           baseFee: SINGLE_FLAT_FEE + distBonus,
           rainBonus,
+          nightBonus,
           distanceMeters,
         });
       } else {
@@ -287,6 +291,7 @@ export class OrderDispatchManager {
           foodCategoryTag: foodMeta.categoryTag,
           baseFee: ALTTLE_FLAT_FEE,
           rainBonus,
+          nightBonus,
           distanceMeters,
         });
       }
@@ -294,8 +299,9 @@ export class OrderDispatchManager {
 
     if (orders.length < count) return null;
 
-    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus, 0);
+    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus, 0);
     const totalRainBonus = orders.reduce((acc, o) => acc + o.rainBonus, 0);
+    const totalNightBonus = orders.reduce((acc, o) => acc + o.nightBonus, 0);
     const totalDistanceMeters =
       orders.length === 1
         ? orders[0].distanceMeters
@@ -314,6 +320,7 @@ export class OrderDispatchManager {
       orders,
       totalFee,
       totalRainBonus,
+      totalNightBonus,
       totalDistanceMeters,
       timeLimitSec: type === 'SINGLE' ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
       remainingOfferSec: OFFER_DURATION_SEC,

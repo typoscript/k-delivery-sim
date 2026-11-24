@@ -6,6 +6,7 @@ export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
 export const INTERACT_ZONE_RADIUS = 3.6;
 export const RAIN_SURCHARGE_BONUS = 1500;
+export const NIGHT_SURCHARGE_BONUS = 1200; // 심야(야간) 배달 할증 +₩1,200
 export const VILLA_STAIR_BONUS = 500; // 엘리베이터 없는 구축 빌라 계단 수고비 +₩500
 export const OPTIMAL_TEMP_BONUS = 300; // 보온/보냉 최적 온도 유지 보너스 +₩300
 export const PROMISED_CAREFUL_TIP = 1000; // 고객 채팅 조심배달 약속 팁 +₩1,000
@@ -173,6 +174,7 @@ export interface DailyFinanceLedger {
   baseFeeTotal: number;
   distanceBonusTotal: number;
   rainBonusTotal: number;
+  nightBonusTotal: number;
   tipTotal: number;
   missionBonusTotal: number;
   damageDeductionTotal: number;
@@ -205,6 +207,7 @@ export interface DeliveryOrder {
   foodCategoryTag: string;
   baseFee: number;
   rainBonus: number; // +1500 when generated in Rain mode!
+  nightBonus: number; // +1200 when generated in Night mode!
   distanceMeters: number;
 }
 
@@ -258,6 +261,7 @@ export interface SettlementResult {
   order: DeliveryOrder;
   baseFee: number;
   rainBonus: number;
+  nightBonus: number;
   foodIntegrity: number;
   foodTemp: number;
   spillDamageAccum: number;
@@ -313,11 +317,13 @@ export class DeliveryManager {
   public totalEarnings = 0; // Net daily profit (income - fuel - repair - fines)
   public completedCount = 0;
   public isWeatherRaining = false;
+  public isNightMode = false;
 
   // Daily comprehensive finance ledger & mission state
   public baseFeeTotal = 0;
   public distanceBonusTotal = 0;
   public rainBonusTotal = 0;
+  public nightBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
   public dailyMissionClaimed = false;
@@ -484,6 +490,13 @@ export class DeliveryManager {
     this.refreshAvailableOrders();
   }
 
+  public setNightMode(night: boolean): void {
+    if (this.isNightMode === night) return;
+    this.isNightMode = night;
+    // Immediately refresh unaccepted calls so players see "+₩1,200 심야 할증" calls right away!
+    this.refreshAvailableOrders();
+  }
+
   public refreshAvailableOrders(): void {
     const orders: DeliveryOrder[] = [];
     const usedPairs = new Set<string>(
@@ -530,6 +543,7 @@ export class DeliveryManager {
         foodCategoryTag: foodMeta.categoryTag,
         baseFee,
         rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
+        nightBonus: this.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
         distanceMeters,
       });
     }
@@ -650,6 +664,7 @@ export class DeliveryManager {
         foodCategoryTag: foodMeta.categoryTag,
         baseFee,
         rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
+        nightBonus: this.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
         distanceMeters,
       });
     }
@@ -834,9 +849,10 @@ export class DeliveryManager {
       m.promisedExtraTip > 0 && m.foodIntegrity >= 85 ? m.promisedExtraTip : 0;
 
     const rainBonus = m.order.rainBonus;
+    const nightBonus = m.order.nightBonus;
     const extraBonuses = tempBonus + villaStairBonus + promisedTipBonus;
     const earned =
-      Math.round((m.order.baseFee * integrityFactor + tip + rainBonus + extraBonuses) / 100) * 100;
+      Math.round((m.order.baseFee * integrityFactor + tip + rainBonus + nightBonus + extraBonuses) / 100) * 100;
 
     // Record itemized income breakdown into daily ledger (respects SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee)
     const flatRef = m.order.baseFlatFee || BASE_FLAT_FEE;
@@ -846,6 +862,7 @@ export class DeliveryManager {
     this.baseFeeTotal += basePart;
     this.distanceBonusTotal += distPart;
     this.rainBonusTotal += rainBonus;
+    this.nightBonusTotal += nightBonus;
     this.tipTotal += tip + extraBonuses;
     this.damageDeductionTotal += damageDed;
 
@@ -882,6 +899,7 @@ export class DeliveryManager {
       order: m.order,
       baseFee: m.order.baseFee,
       rainBonus,
+      nightBonus,
       foodIntegrity: Math.round(m.foodIntegrity),
       foodTemp: Math.round(m.foodTemp),
       spillDamageAccum: Math.round(m.spillDamageAccum),
@@ -1237,6 +1255,7 @@ export class DeliveryManager {
       this.baseFeeTotal +
       this.distanceBonusTotal +
       this.rainBonusTotal +
+      this.nightBonusTotal +
       this.tipTotal +
       this.missionBonusTotal;
     const totalExpenses =
@@ -1250,6 +1269,7 @@ export class DeliveryManager {
       baseFeeTotal: this.baseFeeTotal,
       distanceBonusTotal: this.distanceBonusTotal,
       rainBonusTotal: this.rainBonusTotal,
+      nightBonusTotal: this.nightBonusTotal,
       tipTotal: this.tipTotal,
       missionBonusTotal: this.missionBonusTotal,
       damageDeductionTotal: this.damageDeductionTotal,

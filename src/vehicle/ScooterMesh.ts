@@ -43,6 +43,10 @@ export class ScooterMesh {
   private lastDashDrawTime = -1;
 
   private readonly headlightSpot: THREE.SpotLight;
+  private readonly headlightFill: THREE.PointLight;
+  private readonly headlightConeMesh: THREE.Mesh;
+  private readonly headlightConeMat: THREE.MeshBasicMaterial;
+  private readonly brakeGlowLight: THREE.PointLight;
   private readonly headlightMat: THREE.MeshStandardMaterial;
   private readonly brakeLightMat: THREE.MeshStandardMaterial;
   private readonly leftBlinkerMat: THREE.MeshStandardMaterial;
@@ -347,13 +351,39 @@ export class ScooterMesh {
     frontRightBlink.position.set(-0.21, 0.76, 1.36);
     this.bodyTiltGroup.add(frontRightBlink);
 
-    this.headlightSpot = new THREE.SpotLight(0xfff7e0, 0, 55, Math.PI / 4, 0.55, 1.2);
-    this.headlightSpot.position.set(0, 0.82, 1.44);
+    // Rear brake tail-light red glow (reflects onto dark/wet asphalt in side mirrors when braking!)
+    this.brakeGlowLight = new THREE.PointLight(0xef4444, 0, 11, 1.5);
+    this.brakeGlowLight.position.set(0, 0.66, -0.58);
+    this.bodyTiltGroup.add(this.brakeGlowLight);
+
+    // High-power steering-aware 3D Headlight SpotLight + Close Road Fill + Volumetric Beam Cone!
+    this.headlightSpot = new THREE.SpotLight(0xfff7e0, 0, 82, Math.PI / 3.4, 0.62, 1.05);
+    this.headlightSpot.position.set(0, 0.88, 1.44);
     const spotTarget = new THREE.Object3D();
-    spotTarget.position.set(0, -0.6, 18);
+    spotTarget.position.set(0, -0.75, 22);
     this.bodyTiltGroup.add(spotTarget);
     this.headlightSpot.target = spotTarget;
     this.bodyTiltGroup.add(this.headlightSpot);
+
+    this.headlightFill = new THREE.PointLight(0xfff7e0, 0, 16, 1.4);
+    this.headlightFill.position.set(0, 0.9, 3.2);
+    this.bodyTiltGroup.add(this.headlightFill);
+
+    this.headlightConeMat = new THREE.MeshBasicMaterial({
+      color: 0xfff8dc,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    const coneGeo = new THREE.ConeGeometry(3.4, 15.5, 18, 1, true);
+    coneGeo.translate(0, -7.75, 0);
+    coneGeo.rotateX(Math.PI / 2 + 0.06);
+    this.headlightConeMesh = new THREE.Mesh(coneGeo, this.headlightConeMat);
+    this.headlightConeMesh.position.set(0, 0.82, 1.42);
+    this.headlightConeMesh.visible = false;
+    this.bodyTiltGroup.add(this.headlightConeMesh);
 
     // --- Steerable Front Fork + Handlebars + Live Side Mirrors + Dashboard Blinker LEDs ---
     this.handlebarGroup.position.set(0, 0, SCOOTER_SPECS.wheelbase);
@@ -587,7 +617,13 @@ export class ScooterMesh {
     return this.root.localToWorld(out);
   }
 
-  public sync(state: ScooterState, elapsedTime: number, dt = 0.016): void {
+  public sync(
+    state: ScooterState,
+    elapsedTime: number,
+    dt = 0.016,
+    isNight = false,
+    rainIntensity = 0
+  ): void {
     if (this.cargoLidTimer > 0) {
       this.cargoLidTimer = Math.max(0, this.cargoLidTimer - dt);
     }
@@ -610,10 +646,30 @@ export class ScooterMesh {
 
     this.kickstandGroup.rotation.x = state.mounted || state.crashed ? 1.25 : 0;
 
-    // Lights
-    this.headlightSpot.intensity = state.headlights && !state.crashed ? 55 : 0;
-    this.headlightMat.emissiveIntensity = state.headlights ? 2.5 : state.mounted ? 0.5 : 0.1;
-    this.brakeLightMat.emissiveIntensity = state.braking ? 2.6 : state.headlights ? 0.7 : 0.15;
+    // Real Road-Illuminating 3D Headlight Beam (sweeps into turns!) & Brake Tail-Light Glow
+    const beamOn = state.headlights && !state.crashed;
+    const beamHex =
+      state.modelId === 'electric' ? 0xd8f3ff : state.modelId === 'cub' ? 0xffe8b6 : 0xfff8e2;
+    this.headlightSpot.color.setHex(beamHex);
+    this.headlightFill.color.setHex(beamHex);
+    this.headlightConeMat.color.setHex(beamHex);
+
+    // Aim headlight beam smoothly in the steering direction so dark corners light up!
+    const steerSweepX = Math.sin(state.steerAngle) * 9.5;
+    this.headlightSpot.target.position.set(steerSweepX, -0.75, 22);
+    this.headlightSpot.intensity = beamOn ? (isNight ? 155 : 48) : 0;
+    this.headlightFill.intensity = beamOn && isNight ? 14 : 0;
+
+    const showCone = beamOn && (isNight || rainIntensity > 0.25);
+    this.headlightConeMesh.visible = showCone;
+    if (showCone) {
+      this.headlightConeMesh.rotation.y = state.steerAngle * 0.55;
+      this.headlightConeMat.opacity = isNight ? 0.085 + rainIntensity * 0.065 : rainIntensity * 0.045;
+    }
+
+    this.headlightMat.emissiveIntensity = state.headlights ? 3.0 : state.mounted ? 0.5 : 0.1;
+    this.brakeLightMat.emissiveIntensity = state.braking ? 3.6 : state.headlights ? 0.95 : 0.15;
+    this.brakeGlowLight.intensity = !state.crashed && isNight ? (state.braking ? 13 : state.headlights ? 2.4 : 0) : 0;
 
     const blinkOn = Math.floor(elapsedTime * 2.5) % 2 === 0;
     const leftActive = (state.leftBlinker || state.hazard) && blinkOn;

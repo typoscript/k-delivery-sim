@@ -1119,10 +1119,16 @@ window.addEventListener('keydown', (e) => {
     }
     case 'KeyN': {
       const night = world.toggleDayNight();
+      delivery.setNightMode(night);
       if (night && !scooterPhysics.state.headlights) {
         scooterPhysics.state.headlights = true;
       }
-      hud.showToast(night ? '야간 모드 (라이트 자동 ON)' : '주간 모드');
+      hud.showToast(
+        night
+          ? '🌙 야간 모드 ON! (헤드라이트 3D 빔 자동 점등 · 신규 콜 심야 할증 +₩1,200!)'
+          : '☀️ 주간 모드 ON',
+        3600
+      );
       break;
     }
     case 'KeyU': {
@@ -1494,7 +1500,7 @@ function animate(now: number): void {
     }
     world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
 
-    scooterMesh.sync(scooterPhysics.state, elapsed, dt);
+    scooterMesh.sync(scooterPhysics.state, elapsed, dt, world.isNight, weather.rainIntensity);
     scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());
     scooterMesh.setPhoneMounted(
       hud.phoneMap.placement === 'mounted' &&

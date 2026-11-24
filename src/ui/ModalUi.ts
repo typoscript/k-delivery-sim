@@ -660,6 +660,7 @@ export class ModalUi {
         <div class="rep-line inc"><span>기본 배달료 합계 (${ledger.completedCount}건)</span><span>+${fmt(ledger.baseFeeTotal)}</span></div>
         <div class="rep-line inc"><span>거리 할증 합계</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
         <div class="rep-line inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
+        <div class="rep-line inc"><span>🌙 심야 할증</span><span>+${fmt(ledger.nightBonusTotal)}</span></div>
         <div class="rep-line inc"><span>안전 배달 팁</span><span>+${fmt(ledger.tipTotal)}</span></div>
         <div class="rep-line inc"><span>🏆 일일 배달 미션 보너스</span><span>+${fmt(ledger.missionBonusTotal)}</span></div>
         <div class="rep-line sub inc"><span>총 수입 소계</span><span>+${fmt(ledger.grossIncome)}</span></div>
@@ -760,6 +761,10 @@ export class ModalUi {
       result.rainBonus > 0
         ? `<div class="st-row rain-bonus"><span>🌧️ 우천 할증 보너스</span><span>+₩${result.rainBonus.toLocaleString()}</span></div>`
         : '';
+    const nightRow =
+      result.nightBonus > 0
+        ? `<div class="st-row tip"><span>🌙 심야 할증 보너스</span><span>+₩${result.nightBonus.toLocaleString()}</span></div>`
+        : '';
 
     const tempIcon = result.order.foodTempType === 'cold' ? '🧊 보냉' : '🔥 보온';
     const tempRow =
@@ -791,6 +796,7 @@ export class ModalUi {
     this.settlementBreakdown.innerHTML = `
       <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
       ${rainRow}
+      ${nightRow}
       ${tempRow}
       ${villaRow}
       ${chatTipRow}

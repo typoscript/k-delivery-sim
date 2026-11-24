@@ -4418,3 +4418,16 @@ body.phone-3d-hover canvas {
 #phone-map-canvas.dragging {
   cursor: grabbing;
 }
+
+
+.night-bonus-tag {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.24);
+  color: #c7d2fe;
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  margin-left: 4px;
+}

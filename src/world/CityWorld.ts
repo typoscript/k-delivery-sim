@@ -82,6 +82,8 @@ export class CityWorld {
   private readonly hemiLight: THREE.HemisphereLight;
   private readonly lampGlowMat: THREE.MeshStandardMaterial;
   private readonly windowGlowMat: THREE.MeshStandardMaterial;
+  private readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
+  private readonly streetLampPoolGroup = new THREE.Group();
   private readonly lobbyDoors = new Map<
     string,
     { leftDoor: THREE.Mesh; rightDoor: THREE.Mesh; open: boolean }
@@ -830,26 +832,93 @@ export class CityWorld {
     }
   }
 
+  /** Generates a realistic Korean night lit-window emissive texture (warm amber + cool white office/apt lights) */
+  private createNightWindowEmissiveTexture(
+    cols = 4,
+    rows = 6,
+    litChance = 0.52,
+    palette: string[] = ['#fde68a', '#fef3c7', '#bae6fd', '#fed7aa']
+  ): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 256;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, 256, 256);
+
+    const cw = 256 / cols;
+    const rh = 256 / rows;
+    let seed = cols * 37 + rows * 91;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+
+    for (let r = 0; r < rows; r++) {
+      for (let col = 0; col < cols; col++) {
+        if (rand() < litChance) {
+          ctx.fillStyle = palette[Math.floor(rand() * palette.length)];
+          ctx.fillRect(col * cw + 8, r * rh + 7, cw - 16, rh - 16);
+        }
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(0.08, 0.08);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private createLampPoolTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d')!;
+    const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+    grad.addColorStop(0, 'rgba(255, 224, 150, 0.42)');
+    grad.addColorStop(0.45, 'rgba(251, 191, 36, 0.16)');
+    grad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
   /** Extrudes all 322 real OpenStreetMap Suwon Ingye-dong building polygons with Korean facades */
   private buildSuwonOsmBuildings(): void {
     const shopWallMat = new THREE.MeshStandardMaterial({
       map: this.createFacadeTexture('#d8e1ec', '#1e3a5f', 4, 5),
+      emissiveMap: this.createNightWindowEmissiveTexture(4, 5, 0.68, ['#fef08a', '#bae6fd', '#fbcfe8', '#fed7aa']),
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
       roughness: 0.45,
       metalness: 0.2,
     });
     const aptWallMat = new THREE.MeshStandardMaterial({
       map: this.createFacadeTexture('#e6e2d8', '#334155', 5, 8),
+      emissiveMap: this.createNightWindowEmissiveTexture(5, 8, 0.46, ['#fde68a', '#fef3c7', '#ffedd5']),
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
       roughness: 0.72,
     });
     const villaWallMat = new THREE.MeshStandardMaterial({
       map: this.createFacadeTexture('#c89c82', '#263242', 3, 4),
+      emissiveMap: this.createNightWindowEmissiveTexture(3, 4, 0.54, ['#fde68a', '#fed7aa', '#fef9c3']),
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
       roughness: 0.84,
     });
     const publicWallMat = new THREE.MeshStandardMaterial({
       map: this.createFacadeTexture('#cbd5e1', '#0f2942', 4, 6),
+      emissiveMap: this.createNightWindowEmissiveTexture(4, 6, 0.42, ['#bae6fd', '#e0f2fe', '#fef3c7']),
+      emissive: 0xffffff,
+      emissiveIntensity: 0,
       roughness: 0.4,
       metalness: 0.25,
     });
+    this.buildingNightMats.push(shopWallMat, aptWallMat, villaWallMat, publicWallMat);
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.88 });
 
     for (const b of ACTIVE_MAP_DATA.buildings) {
@@ -1380,6 +1449,15 @@ export class CityWorld {
       if (!n.isSignal) continue;
       lampPositions.push([n.x + 8.0, n.z + 8.0], [n.x - 8.0, n.z - 8.0]);
     }
+    const poolMat = new THREE.MeshBasicMaterial({
+      map: this.createLampPoolTexture(),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const poolGeo = new THREE.PlaneGeometry(14, 14);
+    poolGeo.rotateX(-Math.PI / 2);
+
     for (const [lx, lz] of lampPositions) {
       const g = new THREE.Group();
       g.position.set(lx, 0.05, lz);
@@ -1389,7 +1467,14 @@ export class CityWorld {
       lamp.position.y = 6.2;
       g.add(pole, lamp);
       this.root.add(g);
+
+      // Warm golden streetlamp light pool projected onto asphalt at night (zero PointLight cost!)
+      const pool = new THREE.Mesh(poolGeo, poolMat);
+      pool.position.set(lx, 0.072, lz);
+      this.streetLampPoolGroup.add(pool);
     }
+    this.streetLampPoolGroup.visible = false;
+    this.root.add(this.streetLampPoolGroup);
   }
 
   public setLobbyDoorOpen(locationId: string | null): void {
@@ -1484,6 +1569,10 @@ export class CityWorld {
     const isRain = this.weatherMode === 'rain';
     const isCloudy = this.weatherMode === 'cloudy';
     this.landmarksBuilder?.setNightMode(this.isNight);
+    this.streetLampPoolGroup.visible = this.isNight;
+    for (const bm of this.buildingNightMats) {
+      bm.emissiveIntensity = this.isNight ? (isRain ? 0.96 : 0.84) : 0;
+    }
 
     if (this.isNight) {
       const bgHex = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
