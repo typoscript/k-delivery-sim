@@ -4,6 +4,20 @@ import { ResidenceKind, clamp } from '../types';
 
 export const CORRIDOR_ORIGIN_Y = -500;
 
+export type ElevatorPhase =
+  | 'idle_1f' // Standing inside 3D elevator cabin at 1F -> press [E] to push target floor button!
+  | 'moving_up' // Doors closed, motor humming, LED floor ticking 1F -> targetFloor!
+  | 'arrived_floor' // Arrived on target floor, doors slide open -> walk out into corridor!
+  | 'doors_open_exit' // Delivery complete, called elevator -> doors open to step back into cabin!
+  | 'moving_down'; // Doors closed, riding down targetFloor -> 1F!
+
+export interface ElevatorEvents {
+  onFloorTick?: (floor: number) => void;
+  onDoorSlide?: (opening: boolean) => void;
+  onArrivedTargetFloor?: (floor: number) => void;
+  onArrivedGroundFloor?: () => void;
+}
+
 interface UnitDoorSlot {
   x: number;
   y: number; // local Y elevation above CORRIDOR_ORIGIN_Y (0 for apt, 2.2/4.4/6.6 for villa floors)
@@ -69,7 +83,25 @@ export class CorridorRoom {
   public targetDoorIndex = 1;
   public foodPlacedOnMat = false;
 
-  public readonly elevatorSpawn = { x: 0, y: CORRIDOR_ORIGIN_Y, z: -6.1, heading: 0 };
+  // Interactive 3D Apartment Elevator Cabin state & meshes!
+  public elevatorPhase: ElevatorPhase = 'idle_1f';
+  public elevatorCurrentFloor = 1;
+  public elevatorTargetFloor = 14;
+  private elevatorStepTimer = 0;
+  private elevatorSecPerFloor = 0.25;
+  private elevDoorOpenCur = 0; // 0 = closed, 1 = fully open
+  private elevDoorOpenTarget = 0;
+  private elevDoorL!: THREE.Mesh;
+  private elevDoorR!: THREE.Mesh;
+  private elevBtnGlowMat!: THREE.MeshStandardMaterial;
+  private elevCallBtnMat!: THREE.MeshStandardMaterial;
+  private elevLedCanvas!: HTMLCanvasElement;
+  private elevLedCtx!: CanvasRenderingContext2D;
+  private elevLedTex!: THREE.CanvasTexture;
+  private elevRideVibeY = 0;
+
+  // Player spawns INSIDE the 3D apartment elevator cabin at 1F (facing doors & button panel!)
+  public readonly elevatorSpawn = { x: 0, y: CORRIDOR_ORIGIN_Y, z: -9.2, heading: 0 };
   public readonly elevatorTrigger = { x: 0, z: -7.1, radius: 1.9 };
   public readonly villaSpawn = { x: 0, y: CORRIDOR_ORIGIN_Y, z: -8.6, heading: 0 };
   public readonly villaExitTrigger = { x: 0, z: -9.3, radius: 2.0 };
@@ -171,9 +203,14 @@ export class CorridorRoom {
     farWall.position.set(0, height / 2, length / 2);
     this.aptGroup.add(farWall);
 
-    const elevWall = new THREE.Mesh(new THREE.PlaneGeometry(width, height), wallMat);
-    elevWall.position.set(0, height / 2, -length / 2);
-    this.aptGroup.add(elevWall);
+    // End wall at z = -8.0 with doorway opening (x in [-0.92, 0.92], y in [0, 2.28]) leading into the 3D Elevator Cabin!
+    const elevWallL = new THREE.Mesh(new THREE.PlaneGeometry(1.78, height), wallMat);
+    elevWallL.position.set(-1.81, height / 2, -length / 2);
+    const elevWallR = new THREE.Mesh(new THREE.PlaneGeometry(1.78, height), wallMat);
+    elevWallR.position.set(1.81, height / 2, -length / 2);
+    const elevWallTop = new THREE.Mesh(new THREE.PlaneGeometry(1.84, height - 2.28), wallMat);
+    elevWallTop.position.set(0, 2.28 + (height - 2.28) * 0.5, -length / 2);
+    this.aptGroup.add(elevWallL, elevWallR, elevWallTop);
 
     for (const side of [-1, 1]) {
       const base = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, length), trimMat);
@@ -181,33 +218,166 @@ export class CorridorRoom {
       this.aptGroup.add(base);
     }
 
-    // Elevator Door at z = -7.95
+    // --- Interactive 3D Korean Apartment Elevator Cabin (z = -10.4 .. -8.0) & Sliding Steel Doors! ---
     const steelMat = new THREE.MeshStandardMaterial({
       color: 0x94a3b8,
       metalness: 0.72,
+      roughness: 0.3,
+    });
+    const cabinWallMat = new THREE.MeshStandardMaterial({
+      color: 0xb8c2cc,
+      metalness: 0.62,
       roughness: 0.32,
     });
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.45, metalness: 0.4 });
+    const mirrorMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      metalness: 0.92,
+      roughness: 0.08,
+    });
 
-    const elevFrame = new THREE.Mesh(new THREE.BoxGeometry(2.1, 2.38, 0.16), frameMat);
-    elevFrame.position.set(0, 1.19, -length / 2 + 0.06);
-    const elevDoorL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.22, 0.08), steelMat);
-    elevDoorL.position.set(-0.46, 1.11, -length / 2 + 0.12);
-    const elevDoorR = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.22, 0.08), steelMat);
-    elevDoorR.position.set(0.46, 1.11, -length / 2 + 0.12);
+    // Corridor-side elevator doorframe (left/right jambs + header so opening stays clear!)
+    const frameL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.38, 0.2), frameMat);
+    frameL.position.set(-0.98, 1.19, -length / 2 + 0.04);
+    const frameR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.38, 0.2), frameMat);
+    frameR.position.set(0.98, 1.19, -length / 2 + 0.04);
+    const frameTop = new THREE.Mesh(new THREE.BoxGeometry(2.12, 0.18, 0.2), frameMat);
+    frameTop.position.set(0, 2.34, -length / 2 + 0.04);
 
-    const elevLabel = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.75, 0.28),
-      new THREE.MeshBasicMaterial({ map: this.createPlaqueTexture('🛗 ELEVATOR', '#0f172a', '#fbbf24') })
+    // Animated Sliding Stainless-Steel Elevator Doors
+    this.elevDoorL = new THREE.Mesh(new THREE.BoxGeometry(0.92, 2.24, 0.08), steelMat);
+    this.elevDoorL.position.set(-0.46, 1.12, -length / 2 + 0.04);
+    this.elevDoorR = new THREE.Mesh(new THREE.BoxGeometry(0.92, 2.24, 0.08), steelMat);
+    this.elevDoorR.position.set(0.46, 1.12, -length / 2 + 0.04);
+
+    // Live Dynamic LED Floor Display Texture (shared by corridor header + inside-cabin header!)
+    this.elevLedCanvas = document.createElement('canvas');
+    this.elevLedCanvas.width = 256;
+    this.elevLedCanvas.height = 96;
+    this.elevLedCtx = this.elevLedCanvas.getContext('2d')!;
+    this.elevLedTex = new THREE.CanvasTexture(this.elevLedCanvas);
+    this.elevLedTex.colorSpace = THREE.SRGBColorSpace;
+    this.redrawElevatorLedDisplay(1, 'idle');
+
+    const ledMat = new THREE.MeshBasicMaterial({ map: this.elevLedTex });
+    const elevCorridorLed = new THREE.Mesh(new THREE.PlaneGeometry(0.84, 0.32), ledMat);
+    elevCorridorLed.position.set(0, 2.66, -length / 2 + 0.06);
+
+    // Corridor-side elevator call button
+    this.elevCallBtnMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.7,
+    });
+    const callBtn = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.32, 0.06), this.elevCallBtnMat);
+    callBtn.position.set(1.32, 1.15, -length / 2 + 0.05);
+    this.aptGroup.add(frameL, frameR, frameTop, this.elevDoorL, this.elevDoorR, elevCorridorLed, callBtn);
+
+    // Walkable 3D Elevator Cabin Enclosure (x in [-1.14, 1.14], z in [-10.4, -8.0], h = 2.62)
+    const cabinW = 2.28;
+    const cabinD = 2.4;
+    const cabinH = 2.62;
+    const cabinCz = -length / 2 - cabinD * 0.5; // -9.2
+
+    const cabinFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(cabinW, cabinD),
+      new THREE.MeshStandardMaterial({
+        map: this.createTileTexture('#475569', 'rgba(226,232,240,0.35)', 2, 2),
+        roughness: 0.42,
+        metalness: 0.15,
+      })
     );
-    elevLabel.position.set(0, 2.6, -length / 2 + 0.05);
+    cabinFloor.rotation.x = -Math.PI / 2;
+    cabinFloor.position.set(0, 0.005, cabinCz);
 
-    const callBtn = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.28, 0.05),
-      new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0xf59e0b, emissiveIntensity: 0.6 })
+    const cabinCeil = new THREE.Mesh(
+      new THREE.PlaneGeometry(cabinW, cabinD),
+      new THREE.MeshBasicMaterial({ color: 0xfefce8 })
     );
-    callBtn.position.set(1.3, 1.15, -length / 2 + 0.06);
-    this.aptGroup.add(elevFrame, elevDoorL, elevDoorR, elevLabel, callBtn);
+    cabinCeil.rotation.x = Math.PI / 2;
+    cabinCeil.position.set(0, cabinH, cabinCz);
+
+    const cabinLight = new THREE.PointLight(0xfffbeb, 8.5, 6.5, 1.4);
+    cabinLight.position.set(0, cabinH - 0.2, cabinCz);
+
+    const cabBack = new THREE.Mesh(new THREE.PlaneGeometry(cabinW, cabinH), cabinWallMat);
+    cabBack.position.set(0, cabinH / 2, cabinCz - cabinD / 2);
+
+    const cabLeft = new THREE.Mesh(new THREE.PlaneGeometry(cabinD, cabinH), cabinWallMat);
+    cabLeft.rotation.y = Math.PI / 2;
+    cabLeft.position.set(-cabinW / 2, cabinH / 2, cabinCz);
+
+    const cabRight = new THREE.Mesh(new THREE.PlaneGeometry(cabinD, cabinH), cabinWallMat);
+    cabRight.rotation.y = -Math.PI / 2;
+    cabRight.position.set(cabinW / 2, cabinH / 2, cabinCz);
+
+    // Interior front transom above cabin door + live LED floor display facing inside cabin!
+    const cabFrontTop = new THREE.Mesh(new THREE.PlaneGeometry(cabinW, cabinH - 2.24), cabinWallMat);
+    cabFrontTop.rotation.y = Math.PI;
+    cabFrontTop.position.set(0, 2.24 + (cabinH - 2.24) * 0.5, -length / 2 - 0.02);
+
+    const cabLed = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.3), ledMat);
+    cabLed.rotation.y = Math.PI;
+    cabLed.position.set(0, 2.42, -length / 2 - 0.04);
+
+    // Rear wall mirror & stainless handrail (classic Korean apartment elevator!)
+    const cabMirror = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.25), mirrorMat);
+    cabMirror.position.set(0, 1.52, cabinCz - cabinD / 2 + 0.02);
+    const cabRailBack = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 1.9, 8), steelMat);
+    cabRailBack.rotation.z = Math.PI / 2;
+    cabRailBack.position.set(0, 0.92, cabinCz - cabinD / 2 + 0.1);
+
+    // Left wall apartment elevator notice board
+    const cabNotice = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.75, 0.95),
+      new THREE.MeshBasicMaterial({
+        map: this.createPlaqueTexture('아파트 안내\n금연 · CCTV', '#1e3a8a', '#e0f2fe'),
+      })
+    );
+    cabNotice.rotation.y = Math.PI / 2;
+    cabNotice.position.set(-cabinW / 2 + 0.02, 1.5, cabinCz);
+
+    // Right wall Interactive Floor Button Panel (층수 조작반)
+    const panelBack = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.15, 0.42), frameMat);
+    panelBack.position.set(cabinW / 2 - 0.04, 1.25, -length / 2 - 0.55);
+
+    this.elevBtnGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.25,
+    });
+    const inactiveBtnMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4 });
+    // Mini 2x6 floor button matrix + glowing highlighted target button!
+    for (let row = 0; row < 6; row++) {
+      for (let col = 0; col < 2; col++) {
+        const isLit = row === 4 && col === 1;
+        const b = new THREE.Mesh(
+          new THREE.BoxGeometry(0.025, 0.065, 0.065),
+          isLit ? this.elevBtnGlowMat : inactiveBtnMat
+        );
+        b.position.set(
+          cabinW / 2 - 0.075,
+          0.92 + row * 0.11,
+          -length / 2 - 0.46 - col * 0.16
+        );
+        this.aptGroup.add(b);
+      }
+    }
+
+    this.aptGroup.add(
+      cabinFloor,
+      cabinCeil,
+      cabinLight,
+      cabBack,
+      cabLeft,
+      cabRight,
+      cabFrontTop,
+      cabLed,
+      cabMirror,
+      cabRailBack,
+      cabNotice,
+      panelBack
+    );
 
     const doorConfigs: Array<{ x: number; y: number; z: number; facingX: number; defaultUnit: string }> = [
       { x: -width / 2 + 0.04, y: 0, z: -1.6, facingX: 1, defaultUnit: '1401호' },
@@ -310,9 +480,9 @@ export class CorridorRoom {
       // Painted Floor Number Badge on left wall (2F, 3F, 4F)
       if (ld.floor >= 2) {
         const floorSign = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.75, 0.42),
+          new THREE.PlaneGeometry(0.95, 0.44),
           new THREE.MeshBasicMaterial({
-            map: this.createPlaqueTexture(`${ld.floor}F 계단`, '#064e3b', '#ecfdf5'),
+            map: this.createPlaqueTexture(`${ld.floor}F 원룸·빌라`, '#064e3b', '#ecfdf5'),
           })
         );
         floorSign.rotation.y = Math.PI / 2;
@@ -385,18 +555,26 @@ export class CorridorRoom {
     const exitDoor = new THREE.Mesh(new THREE.BoxGeometry(1.58, 2.16, 0.09), exitDoorMat);
     exitDoor.position.set(0, 1.08, zMin + 0.14);
     const exitLabel = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.25, 0.34),
-      new THREE.MeshBasicMaterial({ map: this.createPlaqueTexture('🚪 1F 현관 출구', '#065f46', '#fef08a') })
+      new THREE.PlaneGeometry(1.55, 0.36),
+      new THREE.MeshBasicMaterial({ map: this.createPlaqueTexture('🚪 1F 원룸·빌라 출구', '#065f46', '#fef08a') })
     );
     exitLabel.position.set(0, 2.58, zMin + 0.08);
 
-    // Classic Korean metal villa mailbox bank on right wall near 1F entrance
+    // Classic Korean metal oneroom/villa mailbox bank & parcel shelf on right wall near 1F entrance
     const mailbox = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.82, 1.15),
+      new THREE.BoxGeometry(0.18, 0.88, 1.2),
       new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.55, roughness: 0.4 })
     );
-    mailbox.position.set(width / 2 - 0.1, 1.38, -8.6);
-    this.villaGroup.add(exitFrame, exitDoor, exitLabel, mailbox);
+    mailbox.position.set(width / 2 - 0.1, 1.4, -8.6);
+    const stairNotice = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.35, 0.48),
+      new THREE.MeshBasicMaterial({
+        map: this.createPlaqueTexture('🪜 원룸 계단실 (E/V없음)', '#0f172a', '#fde68a'),
+      })
+    );
+    stairNotice.rotation.y = Math.PI / 2;
+    stairNotice.position.set(-width / 2 + 0.03, 1.95, -8.4);
+    this.villaGroup.add(exitFrame, exitDoor, exitLabel, mailbox, stairNotice);
 
     // 6 Hinged Villa Unit Doors (201/202 on 2F, 301/302 on 3F, 401/402 on 4F)
     const villaDoorConfigs = [
@@ -649,6 +827,23 @@ export class CorridorRoom {
       const unitIdx = clamp(unitNum - 1, 0, 3);
       this.targetDoorIndex = unitIdx;
 
+      // Reset real 3D Apartment Elevator Cabin at 1F ready to ride up to target floor!
+      this.elevatorTargetFloor = clamp(floor, 2, 20);
+      this.elevatorCurrentFloor = 1;
+      this.elevatorPhase = 'idle_1f';
+      this.elevatorStepTimer = 0;
+      const floorsDelta = Math.max(1, this.elevatorTargetFloor - 1);
+      // Total ride time smoothly scaled between ~2.0s (low floors) and ~3.4s (high floors)
+      this.elevatorSecPerFloor = clamp(2.8 / floorsDelta, 0.18, 0.55);
+      this.elevDoorOpenCur = 0;
+      this.elevDoorOpenTarget = 0;
+      this.elevRideVibeY = 0;
+      this.elevDoorL.position.x = -0.46;
+      this.elevDoorR.position.x = 0.46;
+      this.elevBtnGlowMat.emissiveIntensity = 0.3;
+      this.elevCallBtnMat.emissiveIntensity = 0.4;
+      this.redrawElevatorLedDisplay(1, 'idle');
+
       for (let i = 0; i < doors.length; i++) {
         doors[i].doorPivot.rotation.y = 0;
         const label = `${floor}0${i + 1}호`;
@@ -677,13 +872,81 @@ export class CorridorRoom {
     this.targetHighlightRing.visible = true;
   }
 
+  /** Redraws the live glowing red/amber LED floor indicator inside & outside the 3D apartment elevator */
+  private redrawElevatorLedDisplay(floor: number, dir: 'up' | 'down' | 'idle'): void {
+    const ctx = this.elevLedCtx;
+    ctx.fillStyle = '#070b14';
+    ctx.fillRect(0, 0, 256, 96);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, 250, 90);
+
+    const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '●';
+    ctx.fillStyle = dir === 'up' ? '#22c55e' : dir === 'down' ? '#f97316' : '#f59e0b';
+    ctx.font = '900 44px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(arrow, 22, 49);
+
+    ctx.fillStyle = '#ef4444';
+    ctx.font = '900 54px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${floor}F`, 234, 51);
+    this.elevLedTex.needsUpdate = true;
+  }
+
+  public isInsideElevatorCabin(px: number, pz: number): boolean {
+    if (this.isVillaMode) return false;
+    return pz < -8.0 && Math.abs(px) <= 1.18;
+  }
+
+  public isElevatorDoorsOpen(): boolean {
+    return this.elevDoorOpenCur > 0.65;
+  }
+
+  /** Player presses floor button inside the 3D elevator cabin at 1F -> doors close, rides up to target floor! */
+  public startElevatorRideUp(): boolean {
+    if (this.isVillaMode || this.elevatorPhase !== 'idle_1f') return false;
+    this.elevatorPhase = 'moving_up';
+    this.elevatorStepTimer = 0;
+    this.elevDoorOpenTarget = 0;
+    this.elevBtnGlowMat.emissiveIntensity = 3.2;
+    this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'up');
+    return true;
+  }
+
+  /** Player presses corridor call button after delivery -> elevator doors slide open! */
+  public openElevatorForExit(): boolean {
+    if (this.isVillaMode) return false;
+    if (this.elevatorPhase === 'doors_open_exit' && this.elevDoorOpenTarget > 0.5) return false;
+    this.elevatorPhase = 'doors_open_exit';
+    this.elevDoorOpenTarget = 1;
+    this.elevCallBtnMat.emissiveIntensity = 2.8;
+    return true;
+  }
+
+  /** Player presses 1F button inside the 3D elevator cabin -> doors close, rides down to 1F! */
+  public startElevatorRideDown(): boolean {
+    if (this.isVillaMode) return false;
+    if (this.elevatorPhase === 'moving_down') return false;
+    this.elevatorPhase = 'moving_down';
+    this.elevatorStepTimer = 0;
+    this.elevDoorOpenTarget = 0;
+    this.elevBtnGlowMat.emissiveIntensity = 3.2;
+    this.elevCallBtnMat.emissiveIntensity = 0.35;
+    this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'down');
+    return true;
+  }
+
   public getSpawnPoint(): { x: number; y: number; z: number; heading: number } {
     return this.isVillaMode ? this.villaSpawn : this.elevatorSpawn;
   }
 
-  /** Returns continuous world Y floor elevation inside the corridor or walk-up villa stairwell */
+  /** Returns continuous world Y floor elevation inside the corridor, moving elevator cabin, or walk-up villa stairwell */
   public getFloorYAt(_x: number, z: number): number {
-    if (!this.isVillaMode) return CORRIDOR_ORIGIN_Y;
+    if (!this.isVillaMode) {
+      return CORRIDOR_ORIGIN_Y + (z < -8.0 ? this.elevRideVibeY : 0);
+    }
     for (const fl of VILLA_STAIR_FLIGHTS) {
       if (z >= fl.zStart && z <= fl.zEnd) {
         const t = (z - fl.zStart) / (fl.zEnd - fl.zStart);
@@ -766,6 +1029,7 @@ export class CorridorRoom {
       if (Math.abs(py - CORRIDOR_ORIGIN_Y) > 0.9) return false;
       return Math.hypot(px - this.villaExitTrigger.x, pz - this.villaExitTrigger.z) <= this.villaExitTrigger.radius;
     }
+    if (this.isInsideElevatorCabin(px, pz)) return true;
     return Math.hypot(px - this.elevatorTrigger.x, pz - this.elevatorTrigger.z) <= this.elevatorTrigger.radius;
   }
 
@@ -773,12 +1037,83 @@ export class CorridorRoom {
     if (this.isVillaMode) {
       return [clamp(x, -2.15, 2.15), clamp(z, -9.4, 12.85)];
     }
+    const doorsOpen = this.elevDoorOpenCur > 0.65;
+    if (doorsOpen) {
+      if (z < -7.45) {
+        return [clamp(x, -0.78, 0.78), clamp(z, -9.95, 7.4)];
+      }
+      return [clamp(x, -2.15, 2.15), clamp(z, -9.95, 7.4)];
+    }
+    // Doors closed: keep player cleanly inside cabin OR inside corridor (no walking through closed steel doors!)
+    if (z < -7.95) {
+      return [clamp(x, -0.78, 0.78), clamp(z, -9.95, -8.35)];
+    }
     return [clamp(x, -2.15, 2.15), clamp(z, -7.4, 7.4)];
   }
 
-  public updateVisual(elapsedTime: number, dt = 0.016): void {
+  public updateVisual(
+    elapsedTime: number,
+    dt = 0.016,
+    playerZ = 0,
+    events?: ElevatorEvents
+  ): void {
     if (!this.root.visible) return;
     const step = Math.min(1, dt * 5.2);
+
+    // 1. Live 3D Apartment Elevator Ride & Sliding Steel Doors
+    if (!this.isVillaMode) {
+      if (this.elevatorPhase === 'moving_up') {
+        this.elevRideVibeY = Math.sin(elapsedTime * 34) * 0.0045;
+        this.elevatorStepTimer += dt;
+        if (this.elevatorStepTimer >= this.elevatorSecPerFloor) {
+          this.elevatorStepTimer -= this.elevatorSecPerFloor;
+          this.elevatorCurrentFloor = Math.min(this.elevatorTargetFloor, this.elevatorCurrentFloor + 1);
+          if (this.elevatorCurrentFloor >= this.elevatorTargetFloor) {
+            this.elevatorPhase = 'arrived_floor';
+            this.elevRideVibeY = 0;
+            this.elevDoorOpenTarget = 1;
+            this.elevBtnGlowMat.emissiveIntensity = 0.25;
+            this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'idle');
+            events?.onDoorSlide?.(true);
+            events?.onArrivedTargetFloor?.(this.elevatorCurrentFloor);
+          } else {
+            this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'up');
+            events?.onFloorTick?.(this.elevatorCurrentFloor);
+          }
+        }
+      } else if (this.elevatorPhase === 'moving_down') {
+        this.elevRideVibeY = Math.sin(elapsedTime * 34) * 0.0045;
+        this.elevatorStepTimer += dt;
+        if (this.elevatorStepTimer >= this.elevatorSecPerFloor) {
+          this.elevatorStepTimer -= this.elevatorSecPerFloor;
+          this.elevatorCurrentFloor = Math.max(1, this.elevatorCurrentFloor - 1);
+          if (this.elevatorCurrentFloor <= 1) {
+            this.elevatorPhase = 'idle_1f';
+            this.elevRideVibeY = 0;
+            this.elevBtnGlowMat.emissiveIntensity = 0.25;
+            this.redrawElevatorLedDisplay(1, 'idle');
+            events?.onArrivedGroundFloor?.();
+          } else {
+            this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'down');
+            events?.onFloorTick?.(this.elevatorCurrentFloor);
+          }
+        }
+      } else {
+        this.elevRideVibeY = 0;
+        // Gently auto-close elevator doors behind the player once they walk out into the corridor!
+        if (this.elevatorPhase === 'arrived_floor' && this.elevDoorOpenTarget > 0.5 && playerZ > -5.2) {
+          this.elevDoorOpenTarget = 0;
+          events?.onDoorSlide?.(false);
+        }
+      }
+
+      // Smoothly animate double stainless-steel sliding elevator doors
+      const doorStep = Math.min(1, dt * 3.6);
+      this.elevDoorOpenCur += (this.elevDoorOpenTarget - this.elevDoorOpenCur) * doorStep;
+      const slideOffset = 0.46 + this.elevDoorOpenCur * 0.84;
+      this.elevDoorL.position.x = -slideOffset;
+      this.elevDoorR.position.x = slideOffset;
+    }
 
     if (this.targetHighlightRing.visible) {
       const s = 1 + Math.sin(elapsedTime * 4.5) * 0.08;

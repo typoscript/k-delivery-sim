@@ -148,14 +148,16 @@ const enterElevatorToCorridor = (missionId: string) => {
     return;
   }
   const isVilla = m.order.customer.residenceKind === 'walkup_villa';
-  audio.playElevatorDing();
+  if (!isVilla) {
+    audio.playElevatorDoorSlide();
+  }
   hud.stowPhoneToPocket();
-  modalUi.playElevatorTransition(
+  modalUi.playQuickDoorTransition(
     isVilla
-      ? `🪜 [#${m.order.orderNumber}] ${m.order.customer.name} 계단실 진입 중... (엘리베이터 없음 · ${m.order.unitNumber})`
-      : `🛗 [#${m.order.orderNumber}] ${m.order.customer.name} ${m.order.unitNumber} 이동 중...`,
+      ? `🪜 [#${m.order.orderNumber}] ${m.order.customer.name} 원룸·빌라 1층 계단실 진입 중...`
+      : `🛗 [#${m.order.orderNumber}] ${m.order.customer.name} 1층 엘리베이터 탑승 중...`,
     () => {
-      // Midpoint while screen is completely black: occlude entire outdoor world + nav line + rain & audio!
+      // Midpoint while screen is black: occlude entire outdoor world + nav line + rain & audio!
       world.setOutdoorVisible(false);
       traffic.root.visible = false;
       scooterMesh.root.visible = false;
@@ -172,28 +174,29 @@ const enterElevatorToCorridor = (missionId: string) => {
       camController.resetLook();
     },
     () => {
-      if (!isVilla) audio.playElevatorDing();
-      const inst = getInstructionMeta(m.order.deliveryInstruction);
-      const prefix = isVilla
-        ? `🪜 구축 빌라 (엘리베이터 없음)! 계단을 올라 ${m.order.unitNumber}`
-        : `🏢 ${m.order.unitNumber}`;
-      const actionMsg =
-        m.order.deliveryInstruction === 'KNOCK_DOOR'
-          ? `${prefix} 앞에서 [E]로 노크 후 음식을 내려놓으세요 (${inst.badge})`
-          : m.order.deliveryInstruction === 'MEET_FACE'
-            ? `${prefix} 옆 인터폰 벨을 [E]로 눌러 대면 전달하세요 (${inst.badge})`
-            : `${prefix} 문 앞 발매트에서 [E]를 눌러 음식을 내려놓으세요 (${inst.badge})`;
-      hud.showToast(actionMsg, 4600);
+      if (isVilla) {
+        const inst = getInstructionMeta(m.order.deliveryInstruction);
+        hud.showToast(
+          `🪜 원룸·빌라 계단실 진입! (엘리베이터 없음) 계단을 걸어 올라가 ${m.order.unitNumber}로 배달하세요 (${inst.badge})`,
+          4600
+        );
+      } else {
+        hud.showToast(
+          `🛗 아파트 1층 엘리베이터 탑승 완료! [E]를 눌러 ${corridorRoom.elevatorTargetFloor}층 버튼을 누르세요`,
+          4400
+        );
+      }
     }
   );
 };
 
 const exitCorridorToStreet = () => {
   const wasVilla = corridorRoom.isVillaMode;
-  if (!wasVilla) audio.playElevatorDing();
+  audio.setElevatorHum(false);
+  if (!wasVilla) audio.playElevatorDoorSlide();
   hud.stowPhoneToPocket();
-  modalUi.playElevatorTransition(
-    wasVilla ? '🚪 빌라 1층 현관 출구로 나가는 중...' : '🛗 1층 로비로 내려가는 중...',
+  modalUi.playQuickDoorTransition(
+    wasVilla ? '🚪 원룸·빌라 1층 현관 출구로 나가는 중...' : '🛗 1층 로비 도착 · 밖으로 나가는 중...',
     () => {
       corridorRoom.root.visible = false;
 
@@ -220,7 +223,6 @@ const exitCorridorToStreet = () => {
       delivery.finishAfterCorridorExit();
     },
     () => {
-      audio.playElevatorDing();
       const rem = delivery.activeMissions.length;
       hud.showToast(
         rem > 0
@@ -344,8 +346,8 @@ const modalUi = new ModalUi({
         const isVilla = unlocked.order.customer.residenceKind === 'walkup_villa';
         hud.showToast(
           isVilla
-            ? `🔓 ${unlocked.order.customer.name} 공동현관 개방! (엘리베이터 없음) [E]를 눌러 계단으로 올라가세요`
-            : `🔓 ${unlocked.order.customer.name} 공동현관 개방! [E]를 눌러 엘리베이터에 탑승하세요`,
+            ? `🔓 ${unlocked.order.customer.name} 공동현관 개방! (원룸·빌라 계단) [E]로 진입해 계단을 올라가세요`
+            : `🔓 ${unlocked.order.customer.name} 공동현관 개방! [E]를 눌러 1층 엘리베이터에 탑승하세요`,
           3600
         );
       }
@@ -407,8 +409,8 @@ const modalUi = new ModalUi({
     }
     hud.showToast(
       corridorRoom.isVillaMode
-        ? '배달 완료! 계단을 내려와 1층 현관 출구 앞에서 [E]를 눌러 밖으로 나가세요'
-        : '배달 완료! 복도 엘리베이터 앞에서 [E]를 눌러 1층으로 내려가세요',
+        ? '배달 완료! 원룸·빌라 계단을 내려와 1층 현관 출구 앞에서 [E]로 나가세요'
+        : '배달 완료! 복도 엘리베이터로 돌아가 [E] 호출 후 탑승해 1층으로 내려가세요',
       3800
     );
   },
@@ -462,16 +464,40 @@ const handleContextInteract = () => {
     return;
   }
 
-  // Inside underground corridor
+  // Inside underground corridor (Real 3D Apartment Elevator OR 원룸·빌라 Stairwell)
   if (playerCtrl.state.inCorridor) {
     const cm = delivery.getCorridorMission();
     if (!cm) return;
+
+    // 0. Real 3D Apartment Elevator Controls (Press target floor at 1F / Call elevator / Press 1F to descend!)
+    if (!corridorRoom.isVillaMode) {
+      const inCabin = corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z);
+      if (corridorRoom.elevatorPhase === 'moving_up' || corridorRoom.elevatorPhase === 'moving_down') {
+        hud.showToast(
+          `🛗 엘리베이터 이동 중... (현재 ${corridorRoom.elevatorCurrentFloor}층)`,
+          1600
+        );
+        return;
+      }
+      if (inCabin && corridorRoom.elevatorPhase === 'idle_1f') {
+        if (corridorRoom.startElevatorRideUp()) {
+          audio.playKeypadBeep(true);
+          audio.playElevatorDoorSlide();
+          audio.setElevatorHum(true);
+          hud.showToast(
+            `🛗 ${corridorRoom.elevatorTargetFloor}층 버튼을 눌렀습니다! 문이 닫히고 올라갑니다...`,
+            2800
+          );
+        }
+        return;
+      }
+    }
 
     if (cm.phase === 'in_corridor') {
       if (!corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
         hud.showToast(
           corridorRoom.isVillaMode
-            ? `🪜 계단을 올라 ${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
+            ? `🪜 원룸·빌라 계단을 올라 ${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
             : `${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
         );
         return;
@@ -540,14 +566,37 @@ const handleContextInteract = () => {
     }
 
     if (cm.phase === 'corridor_exit') {
-      if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
-        exitCorridorToStreet();
+      if (corridorRoom.isVillaMode) {
+        if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
+          exitCorridorToStreet();
+        } else {
+          hud.showToast('🪜 계단을 내려와 원룸·빌라 1층 현관 출구 앞으로 이동해서 [E]를 누르세요');
+        }
+        return;
+      }
+
+      // Real 3D Apartment Elevator Descent Sequence!
+      const inCabin = corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z);
+      if (inCabin) {
+        if (corridorRoom.startElevatorRideDown()) {
+          audio.playKeypadBeep(true);
+          audio.playElevatorDoorSlide();
+          audio.setElevatorHum(true);
+          hud.showToast('🛗 1층 버튼을 눌렀습니다! 문이 닫히고 1층 로비로 내려갑니다...', 2800);
+        }
+      } else if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
+        if (!corridorRoom.isElevatorDoorsOpen()) {
+          if (corridorRoom.openElevatorForExit()) {
+            audio.playKeypadBeep(true);
+            audio.playElevatorDing();
+            audio.playElevatorDoorSlide();
+            hud.showToast('🛗 엘리베이터 문이 열립니다! 안으로 걸어 들어가 [E]로 1층 버튼을 누르세요', 3400);
+          }
+        } else {
+          hud.showToast('🚶 엘리베이터 안으로 걸어 들어가 [E]를 눌러 1층으로 내려가세요', 2600);
+        }
       } else {
-        hud.showToast(
-          corridorRoom.isVillaMode
-            ? '🪜 계단을 내려와 1층 현관 출구 앞으로 이동해서 [E]를 누르세요'
-            : '복도 끝 엘리베이터 앞으로 이동해서 [E]를 누르세요'
-        );
+        hud.showToast('복도 끝 엘리베이터 앞으로 이동해서 [E]로 호출하세요');
       }
       return;
     }
@@ -1251,7 +1300,32 @@ function animate(now: number): void {
     world.mapInfo.upcomingCamera = roadHazards.upcomingCamera;
   } else {
     world.mapInfo.upcomingCamera = null;
-    corridorRoom.updateVisual(elapsed, dt);
+    corridorRoom.updateVisual(elapsed, dt, playerCtrl.state.z, {
+      onFloorTick: () => {
+        audio.playElevatorFloorTick();
+      },
+      onDoorSlide: () => {
+        audio.playElevatorDoorSlide();
+      },
+      onArrivedTargetFloor: (floor) => {
+        audio.setElevatorHum(false);
+        audio.playElevatorDing();
+        voiceNav.speak(`${floor}층입니다. 문이 열립니다.`);
+        const cm = delivery.getCorridorMission();
+        const inst = cm ? getInstructionMeta(cm.order.deliveryInstruction) : null;
+        const unit = cm?.order.unitNumber ?? `${floor}층`;
+        hud.showToast(
+          `🔔 띵동! ${floor}층 도착! 엘리베이터에서 내려 ${unit}로 이동하세요${inst ? ` (${inst.badge})` : ''}`,
+          4600
+        );
+      },
+      onArrivedGroundFloor: () => {
+        audio.setElevatorHum(false);
+        audio.playElevatorDing();
+        voiceNav.speak('1층 로비에 도착했습니다.');
+        exitCorridorToStreet();
+      },
+    });
   }
 
   const allObstacles = inCorridor
@@ -1479,6 +1553,12 @@ function animate(now: number): void {
         inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
       nearCorridorElevator:
         inCorridor && corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
+      insideElevatorCabin:
+        inCorridor && corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z),
+      elevatorPhase: corridorRoom.elevatorPhase,
+      elevatorCurrentFloor: corridorRoom.elevatorCurrentFloor,
+      elevatorTargetFloor: corridorRoom.elevatorTargetFloor,
+      elevatorDoorsOpen: corridorRoom.isElevatorDoorsOpen(),
       isVillaCorridor: inCorridor && corridorRoom.isVillaMode,
       villaCurrentFloor:
         inCorridor && corridorRoom.isVillaMode

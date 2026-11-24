@@ -13,6 +13,7 @@ import { SignalStateSnapshot } from '../world/TrafficSystem';
 import { PhoneCallbacks, PhoneMap, PhonePlacement } from './PhoneMap';
 import { WeatherMode } from '../types';
 import { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
+import { ElevatorPhase } from '../world/CorridorRoom';
 
 export interface InteractionContext {
   nearCargoBox: boolean;
@@ -23,6 +24,11 @@ export interface InteractionContext {
   nearConvenienceStore: boolean;
   nearCorridorTargetDoor: boolean;
   nearCorridorElevator: boolean;
+  insideElevatorCabin: boolean;
+  elevatorPhase: ElevatorPhase;
+  elevatorCurrentFloor: number;
+  elevatorTargetFloor: number;
+  elevatorDoorsOpen: boolean;
   isVillaCorridor: boolean;
   villaCurrentFloor: number;
   visorWetHint: boolean;
@@ -266,9 +272,17 @@ export class Hud {
       const unit = corridorM?.order.unitNumber ?? '';
       const ordNo = corridorM ? `#${corridorM.order.orderNumber} ` : '';
       if (ctx.isVillaCorridor) {
-        this.modeBadge.textContent = `🏠 구축 빌라 계단 ${ctx.villaCurrentFloor}F (${ordNo}${unit})`;
+        this.modeBadge.textContent = `🏠 원룸·빌라 계단 ${ctx.villaCurrentFloor}F (${ordNo}${unit})`;
+      } else if (ctx.insideElevatorCabin) {
+        const dir =
+          ctx.elevatorPhase === 'moving_up'
+            ? '▲ '
+            : ctx.elevatorPhase === 'moving_down'
+              ? '▼ '
+              : '';
+        this.modeBadge.textContent = `🛗 엘리베이터 ${dir}${ctx.elevatorCurrentFloor}F (목표 ${ctx.elevatorTargetFloor}F)`;
       } else {
-        this.modeBadge.textContent = `🏢 실내 복도 (${ordNo}${unit})`;
+        this.modeBadge.textContent = `🏢 아파트 ${ctx.elevatorCurrentFloor}F 복도 (${ordNo}${unit})`;
       }
       this.modeBadge.className = 'mode-pill foot';
     } else if (player.mode === 'knockdown') {
@@ -323,8 +337,8 @@ export class Hud {
       const stPct = Math.round(player.stamina);
       this.vsFloorText.textContent =
         corridorM.phase === 'corridor_exit'
-          ? `🏠 현재 ${ctx.villaCurrentFloor}F · 1F 현관으로 하강`
-          : `🏠 현재 ${ctx.villaCurrentFloor}F · 목표 ${corridorM.order.unitNumber}`;
+          ? `🏠 원룸·빌라 ${ctx.villaCurrentFloor}F · 1F 출구로 하강`
+          : `🏠 원룸·빌라 ${ctx.villaCurrentFloor}F · 목표 ${corridorM.order.unitNumber}`;
       this.vsStaminaVal.textContent = stPct < 20 ? `😮‍💨 숨참 (${stPct}%)` : `체력 ${stPct}%`;
       this.vsStaminaFill.style.width = `${stPct}%`;
       this.vsStaminaFill.className =
@@ -434,9 +448,35 @@ export class Hud {
 
     const isRiding = player.mode === 'riding';
 
-    // --- Inside Underground Corridor ---
+    // --- Inside Underground Corridor (Apartment Real 3D Elevator OR 원룸·빌라 Stairwell) ---
     const corridorM = delivery.getCorridorMission();
     if (player.inCorridor && corridorM) {
+      // Real 3D Apartment Elevator Cabin Prompts!
+      if (!ctx.isVillaCorridor) {
+        if (ctx.elevatorPhase === 'moving_up') {
+          return `🛗 엘리베이터 상승 중... ▲ ${ctx.elevatorCurrentFloor}F / 목표 ${ctx.elevatorTargetFloor}F`;
+        }
+        if (ctx.elevatorPhase === 'moving_down') {
+          return `🛗 엘리베이터 하강 중... ▼ ${ctx.elevatorCurrentFloor}F → 1F 로비`;
+        }
+        if (ctx.insideElevatorCabin && ctx.elevatorPhase === 'idle_1f') {
+          return `<kbd>E</kbd> 🛗 엘리베이터 [${ctx.elevatorTargetFloor}층] 버튼 누르기 (${corridorM.order.unitNumber})`;
+        }
+        if (ctx.insideElevatorCabin && corridorM.phase === 'in_corridor' && ctx.elevatorDoorsOpen) {
+          return `🚶 ${ctx.elevatorCurrentFloor}층 도착! 앞으로 걸어 나가 ${corridorM.order.unitNumber}로 이동하세요`;
+        }
+        if (corridorM.phase === 'corridor_exit') {
+          if (ctx.insideElevatorCabin) {
+            return `<kbd>E</kbd> 🛗 엘리베이터 [1층] 버튼 누르기 (1층 로비로 하강)`;
+          }
+          if (ctx.nearCorridorElevator) {
+            return ctx.elevatorDoorsOpen
+              ? '🚶 엘리베이터 안으로 걸어 들어가 [1층] 버튼을 누르세요'
+              : '<kbd>E</kbd> 🛗 엘리베이터 호출 버튼 누르기 (문 열기)';
+          }
+        }
+      }
+
       if (corridorM.phase === 'in_corridor' && ctx.nearCorridorTargetDoor) {
         const inst = corridorM.order.deliveryInstruction;
         if (inst === 'KNOCK_DOOR') {
@@ -453,10 +493,8 @@ export class Hud {
       if (corridorM.phase === 'meet_waiting') {
         return '🔔 "누구세요? 배달이요!" — 고객이 문을 열고 수령 중...';
       }
-      if (corridorM.phase === 'corridor_exit' && ctx.nearCorridorElevator) {
-        return ctx.isVillaCorridor
-          ? '<kbd>E</kbd> 🚪 빌라 1층 현관 출구로 나가기'
-          : '<kbd>E</kbd> 🛗 엘리베이터 타고 1층으로 내려가기';
+      if (corridorM.phase === 'corridor_exit' && ctx.nearCorridorElevator && ctx.isVillaCorridor) {
+        return '<kbd>E</kbd> 🚪 원룸·빌라 1층 현관 출구로 나가기';
       }
       return null;
     }
@@ -516,9 +554,9 @@ export class Hud {
         }
         if (lobbyM.phase === 'lobby_unlocked') {
           if (lobbyM.order.customer.residenceKind === 'walkup_villa') {
-            return `<kbd>E</kbd> 🪜 계단으로 올라가기 (엘리베이터 없음 · ${lobbyM.order.unitNumber} · 수고비 +₩500)`;
+            return `<kbd>E</kbd> 🪜 원룸·빌라 1층 진입 → 계단 오르기 (${lobbyM.order.unitNumber} · 수고비 +₩500)`;
           }
-          return `<kbd>E</kbd> 🛗 엘리베이터 탑승 (${lobbyM.order.unitNumber} 이동)`;
+          return `<kbd>E</kbd> 🛗 아파트 1층 엘리베이터 탑승 (${lobbyM.order.unitNumber})`;
         }
       }
     }

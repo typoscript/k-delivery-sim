@@ -711,12 +711,41 @@ export class ModalUi {
     if (okBtn) {
       okBtn.textContent =
         result.order.customer.residenceKind === 'walkup_villa'
-          ? '확인 (계단으로 1층 복귀)'
-          : '확인 (엘리베이터로 복귀)';
+          ? '확인 (원룸·빌라 계단으로 1층 복귀)'
+          : '확인 (엘리베이터 탑승 후 1층 복귀)';
     }
     this.settlementTotal.textContent = `+₩${result.earned.toLocaleString()}`;
     this.settlementCumul.textContent = `오늘 누적 수익 ₩${result.totalEarnings.toLocaleString()} (${result.completedCount}건 완료)`;
     this.settlementBackdrop.classList.remove('hidden');
+  }
+
+  /**
+   * Snappy ~0.55s doorway step-in / step-out fade transition (used when walking into a 1F 원룸·빌라 stairwell
+   * or stepping into/out of the 1F 3D Apartment Elevator Cabin!).
+   */
+  public playQuickDoorTransition(caption: string, onMidpoint: () => void, onDone?: () => void): void {
+    if (this.activeModal === 'transition') return;
+    this.closeAll();
+    this.activeModal = 'transition';
+
+    this.fadeCaption.textContent = caption;
+    this.fadeOverlay.classList.remove('hidden');
+    void this.fadeOverlay.offsetWidth;
+    this.fadeOverlay.classList.add('opaque');
+
+    window.setTimeout(() => {
+      onMidpoint();
+    }, 240);
+
+    window.setTimeout(() => {
+      this.fadeOverlay.classList.remove('opaque');
+    }, 360);
+
+    window.setTimeout(() => {
+      this.fadeOverlay.classList.add('hidden');
+      this.activeModal = 'none';
+      if (onDone) onDone();
+    }, 560);
   }
 
   /**

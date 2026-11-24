@@ -17,6 +17,8 @@ export class GameAudio {
 
   private rainGain: GainNode | null = null;
   private rainFilter: BiquadFilterNode | null = null;
+  private elevHumOsc: OscillatorNode | null = null;
+  private elevHumGain: GainNode | null = null;
 
   public muted = false;
   public masterVolume = 0.8;
@@ -998,6 +1000,76 @@ export class GameAudio {
       osc.start(t);
       osc.stop(t + 0.16);
     });
+  }
+
+  /** Metallic sliding sound for 3D stainless-steel apartment elevator doors */
+  public playElevatorDoorSlide(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const dur = 0.55;
+    const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.45;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.setValueAtTime(420, now);
+    filt.frequency.linearRampToValueAtTime(680, now + dur * 0.5);
+    filt.frequency.linearRampToValueAtTime(340, now + dur);
+    filt.Q.value = 3.2;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.14, now + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    src.connect(filt);
+    filt.connect(g);
+    g.connect(this.masterGain);
+    src.start(now);
+    src.stop(now + dur + 0.02);
+  }
+
+  /** Soft digital LED floor-pass tick inside the 3D apartment elevator */
+  public playElevatorFloorTick(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 1120;
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.055, now + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.065);
+  }
+
+  /** Continuous low traction-motor hum while riding the 3D apartment elevator */
+  public setElevatorHum(active: boolean): void {
+    if (!this.started || !this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+    if (!this.elevHumOsc || !this.elevHumGain) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = 74;
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 170;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      osc.connect(filt);
+      filt.connect(g);
+      g.connect(this.masterGain);
+      osc.start();
+      this.elevHumOsc = osc;
+      this.elevHumGain = g;
+    }
+    const target = active && !this.muted ? 0.14 : 0;
+    this.elevHumGain.gain.setTargetAtTime(target, now, 0.12);
   }
 
   /**
