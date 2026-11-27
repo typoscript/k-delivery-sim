@@ -118,6 +118,8 @@ export interface GameSettings {
   graphicsQuality: GraphicsQuality;
   /** Dynamic resolution: lower the render resolution automatically when the GPU can't keep 60fps */
   autoResolution: boolean;
+  /** Power saving: 30fps while idle / in menus, 60fps as soon as the player acts */
+  powerSaving: boolean;
 }
 
 export interface UpcomingCameraAlert {

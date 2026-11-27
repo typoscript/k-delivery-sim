@@ -1,3 +1,4 @@
+import { InputActivity, targetFps } from './PowerSaver';
 import { GraphicsRuntime } from './GraphicsRuntime';
 import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world/renderLayers';
 import { PerfMonitor } from './PerfMonitor';
@@ -57,6 +58,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     const g = hooks.graphics;
     const gfx = {
       해상도: `${g.pixelRatio.toFixed(2)}x${g.autoResolution ? ' (자동)' : ''}`,
+      목표fps: currentTargetFps < MAX_FPS ? `${currentTargetFps} (절전)` : `${currentTargetFps}`,
       그림자: g.profile.shadows ? `${g.profile.shadowMapSize}px/${g.profile.shadowInterval}f` : '끔',
     };
     return st
@@ -67,12 +69,17 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
   // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
   // callbacks roughly halves GPU/CPU load (and laptop heat) with no visible difference.
   // 1.5ms of slack so a 60Hz display's slightly early callbacks are never dropped.
-  const MIN_FRAME_MS = 1000 / MAX_FPS - 1.5;
   let lastFrameAt = -Infinity;
+  // Idle / menu power saving: 30fps while nothing needs 60 (decided at the end of each frame)
+  const activity = new InputActivity();
+  let currentTargetFps = MAX_FPS;
+  (window as unknown as { __power: () => number }).__power = () => currentTargetFps;
 
   function animate(now: number): void {
     requestAnimationFrame(animate);
-    if (now - lastFrameAt < MIN_FRAME_MS) return;
+    // Fresh input while power-saving -> render at the 60fps pace right away (no 33ms wait)
+    const pace = activity.secondsSince(now) < 0.1 ? MAX_FPS : currentTargetFps;
+    if (now - lastFrameAt < 1000 / pace - 1.5) return;
     const frameIntervalMs = lastFrameAt > 0 ? now - lastFrameAt : 16.7;
     lastFrameAt = now;
     perf.beginFrame(now);
@@ -491,7 +498,9 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     perf.lap('matrices');
     // Only render scooter mirrors when outdoors & riding
     // Shadow refresh schedule + dynamic resolution (driven by the measured GPU frame time)
-    hooks.graphics.frame(dt, perf.gpuFrameMs, frameIntervalMs, perf.isBenchmarking);
+    // Fallback (no GPU timer) uses the frame interval: discount the deliberate 30fps power-save gap
+    const pacedInterval = currentTargetFps < MAX_FPS ? frameIntervalMs - (1000 / currentTargetFps - 1000 / MAX_FPS) : frameIntervalMs;
+    hooks.graphics.frame(dt, perf.gpuFrameMs, pacedInterval, perf.isBenchmarking);
     if (!inCorridor && isRiding && !perf.flags.skipMirrors) {
       perf.gpuBegin('mirrors');
       scooterMesh.renderMirrors(renderer, scene, scooterPhysics.state);
@@ -507,6 +516,18 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     perf.gpuEnd();
     perf.lap('render');
     perf.endFrame();
+
+    currentTargetFps = targetFps({
+      enabled: onboardingSettings.settings.powerSaving && !perf.isBenchmarking,
+      photoMode: modalUi.activeModal === 'camera',
+      menuOpen: movementBlocked,
+      phoneZoomed: hud.phoneMap.isZoomed,
+      moving:
+        Math.abs(scooterPhysics.state.speed) > 0.3 ||
+        playerCtrl.state.moveSpeed > 0.1 ||
+        playerCtrl.state.mode === 'knockdown',
+      secondsSinceInput: activity.secondsSince(now),
+    });
   }
 
   requestAnimationFrame(animate);

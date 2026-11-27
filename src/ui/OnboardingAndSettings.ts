@@ -11,6 +11,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   mouseSensitivity: 1.0,
   graphicsQuality: 'high',
   autoResolution: true,
+  powerSaving: true,
 };
 
 export interface SettingsCallbacks {
@@ -40,6 +41,7 @@ export class OnboardingAndSettings {
   private readonly sensValEl = document.getElementById('set-sensitivity-val')!;
   private readonly gfxSelect = document.getElementById('set-graphics') as HTMLSelectElement;
   private readonly autoResToggle = document.getElementById('set-auto-res') as HTMLInputElement | null;
+  private readonly powerSaveToggle = document.getElementById('set-power-save') as HTMLInputElement | null;
 
   // Interactive First-Shift Onboarding Guide Card
   private readonly guideCard = document.getElementById('onboarding-card')!;
@@ -112,6 +114,11 @@ export class OnboardingAndSettings {
       this.persistAndApply();
     });
 
+    this.powerSaveToggle?.addEventListener('change', () => {
+      this.settings.powerSaving = this.powerSaveToggle!.checked;
+      this.persistAndApply();
+    });
+
     this.guideSkipBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.dismissTutorial();
@@ -151,6 +158,7 @@ export class OnboardingAndSettings {
             : DEFAULT_GAME_SETTINGS.graphicsQuality,
         autoResolution:
           typeof parsed.autoResolution === 'boolean' ? parsed.autoResolution : DEFAULT_GAME_SETTINGS.autoResolution,
+        powerSaving: typeof parsed.powerSaving === 'boolean' ? parsed.powerSaving : DEFAULT_GAME_SETTINGS.powerSaving,
       };
     } catch {
       return { ...DEFAULT_GAME_SETTINGS };
@@ -181,6 +189,7 @@ export class OnboardingAndSettings {
     this.sensValEl.textContent = `${this.settings.mouseSensitivity.toFixed(1)}x`;
     this.gfxSelect.value = this.settings.graphicsQuality;
     if (this.autoResToggle) this.autoResToggle.checked = this.settings.autoResolution;
+    if (this.powerSaveToggle) this.powerSaveToggle.checked = this.settings.powerSaving;
   }
 
   private persistAndApply(): void {
