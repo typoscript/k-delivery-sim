@@ -92,7 +92,8 @@ const DETOUR_SPEED = 1.1; // m/s sideways drift while walking around a blocker
 const PEDESTRIAN_BODY_RADIUS = 0.35;
 const CAR_LOOKAHEAD_M = 0.8; // stop if the next 0.8m of the path is inside a car
 const CAR_CHECK_RANGE_SQ = 12 * 12;
-const CROSS_WAIT_GIVE_UP_SEC = 25; // a road with no gap for this long -> walk on along the sidewalk instead
+const CROSS_WAIT_GIVE_UP_SEC = 25;
+const CROSS_LOOK_INTERVAL_SEC = 0.3; // how often a waiting pedestrian re-checks traffic at an unsignalized crossing // a road with no gap for this long -> walk on along the sidewalk instead
 
 // Open-world population streaming: keep the crowd around the player on the 6km unified map
 export const PEDESTRIAN_INITIAL_SPAWN_RADIUS = 180; // initial spawns within this radius of the player spawn
@@ -554,9 +555,12 @@ export class PedestrianManager {
             desiredSpeed = a.walkSpeed;
           }
         } else {
-          // No signal: look both ways and go only when no car will reach the crossing before we are across
+          // No signal: look both ways and go only when no car will reach the crossing before we are across.
+          // Traffic prediction is the costly part, so look ~3 times a second (and right on arrival)
+          const prevWait = a.crossWaitTimer;
           a.crossWaitTimer += clampedDt;
-          if (isRoadCrossingClear(a.x, a.z, targetNode.x, targetNode.z, cars, a.walkSpeed)) {
+          const look = prevWait === 0 || Math.floor(prevWait / CROSS_LOOK_INTERVAL_SEC) !== Math.floor(a.crossWaitTimer / CROSS_LOOK_INTERVAL_SEC);
+          if (look && isRoadCrossingClear(a.x, a.z, targetNode.x, targetNode.z, cars, a.walkSpeed)) {
             a.fsm = 'CROSSING';
             a.crossWaitTimer = 0;
             desiredSpeed = a.walkSpeed;

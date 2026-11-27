@@ -88,6 +88,9 @@ interface SignalHazardZone {
  * 10 real local shops, 12 real residences (including 4 walk-up villas), 8 Suwon bus stops,
  * 14 rotated speed bumps, wet-road PBR puddle shader, and self-service gas/repair stations!
  */
+/** Pickup counters & lobby portals are built / shown within this many 200m chunks of the player */
+const LOCATION_PROP_RADIUS_CHUNKS = 1;
+
 export class CityWorld {
   public readonly root = new THREE.Group();
   public readonly obstacles: ObstacleBox[] = [];
@@ -1468,13 +1471,21 @@ export class CityWorld {
 
     for (const loc of this.locations) {
       if (this.culler) {
-        this.culler.registerLazy(this.root, loc.x, loc.z, () => {
-          const built = this.buildLocationProp(loc, shared);
-          mergeStaticByMaterial(built.object, built.keep);
-          excludeFromMirrors(built.object);
-          freezeStatic(built.object);
-          return { object: built.object, dispose: () => this.disposeLocationProp(loc.id, built.object, sharedMats) };
-        });
+        // Counters / lobbies are small: draw them within 1 chunk (~200-300m) of the player, not the default 2,
+        // which with ~1,800 spots city-wide would add 100+ draw calls while driving
+        this.culler.registerLazy(
+          this.root,
+          loc.x,
+          loc.z,
+          () => {
+            const built = this.buildLocationProp(loc, shared);
+            mergeStaticByMaterial(built.object, built.keep);
+            excludeFromMirrors(built.object);
+            freezeStatic(built.object);
+            return { object: built.object, dispose: () => this.disposeLocationProp(loc.id, built.object, sharedMats) };
+          },
+          LOCATION_PROP_RADIUS_CHUNKS
+        );
       } else {
         const built = this.buildLocationProp(loc, shared);
         this.addProp(built.object, loc.x, loc.z, undefined, built.keep);

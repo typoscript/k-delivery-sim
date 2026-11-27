@@ -107,6 +107,9 @@ export function pushOutOfBodies(
   for (let pass = 0; pass < 2; pass++) {
     let any = false;
     for (const b of bodies) {
+      // Cheap reject before any trig: farther than the body's half diagonal + radius on either axis
+      const reach = b.halfLength + b.halfWidth + radius;
+      if (Math.abs(x - b.x) > reach || Math.abs(z - b.z) > reach) continue;
       const { along, side } = toBodyFrame(b, x, z);
       const penAlong = b.halfLength + radius - Math.abs(along);
       const penSide = b.halfWidth + radius - Math.abs(side);
