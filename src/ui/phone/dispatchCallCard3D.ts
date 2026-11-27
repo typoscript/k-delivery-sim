@@ -1,5 +1,6 @@
 import { DispatchOffer } from '../../delivery/OrderDispatchManager';
 import { clamp } from '../../types';
+import { fitName } from './canvasText';
 
 /** Draws the vibrating 20-second circular-progress Baemin Connect style call card on the 3D phone screen */
 export function render3DDispatchCallCard(
@@ -105,11 +106,12 @@ export function render3DDispatchCallCard(
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'left';
     const prefix = offer.orders.length > 1 ? `${i + 1}. ` : '';
-    ctx.fillText(`${prefix}${o.shop.emoji} ${o.shop.name} [#${o.orderNumber}]`, cardX + 28, oy);
+    const rowW = cardW - 56;
+    ctx.fillText(fitName(ctx, `${prefix}${o.shop.emoji} `, o.shop.name, ` [#${o.orderNumber}]`, rowW), cardX + 28, oy);
 
     ctx.fillStyle = '#cbd5e1';
     ctx.font = '600 13.5px sans-serif';
-    ctx.fillText(`→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}`, cardX + 28, oy + 23);
+    ctx.fillText(fitName(ctx, `→ ${o.customer.emoji} `, o.customer.name, ` ${o.unitNumber}`, rowW), cardX + 28, oy + 23);
   });
 
   // Bottom Split Touch Buttons on 3D Phone: [거절] (left) & [👆 콜 수락] (right) — directly clickable in 3D!

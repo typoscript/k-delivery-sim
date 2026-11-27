@@ -1,4 +1,5 @@
 import { PlayerState } from '../../player/PlayerController';
+import { fitName } from './canvasText';
 import {
   CARGO_SLOT_COUNT,
   DeliveryManager,
@@ -136,15 +137,13 @@ export function renderOnFootPhoneOverlay(
 
       ctx.fillStyle = isNight ? '#f8fafc' : '#0f172a';
       ctx.font = 'bold 15px sans-serif';
-      ctx.fillText(`${first.shop.emoji} ${first.shop.name} [#${first.orderNumber}]`, 36, sheetY + 80);
+      const feeText = `₩${(first.baseFee + first.rainBonus).toLocaleString()}`;
+      const nameW = w - 36 - ctx.measureText(feeText).width - 12 - 36;
+      ctx.fillText(fitName(ctx, `${first.shop.emoji} `, first.shop.name, ` [#${first.orderNumber}]`, nameW), 36, sheetY + 80);
 
       ctx.fillStyle = isNight ? '#34d399' : '#059669';
       ctx.textAlign = 'right';
-      ctx.fillText(
-        `₩${(first.baseFee + first.rainBonus).toLocaleString()}`,
-        w - 36,
-        sheetY + 80
-      );
+      ctx.fillText(feeText, w - 36, sheetY + 80);
 
       ctx.fillStyle = first.rainBonus > 0 ? '#38bdf8' : isNight ? '#94a3b8' : '#475569';
       ctx.font = '600 13px sans-serif';

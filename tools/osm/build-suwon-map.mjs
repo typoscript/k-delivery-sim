@@ -240,6 +240,14 @@ async function loadLegacy(file) {
 async function main() {
   const raw = JSON.parse(await readFile(RAW, 'utf8'));
   const els = raw.elements;
+  // Some OSM names pack two businesses into one tag with a long run of spaces
+  // ("탑헤어2F                        세바스찬키친(킹크랩)"): collapse whitespace so names fit the UI
+  for (const e of els) {
+    if (!e.tags) continue;
+    for (const k of ['name', 'name:ko', 'brand']) {
+      if (typeof e.tags[k] === 'string') e.tags[k] = e.tags[k].replace(/\s+/g, ' ').trim();
+    }
+  }
   const stats = {};
 
   // ---------- 1. road graph
