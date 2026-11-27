@@ -50,3 +50,4 @@
 9. **생성 맵 데이터는 직접 수정 금지:** `src/data/openworld/`와 `public/map/`은 `npm run map:build` 출력물입니다. 변환 규칙은 `tools/osm/build-suwon-map.mjs`를 고친 뒤 다시 생성하고, 좌표 규약(`+X` = 서쪽)과 OSM 출처 표기(© OpenStreetMap contributors)를 유지합니다.
 10. **청크 리소스 관리:** 청크 단위로 만든 지오메트리는 청크 해제 시 반드시 `dispose()`하고, 재질·텍스처는 공용으로 만들어 청크마다 새로 만들지 않습니다. 청크 하나를 그리는 드로우콜은 재질별 병합으로 10개 안팎을 유지합니다.
 11. **오픈월드 크기 가정 금지:** 맵은 수 km 크기이고 플레이어가 어디에나 있을 수 있습니다. 맵 전체를 순회하며 메시를 만들지 말고(청크 스트리밍·`ProximityCuller`로 주변만 표시), AI·소품은 플레이어 주변에 배치·재활용합니다. 충돌 판정은 `world.getCollisionObstacles()`(주변 청크 건물)를 사용합니다.
+12. **렌더링 비용 규칙:** 움직이지 않는 소품·청크는 `freezeStatic()`으로 행렬을 고정하고(움직이는 하위 요소는 `updateMatrix()` 후 `updateMatrixWorld(true)`로 직접 갱신), 사이드미러에 필요 없는 작은 소품은 `excludeFromMirrors()`로 미러 패스에서 제외합니다(`src/world/renderLayers.ts`). 씬 행렬은 게임 루프에서 프레임당 한 번만 갱신합니다.

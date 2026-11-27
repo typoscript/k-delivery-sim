@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NO_MIRROR_LAYER } from './world/renderLayers';
 import './style.css';
 import { CityWorld } from './world/CityWorld';
 import { TrafficSystem } from './world/TrafficSystem';
@@ -53,6 +54,8 @@ app.appendChild(renderer.domElement);
 // Scene & Always 1st-Person Camera
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.08, 650);
+// Main view also renders the street props hidden from the side mirrors
+camera.layers.enable(NO_MIRROR_LAYER);
 scene.add(camera);
 
 // Core modules

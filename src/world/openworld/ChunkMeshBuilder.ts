@@ -3,6 +3,7 @@ import { ObstacleBox } from '../../types';
 import { OsmBuildingData, OsmGraphEdge, OsmGraphNode } from '../../data/suwonTypes';
 import { BuildingWallCategory, buildingWallCategory } from '../cityTextures';
 import { ChunkData } from './OpenWorldTypes';
+import { freezeStatic } from '../renderLayers';
 
 /**
  * Builds the render meshes + colliders for ONE streaming chunk.
@@ -264,6 +265,9 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const plaza = new GeoBuffer();
   for (const pz of chunk.pedestrianPlazas) addRibbon(plaza, pz.pts, pz.width, 0.025, 0.25);
   addMesh(plaza, mats.plaza, {});
+
+  // Static chunk: compute world matrices once, skip the subtree in per-frame scene updates
+  freezeStatic(group);
 
   return {
     group,

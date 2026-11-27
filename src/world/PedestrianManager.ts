@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { excludeFromMirrors } from './renderLayers';
 import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
@@ -149,6 +150,7 @@ export class PedestrianManager {
       const startNodeId = pool[Math.floor(Math.random() * pool.length)];
 
       const rig = this.factory.createPedestrian();
+      excludeFromMirrors(rig.root);
       this.root.add(rig.root);
 
       const agent: PedestrianAgent = {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
 import {
   createAsphaltTexture,
   createBuildingMaterials,
@@ -333,7 +334,11 @@ export class CityWorld {
 
   /** Adds a static prop; in the unified city it is distance-culled with the chunk streaming window */
   private addProp(obj: THREE.Object3D, x: number, z: number, radiusChunks?: number): void {
+    // Small street props are not worth re-drawing in the 256px side mirrors
+    excludeFromMirrors(obj);
     this.root.add(obj);
+    // Props never move (lobby doors are refreshed manually in updateLobbyDoors)
+    freezeStatic(obj);
     this.culler?.register(obj, x, z, radiusChunks);
   }
 
@@ -406,6 +411,13 @@ export class CityWorld {
       this.collisionCache = this.obstacles.length > 0 ? [...this.obstacles, ...streamed] : streamed;
     }
     return this.collisionCache;
+  }
+
+  /** Static containers (world root, streamed chunk root, lamp pools) skip per-frame forced matrix updates */
+  public markStaticContainers(): void {
+    makeStaticContainer(this.root);
+    makeStaticContainer(this.streetLampPoolGroup);
+    if (this.streamer) makeStaticContainer(this.streamer.root);
   }
 
   /** The shadow-casting sun (profiler A/B benchmark toggles its shadows) */
@@ -1338,7 +1350,12 @@ export class CityWorld {
       };
       if (this.culler) {
         // 228 city-wide stops: build (and texture) each shelter only when the player gets close
-        this.culler.registerLazy(this.root, bs.shelterX, bs.shelterZ, buildShelter);
+        this.culler.registerLazy(this.root, bs.shelterX, bs.shelterZ, () => {
+          const built = buildShelter();
+          excludeFromMirrors(built.object);
+          freezeStatic(built.object);
+          return built;
+        });
       } else {
         this.root.add(buildShelter().object);
       }
@@ -1505,7 +1522,9 @@ export class CityWorld {
       // Warm golden streetlamp light pool projected onto asphalt at night (zero PointLight cost!)
       const pool = new THREE.Mesh(poolGeo, poolMat);
       pool.position.set(lx, 0.072, lz);
+      excludeFromMirrors(pool);
       this.streetLampPoolGroup.add(pool);
+      freezeStatic(pool);
       this.culler?.register(pool, lx, lz);
     }
     this.streetLampPoolGroup.visible = false;
@@ -1545,8 +1564,16 @@ export class CityWorld {
     for (const entry of this.lobbyDoors.values()) {
       const targetL = entry.open ? -1.42 : -0.56;
       const targetR = entry.open ? 1.42 : 0.56;
-      entry.leftDoor.position.x += (targetL - entry.leftDoor.position.x) * step;
-      entry.rightDoor.position.x += (targetR - entry.rightDoor.position.x) * step;
+      const dl = (targetL - entry.leftDoor.position.x) * step;
+      const dr = (targetR - entry.rightDoor.position.x) * step;
+      if (Math.abs(dl) < 1e-4 && Math.abs(dr) < 1e-4) continue;
+      entry.leftDoor.position.x += dl;
+      entry.rightDoor.position.x += dr;
+      // Lobby groups are frozen static props: push the moved doors' matrices explicitly
+      for (const door of [entry.leftDoor, entry.rightDoor]) {
+        door.updateMatrix();
+        door.updateMatrixWorld(true);
+      }
     }
   }
 

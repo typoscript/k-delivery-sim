@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
@@ -209,6 +210,8 @@ export class TrafficSystem {
         g.add(pole, arm, box);
         this.root.add(g);
         this.signalProps.push({ g, x: n.x, z: n.z });
+        excludeFromMirrors(g);
+        freezeStatic(g);
       }
     }
   }

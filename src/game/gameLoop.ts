@@ -1,3 +1,4 @@
+import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world/renderLayers';
 import { PerfMonitor } from './PerfMonitor';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
 import { PedestrianCollisionEvent } from '../world/PedestrianManager';
@@ -36,6 +37,13 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
 
   let lastTime = performance.now();
   let elapsed = 0;
+
+  scene.matrixWorldAutoUpdate = false;
+  // Containers that never move: keep them from force-updating every descendant each frame
+  for (const c of [scene, traffic.root, pedestrians.root, roadHazards.root]) makeStaticContainer(c);
+  world.markStaticContainers();
+  skipHiddenChildrenInMatrixUpdates(pedestrians.root);
+  skipHiddenChildrenInMatrixUpdates(roadHazards.root);
 
   // F9 / ?perf=1 profiler overlay, `window.__perf.benchmark()` for A/B measurements
   const perf = new PerfMonitor(renderer);
@@ -468,6 +476,10 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     );
 
     perf.lap('hud/phone');
+    // Update all world matrices ONCE per frame; the mirror passes and the main pass reuse them
+    // (renderer.render() would otherwise traverse the whole scene again for every pass)
+    scene.updateMatrixWorld();
+    perf.lap('matrices');
     // Only render scooter mirrors when outdoors & riding
     if (!inCorridor && isRiding && !perf.flags.skipMirrors) {
       perf.gpuBegin('mirrors');

@@ -24,7 +24,8 @@ describe('PedestrianGraph on the active (unified) map', () => {
       `[PedestrianGraph] ${ACTIVE_MAP_DATA.edges.length} OSM edges -> ${g.nodes.length} sidewalk nodes in ${ms.toFixed(1)}ms`
     );
     expect(g.nodes.length).toBeGreaterThan(ACTIVE_MAP_DATA.edges.length);
-    expect(ms).toBeLessThan(150);
+    // ~45-55ms on an idle machine; generous margin so a busy CI / dev box (game running) does not flake
+    expect(ms).toBeLessThan(300);
   });
 
   it('nodesWithin matches a brute-force ring query', () => {

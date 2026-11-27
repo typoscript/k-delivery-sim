@@ -7,6 +7,9 @@ import {
   ScooterPaintId,
 } from './ScooterModels';
 
+
+/** Side mirror view distance */
+const MIRROR_FAR_M = 150;
 export class ScooterMesh {
   public readonly root = new THREE.Group();
   private readonly bodyTiltGroup = new THREE.Group();
@@ -27,6 +30,7 @@ export class ScooterMesh {
   private readonly leftMirrorRT: THREE.WebGLRenderTarget;
   private readonly rightMirrorRT: THREE.WebGLRenderTarget;
   private readonly leftMirrorCam: THREE.PerspectiveCamera;
+  private mirrorFrame = 0;
   private readonly rightMirrorCam: THREE.PerspectiveCamera;
   private readonly leftMirrorAnchor = new THREE.Object3D();
   private readonly rightMirrorAnchor = new THREE.Object3D();
@@ -137,8 +141,9 @@ export class ScooterMesh {
     this.rightMirrorRT.texture.repeat.set(-1, 1);
     this.rightMirrorRT.texture.offset.set(1, 0);
 
-    this.leftMirrorCam = new THREE.PerspectiveCamera(62, 256 / 160, 0.25, 280);
-    this.rightMirrorCam = new THREE.PerspectiveCamera(62, 256 / 160, 0.25, 280);
+    // 150m is plenty for a 256px mirror and lets frustum culling drop far chunks
+    this.leftMirrorCam = new THREE.PerspectiveCamera(62, 256 / 160, 0.25, MIRROR_FAR_M);
+    this.rightMirrorCam = new THREE.PerspectiveCamera(62, 256 / 160, 0.25, MIRROR_FAR_M);
 
     this.root.add(this.bodyTiltGroup);
 
@@ -836,6 +841,13 @@ export class ScooterMesh {
     for (const m of this.mirrorGlassMeshes) m.visible = false;
 
     const prevTarget = renderer.getRenderTarget();
+    // Reuse this frame's shadow map instead of re-rendering it for every mirror pass
+    // (each renderer.render() would otherwise redraw the whole shadow map again)
+    const prevShadowAuto = renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.autoUpdate = false;
+    // Alternate the mirrors: each one refreshes every other frame (~30Hz at 60fps), halving the cost
+    this.mirrorFrame++;
+    const doLeft = this.mirrorFrame % 2 === 0;
 
     // Left mirror camera: rear + slight outward-left view (shows left lane behind rider!)
     this.leftMirrorAnchor.getWorldPosition(this.tmpMirrorPos);
@@ -847,8 +859,10 @@ export class ScooterMesh {
     );
     this.leftMirrorCam.up.set(0, 1, 0);
     this.leftMirrorCam.lookAt(this.tmpMirrorTarget);
-    renderer.setRenderTarget(this.leftMirrorRT);
-    renderer.render(scene, this.leftMirrorCam);
+    if (doLeft) {
+      renderer.setRenderTarget(this.leftMirrorRT);
+      renderer.render(scene, this.leftMirrorCam);
+    }
 
     // Right mirror camera: rear + slight outward-right view (shows right lane & curb behind rider!)
     this.rightMirrorAnchor.getWorldPosition(this.tmpMirrorPos);
@@ -860,10 +874,13 @@ export class ScooterMesh {
     );
     this.rightMirrorCam.up.set(0, 1, 0);
     this.rightMirrorCam.lookAt(this.tmpMirrorTarget);
-    renderer.setRenderTarget(this.rightMirrorRT);
-    renderer.render(scene, this.rightMirrorCam);
+    if (!doLeft) {
+      renderer.setRenderTarget(this.rightMirrorRT);
+      renderer.render(scene, this.rightMirrorCam);
+    }
 
     renderer.setRenderTarget(prevTarget);
+    renderer.shadowMap.autoUpdate = prevShadowAuto;
     for (const m of this.mirrorGlassMeshes) m.visible = true;
   }
 
