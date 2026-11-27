@@ -45,6 +45,9 @@ import {
   RAIN_SURCHARGE_BONUS,
   SettlementResult,
   ShiftRecap,
+  FINE_KINDS,
+  FineKind,
+  fineCounterKey,
 } from './deliveryTypes';
 import {
   OrderSurcharges,
@@ -929,15 +932,17 @@ export class DeliveryManager {
   }
 
   /** Ticket written by a patrol (red light / sidewalk): fine + rider trust rating penalty */
-  public applyTrafficTicket(fine: number, ratingPenalty: number): { fine: number; newRating: number } {
-    this.applyFine(fine);
+  public applyTrafficTicket(fine: number, ratingPenalty: number, kind: FineKind): { fine: number; newRating: number } {
+    this.applyFine(fine, kind);
     this.riderRating = Math.max(0, Math.round((this.riderRating - ratingPenalty) * 10) / 10);
     this.persistCareer();
     return { fine, newRating: this.riderRating };
   }
 
-  public applyFine(amount: number): number {
+  /** Fine paid from the wallet; `kind` sorts it on the daily statement (untyped fines show as 기타) */
+  public applyFine(amount: number, kind?: FineKind): number {
     this.fineExpense += amount;
+    if (kind) this.progress.bump(fineCounterKey(kind), amount);
     this.totalEarnings -= amount;
     this.persistCareer();
     return amount;
@@ -954,7 +959,7 @@ export class DeliveryManager {
     newRating: number;
     newBalance: number;
   } {
-    const fine = this.applyFine(PEDESTRIAN_ACCIDENT_FINE);
+    const fine = this.applyFine(PEDESTRIAN_ACCIDENT_FINE, 'pedestrian');
     this.pedestrianAccidentCount += 1;
     const prevRating = this.riderRating;
     this.riderRating = Math.max(0, Math.round((this.riderRating - PEDESTRIAN_RATING_PENALTY) * 10) / 10);
@@ -995,6 +1000,7 @@ export class DeliveryManager {
       lifetimeCompleted: this.lifetimeCompleted,
       riderTier: this.getCurrentTier(),
       riderRating: this.riderRating,
+      fines: Object.fromEntries(FINE_KINDS.map((k) => [k, this.progress.counters[fineCounterKey(k)] ?? 0])) as Record<FineKind, number>,
     });
   }
 

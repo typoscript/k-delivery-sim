@@ -205,7 +205,7 @@ describe('split DeliveryManager helpers', () => {
 
   it('the daily ledger sums income and expenses', () => {
     const l = { ...emptyLedger(), baseFeeTotal: 9000, tipTotal: 1000, missionBonusTotal: 5000, fuelExpense: 2000, fineExpense: 40000, completedCount: 2 };
-    const d = buildDailyLedger(l, { shiftDay: 3, walletBalance: -27000, lifetimeCompleted: 9, riderTier: RIDER_TIERS[1], riderRating: 4.9 });
+    const d = buildDailyLedger(l, { shiftDay: 3, walletBalance: -27000, lifetimeCompleted: 9, riderTier: RIDER_TIERS[1], riderRating: 4.9, fines: { speeding: 40000, signal: 0, sidewalk: 0, pedestrian: 0 } });
     expect(d).toMatchObject({ shiftDay: 3, completedCount: 2, grossIncome: 15000, totalExpenses: 42000, netProfit: -27000, walletBalance: -27000 });
   });
 

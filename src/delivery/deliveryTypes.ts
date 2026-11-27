@@ -230,6 +230,12 @@ export function generateKoreanLobbyPin(): { code: string; label: string } {
   return { code: digits, label: `${digits} (번호 4자리)` };
 }
 
+/** What a fine was for (the daily ledger breaks fines down by kind) */
+export type FineKind = 'speeding' | 'signal' | 'sidewalk' | 'pedestrian';
+export const FINE_KINDS: readonly FineKind[] = ['speeding', 'signal', 'sidewalk', 'pedestrian'];
+/** Shift counter key that keeps today's fines of a kind (`_` keys are bookkeeping, not goal counters) */
+export const fineCounterKey = (kind: FineKind) => `_fine:${kind}`;
+
 export interface DailyFinanceLedger {
   /** Working day (N일차) this ledger belongs to */
   shiftDay: number;
@@ -250,6 +256,8 @@ export interface DailyFinanceLedger {
   upgradeExpense: number;
   convenienceExpense: number;
   fineExpense: number;
+  /** fineExpense by kind; fines saved before kinds were tracked are not in here */
+  fines: Record<FineKind, number>;
   grossIncome: number;
   totalExpenses: number;
   netProfit: number;

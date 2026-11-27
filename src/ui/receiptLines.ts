@@ -1,4 +1,4 @@
-import { DailyFinanceLedger, SPECIAL_ORDERS, SettlementResult } from '../delivery/DeliveryManager';
+import { DailyFinanceLedger, FINE_KINDS, FineKind, SPECIAL_ORDERS, SettlementResult } from '../delivery/DeliveryManager';
 
 /**
  * Line items shared by every receipt: the per-delivery settlement popup, the full-screen daily report and the
@@ -40,9 +40,30 @@ export function ledgerIncomeLines(l: DailyFinanceLedger): ReceiptLine[] {
   ];
 }
 
+const FINE_LABELS: Record<FineKind, string> = {
+  speeding: '📸 과속 단속 과태료',
+  signal: '🚦 신호위반 과태료',
+  sidewalk: '🚸 인도 주행 과태료',
+  pedestrian: '🚑 보행자 사고 합의금',
+};
+
+/** Fines by kind (only the kinds paid today); a single ₩0 line on a clean day */
+export function fineLines(l: DailyFinanceLedger): ReceiptLine[] {
+  if (l.fineExpense === 0) return [{ key: 'fine', label: '🚨 과태료 · 사고 합의금', amount: 0, tone: 'expense' }];
+  const lines: ReceiptLine[] = FINE_KINDS.filter((k) => l.fines[k] > 0).map((k) => ({
+    key: `fine:${k}`,
+    label: FINE_LABELS[k],
+    amount: -l.fines[k],
+    tone: 'expense' as const,
+  }));
+  const other = l.fineExpense - FINE_KINDS.reduce((sum, k) => sum + l.fines[k], 0);
+  if (other > 0) lines.push({ key: 'fine:other', label: '🚨 기타 과태료', amount: -other, tone: 'expense' });
+  return lines;
+}
+
 export function ledgerExpenseLines(l: DailyFinanceLedger): ReceiptLine[] {
   return [
-    { key: 'fine', label: '🚨 신호위반/인도사고 과태료 차감', amount: -l.fineExpense, tone: 'expense' },
+    ...fineLines(l),
     { key: 'damage', label: '📦 음식 파손 페널티 차감', amount: -l.damageDeductionTotal, tone: 'expense' },
     { key: 'fuel', label: '⛽ 유류비 지출', amount: -l.fuelExpense, tone: 'expense' },
     { key: 'repair', label: '🔧 오토바이 수리·기종·도색', amount: -l.repairExpense, tone: 'expense' },

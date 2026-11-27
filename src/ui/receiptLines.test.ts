@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DeliveryManager } from '../delivery/DeliveryManager';
 import { DeliveryLocation } from '../types';
-import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, settlementLines } from './receiptLines';
+import { PHONE_RECEIPT_GROUPS, compactLines, fineLines, ledgerExpenseLines, ledgerIncomeLines, settlementLines } from './receiptLines';
 
 const loc = (id: string, x: number, z: number, type: 'shop' | 'residential', extra: Partial<DeliveryLocation> = {}): DeliveryLocation => ({
   id,
@@ -63,5 +63,26 @@ describe('receipt lines', () => {
     const phoneExpense = compactLines(ledgerExpenseLines(l), PHONE_RECEIPT_GROUPS);
     expect(sum(phoneIncome) + sum(phoneExpense)).toBe(l.netProfit);
     expect(phoneExpense.length).toBeLessThan(ledgerExpenseLines(l).length);
+  });
+
+  it('fines are listed by kind and still add up (untyped ones as 기타)', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    expect(fineLines(dm.getDailyLedger())).toEqual([expect.objectContaining({ key: 'fine', amount: 0 })]);
+    dm.applyFine(40000, 'speeding');
+    dm.applyFine(1000, 'signal');
+    dm.applyTrafficTicket(40000, 0.1, 'signal');
+    dm.applyTrafficTicket(40000, 0.1, 'sidewalk');
+    dm.applyPedestrianAccidentPenalty();
+    dm.applyFine(500); // no kind
+    const l = dm.getDailyLedger();
+    const lines = fineLines(l);
+    expect(lines.map((x) => x.key)).toEqual(['fine:speeding', 'fine:signal', 'fine:sidewalk', 'fine:pedestrian', 'fine:other']);
+    expect(lines.find((x) => x.key === 'fine:signal')!.amount).toBe(-41000);
+    expect(lines.find((x) => x.key === 'fine:other')!.amount).toBe(-500);
+    expect(sum(lines)).toBe(-l.fineExpense);
+    expect(sum(ledgerIncomeLines(l)) + sum(ledgerExpenseLines(l))).toBe(l.netProfit);
+    // the next working day starts without fines
+    dm.clockOut();
+    expect(fineLines(dm.getDailyLedger())).toHaveLength(1);
   });
 });

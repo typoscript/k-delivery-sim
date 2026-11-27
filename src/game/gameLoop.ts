@@ -59,7 +59,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
   const sidewalkMonitor = new SidewalkRidingMonitor();
   /** Red-light / sidewalk ticket written by a patrol car: fine, rider rating, siren and the ticket card */
   const issuePatrolTicket = (ticket: SpeedCameraTriggerEvent, what: string) => {
-    const res = delivery.applyTrafficTicket(ticket.fine, TICKET_RATING_PENALTY);
+    const res = delivery.applyTrafficTicket(ticket.fine, TICKET_RATING_PENALTY, ticket.kind === 'patrol_sidewalk' ? 'sidewalk' : 'signal');
     audio.playPoliceSiren();
     hud.triggerSpeedCameraFlash();
     hud.showFineTicketPopup(ticket);
@@ -155,7 +155,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
             issuePatrolTicket(ticket, '빨간불 교차로 진입');
             return;
           }
-          const fine = delivery.applyFine(1000);
+          const fine = delivery.applyFine(1000, 'signal');
           hud.showToast(
             fine > 0
               ? `🚨 신호 위반! 빨간불 교차로 통과 (-₩${fine.toLocaleString()}) · 순찰차에 걸리면 ₩${RED_LIGHT_TICKET_FINE.toLocaleString()}`
@@ -236,7 +236,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
         scooterProx,
         traffic.signalState,
         (camEv) => {
-          delivery.applyFine(camEv.fine);
+          delivery.applyFine(camEv.fine, camEv.kind === 'red_light' ? 'signal' : 'speeding');
           audio.playSpeedCameraFlash();
           hud.triggerSpeedCameraFlash();
           hud.showFineTicketPopup(camEv);
@@ -255,7 +255,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
           audio.playCameraApproachBeep(overSpeed);
         },
         (patrolEv) => {
-          delivery.applyFine(patrolEv.fine);
+          delivery.applyFine(patrolEv.fine, 'speeding');
           audio.playPoliceSiren();
           hud.triggerSpeedCameraFlash();
           hud.showFineTicketPopup(patrolEv);

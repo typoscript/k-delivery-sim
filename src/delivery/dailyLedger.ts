@@ -1,6 +1,6 @@
 import { RiderTierSpec } from './RiderCareer';
 import { SHIFT_LEDGER_KEYS, ShiftLedger } from './ShiftDay';
-import { DailyFinanceLedger } from './deliveryTypes';
+import { DailyFinanceLedger, FineKind } from './deliveryTypes';
 
 /** Ledger keys that are income (everything else in the shift ledger except the counts is an expense) */
 const INCOME_KEYS = [
@@ -30,6 +30,7 @@ export interface LedgerContext {
   lifetimeCompleted: number;
   riderTier: RiderTierSpec;
   riderRating: number;
+  fines: Record<FineKind, number>;
 }
 
 /** Copies the shift ledger fields off any object that carries them (DeliveryManager keeps them as fields) */
@@ -53,5 +54,6 @@ export function buildDailyLedger(l: Readonly<ShiftLedger>, ctx: LedgerContext): 
     lifetimeCompleted: ctx.lifetimeCompleted,
     riderTier: ctx.riderTier,
     riderRating: ctx.riderRating,
+    fines: { ...ctx.fines },
   };
 }
