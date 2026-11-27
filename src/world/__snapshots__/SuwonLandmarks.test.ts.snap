@@ -1,0 +1,65 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Suwon landmarks > builds the same gwanggyo landmarks every time 1`] = `
+{
+  "hash": -772140335,
+  "instances": 0,
+  "landmarks": [
+    "광교중앙역 (신분당선)",
+    "갤러리아 백화점 광교",
+    "광교 호수공원 (원천호수)",
+    "경기도청 · 경기융합타운",
+  ],
+  "meshes": 39,
+  "vertices": 1263,
+  "zones": 4,
+}
+`;
+
+exports[`Suwon landmarks > builds the same haenggung landmarks every time 1`] = `
+{
+  "hash": -1286509197,
+  "instances": 0,
+  "landmarks": [
+    "팔달문 (남문)",
+    "화성행궁 신풍루",
+    "여민각 종각",
+    "수원 통닭거리",
+    "수원천 돌다리 (매향교)",
+  ],
+  "meshes": 209,
+  "vertices": 6667,
+  "zones": 5,
+}
+`;
+
+exports[`Suwon landmarks > builds the same ingye landmarks every time 1`] = `
+{
+  "hash": 1267715791,
+  "instances": 0,
+  "landmarks": [
+    "수원시청역 (수인분당선)",
+    "나혜석거리 문화광장",
+    "효원공원 팔각정",
+  ],
+  "meshes": 95,
+  "vertices": 3936,
+  "zones": 3,
+}
+`;
+
+exports[`Suwon landmarks > builds the same suwon_station landmarks every time 1`] = `
+{
+  "hash": 213229457,
+  "instances": 0,
+  "landmarks": [
+    "수원역 (KTX·1호선·분당선)",
+    "수원역 로데오거리",
+    "AK& 수원 플라자",
+    "타임빌라스 수원",
+  ],
+  "meshes": 58,
+  "vertices": 1700,
+  "zones": 4,
+}
+`;
