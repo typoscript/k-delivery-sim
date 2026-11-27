@@ -1,0 +1,14 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`phone map renderer > draws the same canvas calls for the same inputs 1`] = `
+{
+  "heading-up night": {
+    "calls": 2206,
+    "hash": -143722834,
+  },
+  "north-up day": {
+    "calls": 2831,
+    "hash": -483378551,
+  },
+}
+`;
