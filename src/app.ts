@@ -94,11 +94,22 @@ const voiceNav = new VoiceNavigator();
 const delivery = new DeliveryManager(world.locations);
 const dispatch = new OrderDispatchManager(world.locations, {
   onOfferArrived: (offer) => {
-    audio.playDispatchCallAlert();
+    const special = offer.orders.find((o) => o.special)?.special;
+    if (special) {
+      // Special orders announce themselves: distinct alert, then the usual call alert
+      audio.playSpecialOrderAlert(special);
+      window.setTimeout(() => audio.playDispatchCallAlert(), 450);
+    } else {
+      audio.playDispatchCallAlert();
+    }
     voiceNav.speak(
-      offer.type === 'SINGLE'
-        ? '새로운 한집배달 콜이 도착했습니다.'
-        : '새로운 알뜰배달 묶음 콜이 도착했습니다.'
+      special === 'urgent'
+        ? '급한 배달 콜이 도착했습니다. 제한시간이 짧습니다.'
+        : special === 'group'
+          ? '단체 주문 콜이 도착했습니다.'
+          : offer.type === 'SINGLE'
+            ? '새로운 한집배달 콜이 도착했습니다.'
+            : '새로운 알뜰배달 묶음 콜이 도착했습니다.'
     );
     const label = offer.type === 'SINGLE' ? '🚀 한집배달' : '🛵 알뜰배달 (2건 묶음)';
     const hint =
@@ -442,7 +453,7 @@ const hud = new Hud(
       gameCtx.clock.jumpTo(delivery.shiftClockMinute);
       applyGameClock(gameCtx, false);
       hud.phoneMap.setZoomed(false);
-      audio.playMissionBonusFanfare();
+      audio.playShiftEndCadence();
       modalUi.openDailyReportModal(res.ledger, res);
       const bonus = res.awardedAtClockOut.reduce((a, g) => a + g.bonus, 0);
       hud.showToast(

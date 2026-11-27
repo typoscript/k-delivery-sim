@@ -224,6 +224,14 @@ export class Hud {
     }
   }
 
+  /** Briefly pulses the clock pill (a lunch / dinner rush just started) */
+  public flashClock(): void {
+    this.clockBadge.classList.remove('flash');
+    void this.clockBadge.offsetWidth;
+    this.clockBadge.classList.add('flash');
+    window.setTimeout(() => this.clockBadge.classList.remove('flash'), 2600);
+  }
+
   /** Game clock pill (time + demand phase) and the smartphone status-bar clock */
   public setClock(label: string, phase: DemandPhase, day: number): void {
     const text = phase.isPeak
@@ -233,7 +241,9 @@ export class Hud {
     if (text === this.lastClockText) return;
     this.lastClockText = text;
     this.clockBadge.textContent = text;
+    const flashing = this.clockBadge.classList.contains('flash');
     this.clockBadge.className = phase.isPeak ? 'clock-pill peak' : phase.id === 'dawn' || phase.id === 'evening' ? 'clock-pill night' : 'clock-pill';
+    if (flashing) this.clockBadge.classList.add('flash');
   }
 
   public update(

@@ -3,6 +3,9 @@ import { GraphicsRuntime } from './GraphicsRuntime';
 import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world/renderLayers';
 import { PerfMonitor } from './PerfMonitor';
 import { applyGameClock } from './clockSync';
+
+/** Urgent deliveries start ticking with this many seconds left */
+const URGENT_WARN_SEC = 30;
 import { GAME_MINUTES_PER_SECOND } from './GameClock';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
 import { PedestrianCollisionEvent } from '../world/PedestrianManager';
@@ -328,6 +331,18 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     }
 
     perf.lap('physics');
+    // Urgent deliveries: warn at 30s left, then tick every second until the time is up
+    for (const m of delivery.activeMissions) {
+      if (m.order.special !== 'urgent' || m.phase === 'corridor_exit' || m.remainingTimeSec <= 0) continue;
+      const before = Math.ceil(m.remainingTimeSec);
+      const after = Math.ceil(m.remainingTimeSec - dt);
+      if (before === after || after > URGENT_WARN_SEC) continue;
+      if (after === URGENT_WARN_SEC) {
+        hud.showToast(`⏱️ [#${m.order.orderNumber}] 급한 배달 ${URGENT_WARN_SEC}초 남음! 늦으면 급송 할증이 없어요`, 3000);
+        voiceNav.speak('급한 배달, 30초 남았습니다.');
+      }
+      audio.playUrgentTick(after <= 5);
+    }
     // Step active mission delivery countdowns, peak-time cooking timers, cargo physics & live customer chat!
     delivery.stepTimers(dt, (readyMission) => {
       audio.playFoodReadyDingDong();

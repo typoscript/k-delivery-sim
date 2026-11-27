@@ -113,10 +113,16 @@ export function syncDispatchPopup(
     void els.dispatchCardEl.offsetWidth;
     els.dispatchCardEl.classList.add('vibrate');
 
-    els.dpTypeBadgeEl.className = `dp-type-badge ${isSingle ? 'single' : 'alttle'}`;
-    els.dpTypeBadgeEl.textContent = isSingle
-      ? '🚀 한집배달 · 단건 직행'
-      : '🛵 알뜰배달 · 2건 묶음';
+    const specialKind = offer.orders.find((o) => o.special)?.special;
+    els.dpTypeBadgeEl.className = `dp-type-badge ${isSingle ? 'single' : 'alttle'}${specialKind ? ` special-${specialKind}` : ''}`;
+    els.dpTypeBadgeEl.textContent =
+      specialKind === 'urgent'
+        ? '⏱️ 급한 배달 · 한집 직행'
+        : specialKind === 'group'
+          ? '🍱 단체 주문 · 한집 직행'
+          : isSingle
+            ? '🚀 한집배달 · 단건 직행'
+            : '🛵 알뜰배달 · 2건 묶음';
 
     const rainTag = offer.totalRainBonus > 0 ? ` · 🌧️우천+₩${offer.totalRainBonus.toLocaleString()}` : '';
     const nightTag = offer.totalNightBonus > 0 ? ` · 🌙심야+₩${offer.totalNightBonus.toLocaleString()}` : '';

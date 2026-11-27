@@ -29,12 +29,15 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     const prevLabel = delivery.demandPhase.label;
     delivery.setDemandPhase(phase);
     if (announce && phase.isPeak) {
+      ctx.audio.playPeakRushJingle();
+      hud.flashClock();
       hud.showToast(
         `${phase.emoji} ${phase.label} 시작! 콜이 2배 넘게 빨리 들어오고 건당 +₩${phase.peakBonus.toLocaleString()} 피크 할증 (매장 조리는 조금 더 걸려요)`,
         4800
       );
       voiceNav.speak(`${phase.label} 시간입니다. 주문이 많아집니다.`);
     } else if (announce && wasPeak) {
+      ctx.audio.playPeakEndChime();
       hud.showToast(`${prevLabel} 종료 · ${phase.emoji} ${phase.label} 시간대`, 3200);
     } else if (announce && phase.id === 'dawn') {
       hud.showToast(
@@ -77,5 +80,8 @@ export function setWeatherMode(ctx: GameContext, mode: WeatherMode, source: 'aut
   if (source === 'manual') weatherSchedule.override(mode);
   if (source === 'silent') return;
   hud.showToast(WEATHER_MESSAGES[source][mode], 3800);
-  if (source === 'auto' && mode === 'rain') voiceNav.speak('비가 내리기 시작했습니다. 빗길 운전에 주의하세요.');
+  if (source === 'auto' && mode === 'rain') {
+    ctx.audio.playThunderRumble();
+    voiceNav.speak('비가 내리기 시작했습니다. 빗길 운전에 주의하세요.');
+  }
 }

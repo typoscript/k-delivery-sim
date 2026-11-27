@@ -576,6 +576,84 @@ export class GameAudio {
   }
 
   /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
+  /** Short melodic phrase: notes (Hz) played one after another */
+  private playNotes(notes: number[], type: OscillatorType, spacing: number, peak: number, length: number): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      const t = now + idx * spacing;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(peak, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + length);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + length + 0.02);
+    });
+  }
+
+  /** Lunch / dinner rush begins: bright rising "rush hour" jingle */
+  public playPeakRushJingle(): void {
+    this.playNotes([392, 523.25, 659.25, 783.99, 1046.5, 1318.5], 'triangle', 0.075, 0.2, 0.28);
+  }
+
+  /** Rush hour over: gentle falling two-note sign-off */
+  public playPeakEndChime(): void {
+    this.playNotes([659.25, 523.25], 'sine', 0.16, 0.14, 0.4);
+  }
+
+  /** Rain starts: distant low thunder roll (filtered noise) */
+  public playThunderRumble(): void {
+    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const dur = 2.6;
+    const len = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const t = i / len;
+      // Two rolling swells
+      const env = Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.6)), 2) * (1 - t) + 0.5 * Math.pow(Math.sin(Math.PI * t), 4);
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 180;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.9;
+    src.connect(lp);
+    lp.connect(g);
+    g.connect(this.masterGain);
+    src.start(now);
+  }
+
+  /** Special order call (urgent / group): distinct double alert before the normal call alert */
+  public playSpecialOrderAlert(kind: 'urgent' | 'group'): void {
+    if (kind === 'urgent') this.playNotes([1318.5, 987.77, 1318.5, 987.77], 'square', 0.09, 0.08, 0.08);
+    else this.playNotes([523.25, 659.25, 783.99, 659.25, 783.99], 'triangle', 0.07, 0.16, 0.18);
+  }
+
+  /** Urgent delivery running out (last 30s): short clock tick */
+  public playUrgentTick(final: boolean): void {
+    this.playNotes([final ? 1760 : 1320], 'square', 0, final ? 0.1 : 0.06, 0.05);
+  }
+
+  /** Daily goal reached (sparkle on top of the mission fanfare) */
+  public playGoalSparkle(): void {
+    this.playNotes([1567.98, 2093, 2637, 3135.96], 'sine', 0.05, 0.08, 0.22);
+  }
+
+  /** Clock-out: warm closing cadence for the end of the working day */
+  public playShiftEndCadence(): void {
+    this.playNotes([523.25, 659.25, 783.99, 659.25, 523.25, 392, 523.25], 'triangle', 0.13, 0.17, 0.42);
+  }
+
   public playFoodReadyDingDong(): void {
     if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;

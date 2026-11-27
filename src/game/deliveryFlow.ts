@@ -576,6 +576,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       const info = state.pendingMissionBonusPopup;
       state.pendingMissionBonusPopup = null;
       audio.playMissionBonusFanfare();
+      window.setTimeout(() => audio.playGoalSparkle(), 420);
       modalUi.showMissionBonusPopup(info.title, info.bonus, info.totalWallet);
       hud.showToast(`🏆 오늘의 목표 달성! ${info.title} +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
       return;
