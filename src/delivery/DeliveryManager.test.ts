@@ -215,6 +215,18 @@ describe('DeliveryManager mission flow', () => {
     expect(rec).toMatchObject({ day: 1, deliveries: 3, net: res.ledger.netProfit, accidents: 0, goalsTotal: res.goals.length });
     expect(rec.avgStars).not.toBeNull();
     expect(dm.getAchievements().find((a) => a.id === 'first')).toMatchObject({ unlocked: true, unlockedDay: 1 });
+    // Day 1 recap: no previous day, 1-day accident-free streak, today's achievements include the first delivery
+    expect(res.recap.previous).toBeNull();
+    expect(res.recap.safeStreak).toBe(1);
+    expect(res.recap.achievementsToday.map((a) => a.id)).toContain('first');
+    expect(res.recap.next).not.toBeNull();
+
+    // Day 2 compares against day 1
+    for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);
+    const res2 = dm.clockOut()!;
+    expect(res2.recap.previous).toMatchObject({ day: 1, net: res.ledger.netProfit });
+    expect(res2.recap.safeStreak).toBe(2);
+    expect(res2.recap.achievementsToday.map((a) => a.id)).not.toContain('first');
   });
 
   it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {

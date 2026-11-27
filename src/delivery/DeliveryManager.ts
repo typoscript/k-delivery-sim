@@ -44,6 +44,7 @@ import {
   PosPickupResult,
   RAIN_SURCHARGE_BONUS,
   SettlementResult,
+  ShiftRecap,
 } from './deliveryTypes';
 import {
   OrderSurcharges,
@@ -59,6 +60,9 @@ import {
   AchievementSpec,
   AchievementStatus,
   DayRecord,
+  nextAchievement,
+  previousDay,
+  safeDayStreak,
   STAR_COUNT_COUNTER,
   STAR_SUM_COUNTER,
 } from './careerHistory';
@@ -217,6 +221,7 @@ export class DeliveryManager {
     const day = this.shiftDay;
     const ledger = this.getDailyLedger();
     const goals = this.getShiftGoals();
+    const previous = previousDay(this.progress.history, day);
     this.progress.recordDay({
       day,
       completedCount: ledger.completedCount,
@@ -227,6 +232,16 @@ export class DeliveryManager {
       goalsMet: goals.filter((g) => g.claimed).length,
       goalsTotal: goals.length,
     });
+    // Achievements the finished day completes (streaks, best day) count for this day
+    const newAtClockOut = this.progress.collectNewAchievements(this.lifetimeCompleted, day);
+    const statuses = this.getAchievements();
+    const recap: ShiftRecap = {
+      previous,
+      safeStreak: safeDayStreak(this.progress.history),
+      achievementsToday: statuses.filter((a) => a.unlockedDay === day),
+      newAtClockOut,
+      next: nextAchievement(statuses),
+    };
 
     this.shiftDay = day + 1;
     this.shiftClockMinute = SHIFT_START_MINUTE;
@@ -234,7 +249,7 @@ export class DeliveryManager {
     this.restoreLedger(emptyShift(this.shiftDay, SHIFT_START_MINUTE).ledger);
     this.persistCareer();
     this.refreshAvailableOrders();
-    return { day, ledger, goals, awardedAtClockOut, nextDay: this.shiftDay };
+    return { day, ledger, goals, awardedAtClockOut, nextDay: this.shiftDay, recap };
   }
 
   public getCurrentTier(): RiderTierSpec {

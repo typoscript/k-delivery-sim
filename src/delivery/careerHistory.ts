@@ -67,6 +67,23 @@ export function safeDayStreak(history: readonly DayRecord[]): number {
   return streak;
 }
 
+/** The newest finished day before `day` (yesterday's record when the rider works every day) */
+export function previousDay(history: readonly DayRecord[], day: number): DayRecord | null {
+  let prev: DayRecord | null = null;
+  for (const d of history) if (d.day < day && (!prev || d.day > prev.day)) prev = d;
+  return prev;
+}
+
+/** Locked achievement closest to done (highest progress ratio), for a "다음 업적" hint */
+export function nextAchievement(statuses: readonly AchievementStatus[]): AchievementStatus | null {
+  let best: AchievementStatus | null = null;
+  for (const a of statuses) {
+    if (a.unlocked) continue;
+    if (!best || a.current / a.target > best.current / best.target) best = a;
+  }
+  return best;
+}
+
 export function bestDay(history: readonly DayRecord[]): DayRecord | null {
   let best: DayRecord | null = null;
   for (const d of history) if (!best || d.net > best.net) best = d;

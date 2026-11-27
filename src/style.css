@@ -4992,3 +4992,40 @@ body.phone-3d-hover canvas {
 .phone-device.night .career-ach .ca-sub {
   color: #94a3b8;
 }
+
+/* Clock-out statement: day recap (vs previous day, streak, achievements) */
+.shift-recap .recap-compare {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.recap-diff.up {
+  color: #4ade80;
+}
+.recap-diff.down {
+  color: #f87171;
+}
+.recap-diff.same {
+  color: #cbd5e1;
+}
+.recap-ach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.recap-ach-label {
+  margin-right: 4px;
+}
+.recap-ach {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 800;
+  background: rgba(250, 204, 21, 0.18);
+  border: 1px solid rgba(234, 179, 8, 0.55);
+}
+.recap-none {
+  color: #94a3b8;
+}

@@ -462,7 +462,7 @@ const hud = new Hud(
         5200
       );
       voiceNav.speak(`${res.day}일차 근무를 마쳤습니다. 수고하셨습니다.`);
-      delivery.collectNewAchievements().forEach((a, i) =>
+      res.recap.newAtClockOut.forEach((a, i) =>
         window.setTimeout(() => hud.showToast(`🏆 업적 달성! ${a.icon} ${a.title} · ${a.desc}`, 4600), 5600 + i * 4800)
       );
     },

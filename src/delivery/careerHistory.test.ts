@@ -10,6 +10,8 @@ import {
   bestDay,
   makeDayRecord,
   newlyUnlocked,
+  nextAchievement,
+  previousDay,
   parseCountMap,
   parseDayHistory,
   safeDayStreak,
@@ -102,5 +104,15 @@ describe('career history', () => {
     expect(parseDayHistory('nope')).toEqual([]);
     expect(parseCountMap({ far: 2.9, villa: -1, bad: 'x', ['k'.repeat(80)]: 3 })).toEqual({ far: 2 });
     expect(parseCountMap([1, 2])).toEqual({});
+  });
+
+  it('finds the previous working day and the closest locked achievement', () => {
+    const h = [day(1, 3, 100), day(2, 3, 200), day(4, 3, 400)];
+    expect(previousDay(h, 4)?.day).toBe(2);
+    expect(previousDay(h, 5)?.day).toBe(4);
+    expect(previousDay(h, 1)).toBeNull();
+    const st = achievementStatuses(stats({ lifetimeCompleted: 45, counters: { villa: 2 } }), {});
+    expect(nextAchievement(st)?.id).toBe('d50'); // 45/50 beats 2/20 stairs
+    expect(nextAchievement(st.map((a) => ({ ...a, unlocked: true })))).toBeNull();
   });
 });

@@ -4,6 +4,7 @@
 import { DeliveryLocation, FoodTempType } from '../types';
 import { RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { CustomerReview, RiderTierSpec } from './RiderCareer';
+import type { AchievementSpec, AchievementStatus, DayRecord } from './careerHistory';
 import { ShiftGoalSpec, ShiftGoalStatus } from './ShiftDay';
 
 export const MAX_CONCURRENT_ORDERS = 3;
@@ -33,6 +34,21 @@ export interface ClockOutResult {
   /** Goals paid at clock-out (e.g. accident-free shift) */
   awardedAtClockOut: ShiftGoalSpec[];
   nextDay: number;
+  /** The finished day next to the rider's career: last working day, streak, achievements */
+  recap: ShiftRecap;
+}
+
+export interface ShiftRecap {
+  /** Previous finished day (to compare the net profit), null on the first day */
+  previous: DayRecord | null;
+  /** Accident-free days in a row including today (3+ deliveries, no pedestrian accident) */
+  safeStreak: number;
+  /** Achievements unlocked during this working day (deliveries and clock-out) */
+  achievementsToday: AchievementStatus[];
+  /** Unlocked just now at clock-out (announced with a toast) */
+  newAtClockOut: AchievementSpec[];
+  /** Locked achievement closest to done */
+  next: AchievementStatus | null;
 }
 
 export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';

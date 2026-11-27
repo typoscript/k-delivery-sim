@@ -205,6 +205,38 @@ export function garageUpgradeListHtml(career: RiderCareerSave): string {
 
 // ---------------------------------------------------------------- daily statement
 
+/** Clock-out recap: net profit vs the previous day, accident-free streak, achievements of the day */
+export function shiftRecapHtml(r: ClockOutResult): string {
+  const net = r.ledger.netProfit;
+  const won = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
+  let compare = '<span>첫 근무일 기록이에요</span>';
+  if (r.recap.previous) {
+    const diff = net - r.recap.previous.net;
+    const dir = diff > 0 ? 'up' : diff < 0 ? 'down' : 'same';
+    const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '=';
+    compare = `<span>${r.recap.previous.day}일차 ${won(r.recap.previous.net)} 대비</span><b class="recap-diff ${dir}">${arrow} ${won(diff)}</b>`;
+  }
+  const streak = r.recap.safeStreak;
+  const achHtml =
+    r.recap.achievementsToday.length > 0
+      ? r.recap.achievementsToday.map((a) => `<span class="recap-ach">${a.icon} ${a.title}</span>`).join('')
+      : '<span class="recap-none">오늘은 새 업적이 없어요</span>';
+  const next = r.recap.next;
+  const nextHtml = next
+    ? `<div class="rep-line"><span>🎯 다음 업적: ${next.icon} ${next.title} (${next.desc})</span><span>${
+        next.target >= 1000 ? `${Math.round((next.current / next.target) * 100)}%` : `${next.current}/${next.target}`
+      }</span></div>`
+    : '';
+  return `
+      <div class="rep-section shift-recap">
+        <div class="rep-sec-title">📊 ${r.day}일차 기록</div>
+        <div class="rep-line"><span>📈 순수익</span><span class="recap-compare">${compare}</span></div>
+        <div class="rep-line"><span>🛡️ 무사고 연속</span><span>${streak > 0 ? `${streak}일째` : '오늘 끊겼어요 (3건 이상 · 보행자 사고 0건)'}</span></div>
+        <div class="recap-ach-row"><span class="recap-ach-label">🏆 오늘 달성한 업적</span>${achHtml}</div>
+        ${nextHtml}
+      </div>`;
+}
+
 /** Daily statement body; with `clockOut` it also lists the day's goals */
 export function dailyReportHtml(ledger: DailyFinanceLedger, clockOut?: ClockOutResult): string {
   const goalsHtml = clockOut
@@ -244,6 +276,7 @@ export function dailyReportHtml(ledger: DailyFinanceLedger, clockOut?: ClockOutR
         <div class="rep-line sub exp"><span>총 차감/지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
       </div>
       ${goalsHtml}
+      ${clockOut ? shiftRecapHtml(clockOut) : ''}
       <div class="rep-section">
         <div class="rep-line inc"><span>💼 누적 영구 저장 지갑 잔고 (${ledger.riderTier.icon} 누적 ${ledger.lifetimeCompleted}건)</span><span>₩${ledger.walletBalance.toLocaleString()}</span></div>
       </div>

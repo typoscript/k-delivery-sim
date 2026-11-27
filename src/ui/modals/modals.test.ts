@@ -13,6 +13,7 @@ import {
   repairDiagHtml,
   settlementBreakdownHtml,
   settlementPhotoBadge,
+  shiftRecapHtml,
 } from './modalViews';
 import { SCOOTER_MODEL_LIST } from '../../vehicle/ScooterModels';
 import { RIDER_UPGRADE_LIST } from '../../delivery/RiderCareer';
@@ -120,6 +121,13 @@ describe('modal views', () => {
     expect(dailyReportHtml(ledger)).toContain(`(${ledger.completedCount}건 완료)`);
     expect(dailyReportHtml(ledger)).not.toContain('일차 목표');
     const res = dm.clockOut()!;
-    expect(dailyReportHtml(res.ledger, res)).toContain(`${res.day}일차 목표`);
+    const html = dailyReportHtml(res.ledger, res);
+    expect(html).toContain(`${res.day}일차 목표`);
+    expect(html).toContain(`${res.day}일차 기록`);
+    expect(html).toContain('첫 근무일 기록이에요');
+    expect(html).toContain('🛵 첫 배달'); // unlocked today
+    expect(dailyReportHtml(res.ledger)).not.toContain('일차 기록'); // mid-day statement: no recap
+    const worse = { ...res, recap: { ...res.recap, previous: { ...res.ledger, day: 7, deliveries: 9, income: 0, expenses: 0, net: res.ledger.netProfit + 5000, avgStars: null, goalsMet: 0, goalsTotal: 4, accidents: 0 } } };
+    expect(shiftRecapHtml(worse)).toContain('▼ ₩5,000');
   });
 });
