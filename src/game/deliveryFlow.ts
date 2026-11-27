@@ -7,6 +7,10 @@ import { getInstructionMeta } from '../delivery/DeliveryManager';
 import { validateDeliveryPhotoFrame } from '../camera/PhotoProofValidator';
 import { BikeGarageSave } from '../vehicle/ScooterModels';
 import { collidesWithWorld } from '../types';
+import type { InteractEnv } from './interact/interactEnv';
+import { interactServiceStations } from './interact/serviceStations';
+import { interactInCorridor } from './interact/corridorInteract';
+import { interactOutdoors } from './interact/outdoorInteract';
 
 /** Mutable delivery-flow state shared with the game loop and modal callbacks */
 export interface DeliveryFlowState {
@@ -261,278 +265,27 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
     }
   };
 
+  const env: InteractEnv = {
+    ctx,
+    state,
+    bikeGarage,
+    isPlayerNearCargoBox,
+    playerHasPhonePhysically,
+    enterElevatorToCorridor,
+    exitCorridorToStreet,
+    finalizeCorridorSettlement,
+    handleTakeDeliveryPhoto,
+  };
+
+  /** The context [E] key: service stations, then (with deliveries) the corridor or the outdoor spots */
   const handleContextInteract = () => {
-    // Encapsulated outdoor service station interactions (work even with 0 active deliveries!)
-    if (!playerCtrl.state.inCorridor && playerCtrl.state.mode === 'on_foot') {
-      if (world.isPlayerNearGasPump(playerCtrl.state.x, playerCtrl.state.z)) {
-        if (!world.isScooterOnGasPad(scooterPhysics.state.x, scooterPhysics.state.z)) {
-          hud.showToast('⛽ 먼저 오토바이를 주유소 노란 주유 패드 위에 주차하세요!', 3200);
-          return;
-        }
-        if (scooterPhysics.state.fuel >= 99.5) {
-          hud.showToast('⛽ 연료가 이미 가득 차 있습니다 (100%)', 2600);
-          return;
-        }
-        if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-        else hud.phoneMap.setZoomed(false);
-        modalUi.openFuelModal(scooterPhysics.state.fuel);
-        return;
-      }
-
-      if (world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z)) {
-        if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-        else hud.phoneMap.setZoomed(false);
-        modalUi.openRepairModal(
-          scooterPhysics.state.damageLevel,
-          scooterPhysics.state.crashCount,
-          bikeGarage,
-          delivery.career
-        );
-        return;
-      }
-
-      if (world.isPlayerNearConvenienceStore(playerCtrl.state.x, playerCtrl.state.z)) {
-        if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-        else hud.phoneMap.setZoomed(false);
-        audio.playConvenienceChime();
-        modalUi.openConvenienceModal(playerCtrl.state.stamina, hud.phoneMap.battery);
-        return;
-      }
-    }
-
+    if (interactServiceStations(env)) return;
     if (delivery.activeMissions.length === 0) {
       hud.showToast('진행 중인 배달이 없습니다 ([Tab] → [V]로 최대 3건 콜 수락)');
       return;
     }
-
-    // Inside underground corridor (Real 3D Apartment Elevator OR 원룸·빌라 Stairwell)
-    if (playerCtrl.state.inCorridor) {
-      const cm = delivery.getCorridorMission();
-      if (!cm) return;
-
-      // 0. Real 3D Apartment Elevator Controls (Press target floor at 1F / Call elevator / Press 1F to descend!)
-      if (!corridorRoom.isVillaMode) {
-        const inCabin = corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z);
-        if (corridorRoom.elevatorPhase === 'moving_up' || corridorRoom.elevatorPhase === 'moving_down') {
-          hud.showToast(
-            `🛗 엘리베이터 이동 중... (현재 ${corridorRoom.elevatorCurrentFloor}층)`,
-            1600
-          );
-          return;
-        }
-        if (inCabin && corridorRoom.elevatorPhase === 'idle_1f') {
-          if (corridorRoom.startElevatorRideUp()) {
-            audio.playKeypadBeep(true);
-            audio.playElevatorDoorSlide();
-            audio.setElevatorHum(true);
-            hud.showToast(
-              `🛗 ${corridorRoom.elevatorTargetFloor}층 버튼을 눌렀습니다! 문이 닫히고 올라갑니다...`,
-              2800
-            );
-          }
-          return;
-        }
-      }
-
-      if (cm.phase === 'in_corridor') {
-        if (!corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
-          hud.showToast(
-            corridorRoom.isVillaMode
-              ? `🪜 원룸·빌라 계단을 올라 ${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
-              : `${cm.order.unitNumber} 현관문 앞으로 가까이 가세요`
-          );
-          return;
-        }
-
-        const inst = cm.order.deliveryInstruction;
-        hud.stowPhoneToPocket();
-
-        if (inst === 'PHOTO_DOOR') {
-          // Branch 1: PHOTO_DOOR -> place on mat -> camera viewfinder -> Space shutter
-          corridorRoom.placeFoodOnTargetMat();
-          delivery.placeFoodAtDoor();
-          audio.playCargoBoxSound();
-          modalUi.openCameraViewfinder(cm.order);
-          hud.showToast('📸 음식을 발매트에 내려놓았습니다! [Space]로 인증 사진을 찍으세요', 3400);
-          return;
-        }
-
-        if (inst === 'KNOCK_DOOR') {
-          // Branch 2: KNOCK_DOOR -> knock sound ("똑똑똑") -> auto place food on mat -> complete after 3s
-          delivery.startKnockDelivery();
-          audio.playDoorKnockSound();
-          corridorRoom.placeFoodOnTargetMat();
-          hud.showToast('✊ 똑똑똑! 문 앞에 음식을 내려놓았습니다... (3초 후 배달 완료)', 3100);
-          window.setTimeout(() => {
-            const cur = delivery.getCorridorMission();
-            if (cur && cur.phase === 'knock_waiting') {
-              finalizeCorridorSettlement();
-            }
-          }, 3000);
-          return;
-        }
-
-        if (inst === 'MEET_FACE') {
-          // Branch 3: MEET_FACE -> intercom bell ("누구세요? 배달이요!") -> 70° door open -> 3D NPC takes food!
-          state.npcTookFoodBag = false;
-          delivery.startMeetFaceDelivery();
-          corridorRoom.triggerIntercomRing();
-          audio.playIntercomBellAndVoice();
-          hud.showToast('🔔 딩동! 고객: "누구세요?" — 라이더: "배달이요!"', 2400);
-
-          window.setTimeout(() => {
-            const cur = delivery.getCorridorMission();
-            if (!cur || cur.phase !== 'meet_waiting') return;
-            corridorRoom.openTargetDoorForNpc();
-          }, 780);
-
-          window.setTimeout(() => {
-            const cur = delivery.getCorridorMission();
-            if (!cur || cur.phase !== 'meet_waiting') return;
-            state.npcTookFoodBag = true;
-            corridorRoom.triggerNpcReceiveFood();
-            audio.playCargoBoxSound();
-            hud.showToast('🙋 고객이 음식을 직접 수령했습니다! "감사합니다, 수고하세요~"', 2200);
-          }, 1620);
-
-          window.setTimeout(() => {
-            const cur = delivery.getCorridorMission();
-            if (!cur || cur.phase !== 'meet_waiting') return;
-            corridorRoom.retreatNpcSlightly();
-            finalizeCorridorSettlement();
-          }, 2850);
-          return;
-        }
-        return;
-      }
-
-      if (cm.phase === 'corridor_exit') {
-        if (corridorRoom.isVillaMode) {
-          if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
-            exitCorridorToStreet();
-          } else {
-            hud.showToast('🪜 계단을 내려와 원룸·빌라 1층 현관 출구 앞으로 이동해서 [E]를 누르세요');
-          }
-          return;
-        }
-
-        // Real 3D Apartment Elevator Descent Sequence!
-        const inCabin = corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z);
-        if (inCabin) {
-          if (corridorRoom.startElevatorRideDown()) {
-            audio.playKeypadBeep(true);
-            audio.playElevatorDoorSlide();
-            audio.setElevatorHum(true);
-            hud.showToast('🛗 1층 버튼을 눌렀습니다! 문이 닫히고 1층 로비로 내려갑니다...', 2800);
-          }
-        } else if (corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y)) {
-          if (!corridorRoom.isElevatorDoorsOpen()) {
-            if (corridorRoom.openElevatorForExit()) {
-              audio.playKeypadBeep(true);
-              audio.playElevatorDing();
-              audio.playElevatorDoorSlide();
-              hud.showToast('🛗 엘리베이터 문이 열립니다! 안으로 걸어 들어가 [E]로 1층 버튼을 누르세요', 3400);
-            }
-          } else {
-            hud.showToast('🚶 엘리베이터 안으로 걸어 들어가 [E]를 눌러 1층으로 내려가세요', 2600);
-          }
-        } else {
-          hud.showToast('복도 끝 엘리베이터 앞으로 이동해서 [E]로 호출하세요');
-        }
-        return;
-      }
-      return;
-    }
-
-    // Outdoors (must be on foot)
-    if (playerCtrl.state.mode !== 'on_foot') return;
-
-    const carrying = delivery.getCarryingMission();
-    const hasPhone = playerHasPhonePhysically();
-
-    // 1. Outdoor Shop Pickup POS / Cooking Wait / Ready Tray Collection
-    const shopMission = delivery.getMissionNearShopPickup(playerCtrl.state.x, playerCtrl.state.z);
-    if (shopMission) {
-      if (shopMission.phase === 'cooking_wait') {
-        const rem = Math.max(1, Math.ceil(shopMission.cookingRemainingSec));
-        hud.showToast(
-          `🍳 ${shopMission.order.shop.name} [#${shopMission.order.orderNumber}] 조리 중입니다 (남은 시간: ${rem}초)`,
-          2600
-        );
-        return;
-      }
-
-      if (carrying) {
-        hud.showToast(
-          `🛍️ 이미 [#${carrying.order.orderNumber}] 음식을 손에 들고 있습니다! 먼저 오토바이 배달통에 [E]로 적재하세요`,
-          3600
-        );
-        return;
-      }
-
-      if (shopMission.phase === 'pickup_ready') {
-        const collected = delivery.collectReadyPickup(shopMission.order.id);
-        if (collected) {
-          audio.playChime('pickup');
-          hud.showToast(
-            `🛍️ [#${collected.order.orderNumber}] 픽업대 트레이에서 음식 수령 완료! 오토바이 뒤편 배달통 [E]로 적재하세요`,
-            3800
-          );
-        }
-        return;
-      }
-
-      if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-      else hud.phoneMap.setZoomed(false);
-      modalUi.openPosKeypad(
-        shopMission.order,
-        hasPhone,
-        delivery.isRegularShop(shopMission.order.shop.id)
-      );
-      return;
-    }
-
-    // 2. Scooter Rear 3-Slot Cargo Box
-    if (isPlayerNearCargoBox()) {
-      if (carrying || delivery.isCargoLoaded()) {
-        if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-        else hud.phoneMap.setZoomed(false);
-        scooterMesh.triggerCargoBoxOpen();
-        audio.playCargoBoxSound();
-        modalUi.openCargoBoxModal(delivery, playerCtrl.state.x, playerCtrl.state.z);
-      } else {
-        hud.showToast('배달통이 비어 있습니다. 매장에서 음식을 픽업해 오세요!');
-      }
-      return;
-    }
-
-    // 3. Customer 1st-Floor Lobby Glass Door PIN / Elevator
-    const lobbyMission = delivery.getMissionNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z);
-    if (lobbyMission) {
-      if (lobbyMission.phase === 'carrying_to_lobby') {
-        if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
-        else hud.phoneMap.setZoomed(false);
-        modalUi.openPinKeypad(lobbyMission.order, hasPhone);
-        return;
-      }
-      if (lobbyMission.phase === 'lobby_unlocked') {
-        enterElevatorToCorridor(lobbyMission.order.id);
-        return;
-      }
-    }
-
-    // Helpful feedback if holding wrong food bag at a different residential building
-    const nearRes = delivery.getNearestResidenceWithin(playerCtrl.state.x, playerCtrl.state.z);
-    if (nearRes) {
-      if (carrying) {
-        hud.showToast(
-          `🚫 현재 들고 있는 [#${carrying.order.orderNumber}]의 목적지는 ${carrying.order.customer.name}입니다!`,
-          3600
-        );
-      } else if (delivery.isCargoLoaded()) {
-        hud.showToast('🛍️ 먼저 오토바이 뒤편 배달통에서 [E]로 해당 호수 음식을 꺼내오세요!', 3200);
-      }
-    }
+    if (playerCtrl.state.inCorridor) interactInCorridor(env);
+    else interactOutdoors(env);
   };
 
   const tryAcceptIncomingOffer = (fromDirect3DTouch = false): boolean => {

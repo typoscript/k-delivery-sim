@@ -4,31 +4,23 @@ import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world
 import { PerfMonitor } from './PerfMonitor';
 import { applyGameClock } from './clockSync';
 import { activeRoadProximity } from '../world/roadProximity';
-import { ALERT_MAX_DIST_M, RiderAlertMonitor } from './riderAlerts';
-import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
-import { getSignalAxis, signalNodesNear } from '../world/TrafficRules';
+import { RiderAlertMonitor } from './riderAlerts';
 import type { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
 import {
-  RED_LIGHT_TICKET_FINE,
-  SIDEWALK_MIN_KMH,
-  SIDEWALK_TICKET_FINE,
   SidewalkRidingMonitor,
   TICKET_RATING_PENALTY,
-  isSidewalkOffset,
 } from './trafficViolations';
 
-/** Urgent deliveries start ticking with this many seconds left */
-const URGENT_WARN_SEC = 30;
 import { GAME_MINUTES_PER_SECOND } from './GameClock';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
-import { PedestrianCollisionEvent } from '../world/PedestrianManager';
-import { SCOOTER_SPECS, ScooterInput } from '../vehicle/ScooterPhysics';
-import { OnFootInput, PLAYER_RADIUS } from '../player/PlayerController';
-import { pushOutOfBodies } from '../world/vehicleBodies';
-import { validateDeliveryPhotoFrame } from '../camera/PhotoProofValidator';
-import { getInstructionMeta } from '../delivery/DeliveryManager';
-import { getUpgradeEffects } from '../delivery/RiderCareer';
+import { ScooterInput } from '../vehicle/ScooterPhysics';
 import { GameContext } from './GameContext';
+import type { RoadProximityGrid } from '../world/roadProximity';
+import { stepWorldFrame } from './frame/worldFrame';
+import { stepPhysicsFrame } from './frame/physicsFrame';
+import { stepDeliveryFrame } from './frame/deliveryFrame';
+import { stepVisualsFrame } from './frame/visualsFrame';
+import { stepGuidanceFrame } from './frame/guidanceFrame';
 
 /** Game-flow hooks the per-frame loop needs from main.ts */
 export interface GameLoopHooks {
@@ -42,13 +34,34 @@ export interface GameLoopHooks {
   graphics: GraphicsRuntime;
 }
 
+/** Long-lived helpers the per-frame stages share (created once in startGameLoop) */
+export interface LoopState {
+  roadProximity: RoadProximityGrid;
+  sidewalkMonitor: SidewalkRidingMonitor;
+  riderAlerts: RiderAlertMonitor;
+  /** Reused id buffer for nearby signals */
+  nearSignalIds: number[];
+  issuePatrolTicket: (ticket: SpeedCameraTriggerEvent, what: string) => void;
+  NEUTRAL_SCOOTER_INPUT: ScooterInput;
+  perf: PerfMonitor;
+}
+
+/** This frame's basics, computed once at the top of the frame */
+export interface FrameState {
+  dt: number;
+  elapsed: number;
+  inCorridor: boolean;
+  isRiding: boolean;
+  /** A modal / menu holds the controls */
+  movementBlocked: boolean;
+}
+
 /** Upper bound for simulated & rendered frames per second */
 export const MAX_FPS = 60;
 
 /** Starts the requestAnimationFrame loop: simulation step for every system, then rendering */
 export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
-  const { renderer, scene, camera, world, traffic, corridorRoom, roadNavigator, pedestrians, roadHazards, weather, visorRain, voiceNav, delivery, dispatch, scooterPhysics, scooterMesh, playerCtrl, playerMesh, camController, audio, hud, modalUi, districtUi, onboardingSettings, handheldPhone3D, handheldFoodBag3D } = ctx;
-  const { pressed, exitCorridorToStreet, isPlayerNearCargoBox } = hooks;
+  const { renderer, scene, camera, world, traffic, pedestrians, roadHazards, delivery, scooterPhysics, scooterMesh, playerCtrl, audio, hud, modalUi, districtUi, onboardingSettings } = ctx;
 
   const NEUTRAL_SCOOTER_INPUT: ScooterInput = {
     throttle: false,
@@ -101,6 +114,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       : { ...gfx, 위치: `${Math.round(p.x)},${Math.round(p.z)}` };
   });
   (window as unknown as { __perf: PerfMonitor }).__perf = perf;
+  const loop: LoopState = { roadProximity, sidewalkMonitor, riderAlerts, nearSignalIds, issuePatrolTicket, NEUTRAL_SCOOTER_INPUT, perf };
   // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
   // callbacks roughly halves GPU/CPU load (and laptop heat) with no visible difference.
   // 1.5ms of slack so a 60Hz display's slightly early callbacks are never dropped.
@@ -132,509 +146,15 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     const movementBlocked =
       modalUi.isBlockingMovement() || onboardingSettings.isSettingsOpen || districtUi.isOpen;
 
-    if (!inCorridor) {
-      // Open-world chunk streaming & prop culling around whoever is moving (rider follows the scooter)
-      world.updateStreaming(
-        isRiding ? scooterPhysics.state.x : playerCtrl.state.x,
-        isRiding ? scooterPhysics.state.z : playerCtrl.state.z
-      );
-      delivery.setReferencePosition(playerCtrl.state.x, playerCtrl.state.z);
-      world.updateLobbyDoors(dt);
-      perf.lap('streaming');
-      traffic.step(
-        dt,
-        elapsed,
-        world.isNight,
-        playerCtrl.state.x,
-        playerCtrl.state.z,
-        scooterPhysics.state.speed,
-        isRiding,
-        () => {
-          const ticket = roadHazards.witnessTicket(
-            'patrol_red_light',
-            scooterPhysics.state.x,
-            scooterPhysics.state.z,
-            Math.abs(scooterPhysics.state.speed) * 3.6
-          );
-          if (ticket) {
-            issuePatrolTicket(ticket, '빨간불 교차로 진입');
-            return;
-          }
-          const fine = delivery.applyFine(1000, 'signal');
-          hud.showToast(
-            fine > 0
-              ? `🚨 신호 위반! 빨간불 교차로 통과 (-₩${fine.toLocaleString()}) · 순찰차에 걸리면 ₩${RED_LIGHT_TICKET_FINE.toLocaleString()}`
-              : '🚨 신호 위반! 교차로 빨간불에 정지하세요!',
-            3600
-          );
-        },
-        (carX, carZ) => {
-          const relX = carX - scooterPhysics.state.x;
-          const relZ = carZ - scooterPhysics.state.z;
-          const leftX = Math.cos(scooterPhysics.state.heading);
-          const leftZ = -Math.sin(scooterPhysics.state.heading);
-          const hitSide = relX * leftX + relZ * leftZ >= 0 ? 1 : -1;
-          scooterPhysics.triggerExternalCrash(hitSide);
-        },
-        () => {
-          audio.playAiCarHorn();
-          hud.showToast('📢 빵빵! 차량 차선 끼어들기 주의!', 1800);
-        },
-        pedestrians.agents,
-        isRiding ? null : { x: scooterPhysics.state.x, z: scooterPhysics.state.z }
-      );
-      // Cars never end up inside the scooter or the walking player: anything a car moved into is pushed out
-      const carBodies = traffic.getCarBodies();
-      const scooterOut = pushOutOfBodies(scooterPhysics.state.x, scooterPhysics.state.z, SCOOTER_SPECS.radius, carBodies);
-      if (scooterOut) {
-        scooterPhysics.state.x = scooterOut.x;
-        scooterPhysics.state.z = scooterOut.z;
-      }
-      if (playerCtrl.state.mode === 'on_foot') {
-        const footOut = pushOutOfBodies(playerCtrl.state.x, playerCtrl.state.z, PLAYER_RADIUS, carBodies);
-        if (footOut) {
-          playerCtrl.state.x = footOut.x;
-          playerCtrl.state.z = footOut.z;
-        }
-      }
-      const handlePedestrianHit = (hitEvent: PedestrianCollisionEvent) => {
-        // 1. Immediate scooter slip crash (triggers heavy food damage '-55%' + rider ejection!)
-        scooterPhysics.triggerExternalCrash(hitEvent.hitSide, 'pedestrian_hit');
-        // 2. Immediate -₩50,000 fine/settlement & -1.0 Rider Trust Rating deduction
-        const penalty = delivery.applyPedestrianAccidentPenalty();
-        // 3. Emergency audio + prominent top banner ("보행자 접촉 사고 발생!")
-        audio.playPedestrianAccidentAlert();
-        hud.showAccidentBanner(penalty.fine, penalty.ratingLoss, penalty.newRating);
-      };
-
-      const scooterProx = {
-        x: scooterPhysics.state.x,
-        z: scooterPhysics.state.z,
-        heading: scooterPhysics.state.heading,
-        speedMps: scooterPhysics.state.speed,
-        isRiding,
-        crashed: scooterPhysics.state.crashed,
-      };
-
-      perf.lap('traffic');
-      pedestrians.update(
-        dt,
-        traffic.signalState,
-        playerCtrl.state.x,
-        playerCtrl.state.z,
-        scooterPhysics.state.x,
-        scooterPhysics.state.z,
-        inCorridor,
-        scooterProx,
-        handlePedestrianHit,
-        () => {
-          audio.playPedestrianStartle();
-        },
-        carBodies
-      );
-
-      perf.lap('pedestrians');
-      roadHazards.step(
-        dt,
-        elapsed,
-        inCorridor,
-        scooterProx,
-        traffic.signalState,
-        (camEv) => {
-          delivery.applyFine(camEv.fine, camEv.kind === 'red_light' ? 'signal' : 'speeding');
-          audio.playSpeedCameraFlash();
-          hud.triggerSpeedCameraFlash();
-          hud.showFineTicketPopup(camEv);
-          const reason =
-            camEv.kind === 'speeding'
-              ? `📸 무인 과속 단속! (${camEv.measuredKmh}km/h / 제한 ${camEv.limitKmh}km/h · ${camEv.label})`
-              : `📸 무인 신호위반 단속 카메라 적발! (${camEv.label})`;
-          hud.showToast(`${reason} 과태료 -₩${camEv.fine.toLocaleString()}`, 4400);
-        },
-        (popEv) => {
-          audio.playPedestrianStartle();
-          hud.showToast(`⚠️ 사각지대 돌발 주의! ${popEv.hazardName} 뒤에서 보행자 갑툭튀!`, 3200);
-        },
-        handlePedestrianHit,
-        (overSpeed) => {
-          audio.playCameraApproachBeep(overSpeed);
-        },
-        (patrolEv) => {
-          delivery.applyFine(patrolEv.fine, 'speeding');
-          audio.playPoliceSiren();
-          hud.triggerSpeedCameraFlash();
-          hud.showFineTicketPopup(patrolEv);
-          hud.showToast(
-            `🚓 ${patrolEv.label} 현장 단속! (${patrolEv.measuredKmh}km/h 과속) 과태료 -₩${patrolEv.fine.toLocaleString()}`,
-            4600
-          );
-        },
-        { x: playerCtrl.state.x, z: playerCtrl.state.z }
-      );
-      world.mapInfo.upcomingCamera = roadHazards.upcomingCamera;
-
-      // Sidewalk riding: warning, or a full ticket when a patrol car sees it
-      const sx = scooterPhysics.state.x;
-      const sz = scooterPhysics.state.z;
-      const speedKmh = Math.abs(scooterPhysics.state.speed) * 3.6;
-      const curbOffset = isRiding && speedKmh >= SIDEWALK_MIN_KMH ? roadProximity.curbOffset(sx, sz) : -1;
-      if (
-        sidewalkMonitor.step(dt, {
-          isRiding,
-          crashed: scooterPhysics.state.crashed,
-          speedKmh,
-          curbOffset,
-          exempt: isSidewalkOffset(curbOffset) && (world.nearestGasStation(sx, sz)?.dist ?? Infinity) < 30,
-        })
-      ) {
-        const ticket = roadHazards.witnessTicket('patrol_sidewalk', sx, sz, speedKmh);
-        if (ticket) issuePatrolTicket(ticket, '인도 주행');
-        else {
-          audio.playPedestrianStartle();
-          hud.showToast(`🚸 인도 주행 중! 보행자 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`, 3600);
-        }
-      }
-
-      // Red light / pedestrian in the path within stopping distance: warn before it is too late
-      const fx = Math.sin(scooterPhysics.state.heading);
-      const fz = Math.cos(scooterPhysics.state.heading);
-      nearSignalIds.length = 0;
-      const signalsNear = isRiding
-        ? signalNodesNear(sx, sz, ALERT_MAX_DIST_M, nearSignalIds).map((id) => {
-            const n = ACTIVE_MAP_DATA.nodes[id];
-            const axis = getSignalAxis(id, fx, fz);
-            return { id, x: n.x, z: n.z, color: axis === 'ns' ? traffic.signalState.ns : traffic.signalState.ew };
-          })
-        : [];
-      const alert = riderAlerts.step(
-        dt,
-        isRiding && !scooterPhysics.state.crashed,
-        { x: sx, z: sz, heading: scooterPhysics.state.heading, speed: scooterPhysics.state.speed },
-        signalsNear,
-        isRiding ? pedestrians.agents : []
-      );
-      if (alert) {
-        audio.playCameraApproachBeep(true);
-        hud.showToast(
-          alert.kind === 'pedestrian'
-            ? `🚸 전방 ${Math.round(alert.distance)}m 보행자 · 감속하세요`
-            : `🚦 전방 ${Math.round(alert.distance)}m 빨간불 · 정지하세요`,
-          2200
-        );
-      }
-    } else {
-      world.mapInfo.upcomingCamera = null;
-      corridorRoom.updateVisual(elapsed, dt, playerCtrl.state.z, {
-        onFloorTick: () => {
-          audio.playElevatorFloorTick();
-        },
-        onDoorSlide: () => {
-          audio.playElevatorDoorSlide();
-        },
-        onArrivedTargetFloor: (floor) => {
-          audio.setElevatorHum(false);
-          audio.playElevatorDing();
-          voiceNav.speak(`${floor}층입니다. 문이 열립니다.`);
-          const cm = delivery.getCorridorMission();
-          const inst = cm ? getInstructionMeta(cm.order.deliveryInstruction) : null;
-          const unit = cm?.order.unitNumber ?? `${floor}층`;
-          hud.showToast(
-            `🔔 띵동! ${floor}층 도착! 엘리베이터에서 내려 ${unit}로 이동하세요${inst ? ` (${inst.badge})` : ''}`,
-            4600
-          );
-        },
-        onArrivedGroundFloor: () => {
-          audio.setElevatorHum(false);
-          audio.playElevatorDing();
-          voiceNav.speak('1층 로비에 도착했습니다.');
-          exitCorridorToStreet();
-        },
-      });
-    }
-
+    const f: FrameState = { dt, elapsed, inCorridor, isRiding, movementBlocked };
+    stepWorldFrame(ctx, hooks, loop, f);
     perf.lap('hazards');
-    const allObstacles = inCorridor
-      ? []
-      : [...world.getCollisionObstacles(), ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
-
-    const activeBump = inCorridor ? null : world.getSpeedBumpAt(scooterPhysics.state.x, scooterPhysics.state.z);
-    const roadCondition = inCorridor
-      ? { isRaining: false, surface: 'none' as const, onSpeedBump: false }
-      : {
-          isRaining: weather.isRaining,
-          surface: world.getSlipSurfaceAt(scooterPhysics.state.x, scooterPhysics.state.z),
-          onSpeedBump: activeBump !== null,
-          speedBumpLabel: activeBump?.label,
-        };
-
-    if (isRiding && !movementBlocked) {
-      const scooterInput: ScooterInput = {
-        throttle: pressed.has('KeyW') || pressed.has('ArrowUp'),
-        brake: pressed.has('KeyS') || pressed.has('ArrowDown'),
-        steerLeft: pressed.has('KeyA') || pressed.has('ArrowLeft'),
-        steerRight: pressed.has('KeyD') || pressed.has('ArrowRight'),
-        handbrake: pressed.has('Space'),
-      };
-      scooterPhysics.step(dt, scooterInput, allObstacles, roadCondition);
-      playerCtrl.step(
-        dt,
-        { forward: 0, strafe: 0, sprint: false, jump: false },
-        camController.onFootYaw,
-        scooterPhysics.state,
-        allObstacles
-      );
-    } else {
-      if (!inCorridor) {
-        // Rider still mounted behind a modal -> coast with neutral controls instead of the parked/kickstand branch
-        scooterPhysics.step(dt, isRiding ? NEUTRAL_SCOOTER_INPUT : null, allObstacles, roadCondition);
-      }
-
-      if (playerCtrl.state.mode === 'on_foot' && !movementBlocked) {
-        const turnDir =
-          (pressed.has('ArrowLeft') ? 1 : 0) - (pressed.has('ArrowRight') ? 1 : 0);
-        if (turnDir !== 0) {
-          camController.rotateOnFootYaw(turnDir * 2.1 * dt);
-        }
-      }
-
-      const footInput: OnFootInput = movementBlocked
-        ? { forward: 0, strafe: 0, sprint: false, jump: false }
-        : {
-            forward:
-              (pressed.has('KeyW') || pressed.has('ArrowUp') ? 1 : 0) -
-              (pressed.has('KeyS') || pressed.has('ArrowDown') ? 1 : 0),
-            strafe: (pressed.has('KeyA') ? 1 : 0) - (pressed.has('KeyD') ? 1 : 0),
-            sprint: pressed.has('ShiftLeft') || pressed.has('ShiftRight'),
-            jump: pressed.has('Space') && modalUi.activeModal !== 'camera',
-          };
-      playerCtrl.step(
-        dt,
-        footInput,
-        camController.onFootYaw,
-        scooterPhysics.state,
-        allObstacles,
-        (x, z) => corridorRoom.clampPlayerInside(x, z),
-        (x, z) => corridorRoom.getFloorYAt(x, z),
-        () => audio.playStairFootstep()
-      );
-    }
-
+    stepPhysicsFrame(ctx, hooks, loop, f);
     perf.lap('physics');
-    // Urgent deliveries: warn at 30s left, then tick every second until the time is up
-    for (const m of delivery.activeMissions) {
-      if (m.order.special !== 'urgent' || m.phase === 'corridor_exit' || m.remainingTimeSec <= 0) continue;
-      const before = Math.ceil(m.remainingTimeSec);
-      const after = Math.ceil(m.remainingTimeSec - dt);
-      if (before === after || after > URGENT_WARN_SEC) continue;
-      if (after === URGENT_WARN_SEC) {
-        hud.showToast(`⏱️ [#${m.order.orderNumber}] 급한 배달 ${URGENT_WARN_SEC}초 남음! 늦으면 급송 할증이 없어요`, 3000);
-        voiceNav.speak('급한 배달, 30초 남았습니다.');
-      }
-      audio.playUrgentTick(after <= 5);
-    }
-    // Step active mission delivery countdowns, peak-time cooking timers, cargo physics & live customer chat!
-    delivery.stepTimers(dt, (readyMission) => {
-      audio.playFoodReadyDingDong();
-      voiceNav.speak(`${readyMission.order.shop.name} 음식이 준비되었습니다. 픽업대에서 수령하세요.`);
-      hud.showToast(
-        `🔔 ${readyMission.order.shop.emoji} ${readyMission.order.shop.name} [#${readyMission.order.orderNumber}]: "음식이 준비되었습니다!" 픽업대 트레이에서 [E]로 수령하세요`,
-        4600
-      );
-    });
-    delivery.stepCargoPhysics(dt, scooterPhysics.state, isRiding, (ordNo, menuName) => {
-      audio.playLiquidSlosh();
-      hud.showToast(
-        `🍲 [#${ordNo}] ${menuName} 국물/음료 출렁임! 급코너·급브레이크 시 음식 상태가 감소합니다`,
-        2600
-      );
-    });
-    delivery.stepCustomerChatEvents(dt, inCorridor, isRiding, (chatEv) => {
-      audio.playCustomerChatPing();
-      voiceNav.speak('고객님께 새 메시지가 도착했습니다.');
-      hud.showCustomerChatPopup(chatEv);
-    });
-    dispatch.step(dt, delivery, inCorridor, movementBlocked, roadHazards.rivalRiderMarkers, playerCtrl.state);
-
-    // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
-    const navPlan = delivery.getNavigationPlan(
-      playerCtrl.state.x,
-      playerCtrl.state.z,
-      playerCtrl.state.heading,
-      scooterPhysics.state.x,
-      scooterPhysics.state.z,
-      inCorridor,
-      elapsed,
-      roadNavigator
-    );
-
+    const navPlan = stepDeliveryFrame(ctx, hooks, loop, f);
     perf.lap('delivery/nav');
-    // Outdoor Entrance Ground Marker + Shop Pickup Trays + 3-Slot Scooter Visuals
-    // (Navigation path is shown ONLY on the smartphone GPS screen, never on the 3D road!)
-    if (!inCorridor) {
-      world.updateBeacon(navPlan.target, navPlan.isPickupTarget, elapsed);
-
-      const cookingShopIds = new Set<string>();
-      const readyShopIds = new Set<string>();
-      for (const m of delivery.activeMissions) {
-        if (m.phase === 'cooking_wait') cookingShopIds.add(m.order.shop.id);
-        else if (m.phase === 'pickup_ready') readyShopIds.add(m.order.shop.id);
-      }
-      world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
-
-      scooterMesh.sync(scooterPhysics.state, elapsed, dt, world.isNight, weather.rainIntensity);
-      scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());
-      scooterMesh.setPhoneMounted(
-        hud.phoneMap.placement === 'mounted' &&
-          !hud.phoneMap.isZoomed &&
-          !handheldPhone3D.isHoldingPhoneDuringMountAnim()
-      );
-    }
-
-    // 1st-person 3D Right Hand Smartphone & 3D Left Hand Food Bag!
-    handheldPhone3D.update(
-      hud.phoneMap.placement === 'in_hand' &&
-        !hud.phoneMap.isZoomed &&
-        modalUi.activeModal === 'none',
-      playerCtrl.state,
-      dt,
-      elapsed
-    );
-    const showHandBag =
-      (delivery.isCarryingFood() ||
-        (delivery.getCorridorMission()?.phase === 'meet_waiting' && !hooks.isNpcHoldingFoodBag())) &&
-      !isRiding &&
-      modalUi.activeModal !== 'transition';
-    handheldFoodBag3D.update(showHandBag, playerCtrl.state, dt, elapsed);
-
-    playerMesh.sync(
-      playerCtrl.state,
-      scooterMesh.riderMountPoint,
-      scooterPhysics.state.steerAngle,
-      true
-    );
-
-    camController.update(camera, playerCtrl.state, scooterPhysics.state, scooterMesh, dt);
-
-    // Live viewfinder framing validation (Bounding Box + vector.project(camera)) when in PHOTO_DOOR camera mode!
-    if (inCorridor && modalUi.activeModal === 'camera') {
-      const { foodBagMesh, doorPlateMesh } = corridorRoom.getProofTargets();
-      const proofStatus = validateDeliveryPhotoFrame(camera, foodBagMesh, doorPlateMesh);
-      modalUi.updateCameraProofStatus(proofStatus);
-    }
-
-    perf.lap('visuals');
-    // Weather local rain particles (InstancedMesh), 1st-person helmet visor droplets, wet asphalt & audio!
-    weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
-    visorRain.update(dt, weather.rainIntensity, inCorridor, scooterPhysics.state.speed, isRiding);
-    if (!inCorridor) {
-      world.updateWeatherVisuals(weather.rainIntensity, elapsed);
-    }
-    audio.updateWeatherAudio(weather.rainIntensity, inCorridor);
-    audio.update(scooterPhysics.state, elapsed);
-
-    // Korean Web Speech API Voice Navigation (Turn-by-Turn + 80m Speed Camera Enforcement Alert)
-    const navFocusKey = navPlan.focusMission
-      ? `${navPlan.focusMission.order.id}:${navPlan.isPickupTarget ? 'p' : 'd'}`
-      : null;
-    voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
-    voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
-    const roadworkNotice = voiceNav.updateRoadworks(
-      navPlan.roadworks,
-      navFocusKey,
-      scooterPhysics.state.x,
-      scooterPhysics.state.z,
-      isRiding,
-      inCorridor
-    );
-    if (roadworkNotice === 'detour') hud.showToast('🚧 공사 구간을 피해 우회 경로로 안내합니다', 3200);
-    else if (roadworkNotice === 'approach') hud.showToast('🚧 전방 공사 구간 · 1차선 통제, 서행하세요', 3200);
-
-    perf.lap('weather/audio');
-    // Step smartphone battery drain & handlebar-mount wireless charging (2x faster with fast_charger upgrade!)
-    const chargeSpeedMul = getUpgradeEffects(delivery.career.upgrades).chargeSpeedMul;
-    hud.phoneMap.stepBattery(
-      dt,
-      scooterPhysics.state.engineOn,
-      () => {
-        audio.playWirelessChargeStart();
-        hud.showToast(
-          chargeSpeedMul > 1.5
-            ? '⚡ 고속 무선충전 거치대 작동! (2배 속도로 초고속 충전 중)'
-            : '⚡ 오토바이 거치대 무선충전 시작! (주행 중 배터리 자동 충전)',
-          2600
-        );
-      },
-      () => {
-        audio.playLowBatteryBeep();
-        voiceNav.speak('휴대폰 배터리가 부족합니다. 거치대에 장착해 충전하세요.');
-        hud.showToast(
-          '🪫 휴대폰 배터리 15% 이하! 오토바이 거치대 [Tab] 무선충전 또는 🏪 편의점 충전 필요',
-          4200
-        );
-      },
-      () => {
-        audio.playLowBatteryBeep();
-        hud.showToast(
-          '🪫 휴대폰 배터리 방전! 오토바이 거치대 [Tab] 시동 무선충전 또는 🏪 K-24 편의점에서 충전하세요',
-          4600
-        );
-      },
-      chargeSpeedMul
-    );
-
-    // Update 1-Minute First-Shift Interactive Onboarding Guide progress
-    onboardingSettings.updateOnboarding(playerCtrl.state, delivery, {
-      financeTabOpen: hud.phoneMap.isZoomed && hud.phoneMap.activeTab === 'finance',
-      isPeakTime: delivery.demandPhase.isPeak,
-    });
-
-    hud.update(
-      playerCtrl.state,
-      scooterPhysics.state,
-      delivery,
-      dispatch.activeOffer,
-      navPlan,
-      traffic.signalState,
-      world.isNight,
-      weather.mode,
-      audio.muted,
-      elapsed,
-      world.mapInfo,
-      {
-        nearestGas:
-          !inCorridor && scooterPhysics.state.fuel <= 30
-            ? world.nearestGasStation(scooterPhysics.state.x, scooterPhysics.state.z)
-            : null,
-        nearCargoBox: isPlayerNearCargoBox(),
-        nearGasPump: !inCorridor && world.isPlayerNearGasPump(playerCtrl.state.x, playerCtrl.state.z),
-        scooterOnGasPad:
-          !inCorridor && world.isScooterOnGasPad(scooterPhysics.state.x, scooterPhysics.state.z),
-        nearRepairShop:
-          !inCorridor && world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z),
-        scooterOnRepairPad:
-          !inCorridor && world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z),
-        nearConvenienceStore:
-          !inCorridor && world.isPlayerNearConvenienceStore(playerCtrl.state.x, playerCtrl.state.z),
-        nearCorridorTargetDoor:
-          inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
-        nearCorridorElevator:
-          inCorridor && corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
-        insideElevatorCabin:
-          inCorridor && corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z),
-        elevatorPhase: corridorRoom.elevatorPhase,
-        elevatorCurrentFloor: corridorRoom.elevatorCurrentFloor,
-        elevatorTargetFloor: corridorRoom.elevatorTargetFloor,
-        elevatorDoorsOpen: corridorRoom.isElevatorDoorsOpen(),
-        isVillaCorridor: inCorridor && corridorRoom.isVillaMode,
-        villaCurrentFloor:
-          inCorridor && corridorRoom.isVillaMode
-            ? corridorRoom.getCurrentVillaFloor(playerCtrl.state.y)
-            : 1,
-        visorWetHint: !inCorridor && weather.isRaining && visorRain.dropletDensity >= 0.35,
-        modalOpen: modalUi.activeModal !== 'none' || onboardingSettings.isSettingsOpen || districtUi.isOpen,
-      }
-    );
-
+    stepVisualsFrame(ctx, hooks, loop, f, navPlan);
+    stepGuidanceFrame(ctx, hooks, loop, f, navPlan);
     perf.lap('hud/phone');
     // Update all world matrices ONCE per frame; the mirror passes and the main pass reuse them
     // (renderer.render() would otherwise traverse the whole scene again for every pass)
