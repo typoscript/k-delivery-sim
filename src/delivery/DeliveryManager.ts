@@ -1,4 +1,5 @@
 import { DeliveryLocation, FoodTempType, clamp } from '../types';
+import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
@@ -191,6 +192,7 @@ export interface DailyFinanceLedger {
   distanceBonusTotal: number;
   rainBonusTotal: number;
   nightBonusTotal: number;
+  peakBonusTotal: number;
   tierBonusTotal: number;
   tipTotal: number;
   missionBonusTotal: number;
@@ -229,6 +231,8 @@ export interface DeliveryOrder {
   baseFee: number;
   rainBonus: number; // +1500 when generated in Rain mode!
   nightBonus: number; // +1200 when generated in Night mode!
+  /** +₩1,000 when generated during a lunch / dinner rush (GameClock demand phase) */
+  peakBonus?: number;
   distanceMeters: number;
 }
 
@@ -287,6 +291,7 @@ export interface SettlementResult {
   baseFee: number;
   rainBonus: number;
   nightBonus: number;
+  peakBonus: number;
   tierBonus: number;
   tierPromotedTo: RiderTierSpec | null;
   foodIntegrity: number;
@@ -352,12 +357,15 @@ export class DeliveryManager {
   public career: RiderCareerSave;
   public isWeatherRaining = false;
   public isNightMode = false;
+  /** Current demand phase from the game clock (call frequency, peak surcharge, kitchen wait) */
+  public demandPhase: DemandPhase = demandPhaseAt(SHIFT_START_MINUTE);
 
   // Daily comprehensive finance ledger & mission state
   public baseFeeTotal = 0;
   public distanceBonusTotal = 0;
   public rainBonusTotal = 0;
   public nightBonusTotal = 0;
+  public peakBonusTotal = 0;
   public tierBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
@@ -615,6 +623,13 @@ export class DeliveryManager {
     this.refreshAvailableOrders();
   }
 
+  /** Game clock moved into a new demand phase: refresh unaccepted calls so rush-hour surcharges show at once */
+  public setDemandPhase(phase: DemandPhase): void {
+    if (this.demandPhase.id === phase.id) return;
+    this.demandPhase = phase;
+    this.refreshAvailableOrders();
+  }
+
   public refreshAvailableOrders(): void {
     const orders: DeliveryOrder[] = [];
     const usedPairs = new Set<string>(
@@ -662,6 +677,7 @@ export class DeliveryManager {
         baseFee,
         rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
         nightBonus: this.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
+        peakBonus: this.demandPhase.peakBonus,
         distanceMeters,
       });
     }
@@ -783,6 +799,7 @@ export class DeliveryManager {
         baseFee,
         rainBonus: this.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
         nightBonus: this.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
+        peakBonus: this.demandPhase.peakBonus,
         distanceMeters,
       });
     }
@@ -858,7 +875,8 @@ export class DeliveryManager {
     this.persistCareer();
 
     if (hasDelay) {
-      const rawWaitSec = 5 + Math.floor(Math.random() * 6); // 5 ~ 10 seconds random
+      // 5 ~ 10 seconds random, longer while kitchens are slammed in a lunch / dinner rush
+      const rawWaitSec = Math.round((5 + Math.floor(Math.random() * 6)) * this.demandPhase.cookingMul);
       if (isRegularPerk && rawWaitSec <= 6) {
         // Regular store owner prioritized your order -> instant handoff!
         m.phase = 'carrying_to_box';
@@ -1010,6 +1028,7 @@ export class DeliveryManager {
 
     const rainBonus = m.order.rainBonus;
     const nightBonus = m.order.nightBonus;
+    const peakBonus = m.order.peakBonus ?? 0;
     const prevTier = this.getCurrentTier();
     const tierBonus = prevTier.bonusPerDelivery;
     const extraBonuses = tempBonus + villaStairBonus + promisedTipBonus;
@@ -1017,7 +1036,7 @@ export class DeliveryManager {
     // net profit always matches the real wallet change (no independent ±₩100 rounding drift).
     const damageDed = Math.max(0, Math.round((m.order.baseFee * (1 - integrityFactor)) / 100) * 100);
     const earned =
-      m.order.baseFee - damageDed + tip + rainBonus + nightBonus + tierBonus + extraBonuses;
+      m.order.baseFee - damageDed + tip + rainBonus + nightBonus + peakBonus + tierBonus + extraBonuses;
 
     // Record itemized income breakdown into daily ledger (respects SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee)
     const flatRef = m.order.baseFlatFee || BASE_FLAT_FEE;
@@ -1027,6 +1046,7 @@ export class DeliveryManager {
     this.distanceBonusTotal += distPart;
     this.rainBonusTotal += rainBonus;
     this.nightBonusTotal += nightBonus;
+    this.peakBonusTotal += peakBonus;
     this.tierBonusTotal += tierBonus;
     this.tipTotal += tip + extraBonuses;
     this.damageDeductionTotal += damageDed;
@@ -1109,6 +1129,7 @@ export class DeliveryManager {
       baseFee: m.order.baseFee,
       rainBonus,
       nightBonus,
+      peakBonus,
       tierBonus,
       tierPromotedTo,
       foodIntegrity: Math.round(m.foodIntegrity),
@@ -1476,6 +1497,7 @@ export class DeliveryManager {
       this.distanceBonusTotal +
       this.rainBonusTotal +
       this.nightBonusTotal +
+      this.peakBonusTotal +
       this.tierBonusTotal +
       this.tipTotal +
       this.missionBonusTotal;
@@ -1492,6 +1514,7 @@ export class DeliveryManager {
       distanceBonusTotal: this.distanceBonusTotal,
       rainBonusTotal: this.rainBonusTotal,
       nightBonusTotal: this.nightBonusTotal,
+      peakBonusTotal: this.peakBonusTotal,
       tierBonusTotal: this.tierBonusTotal,
       tipTotal: this.tipTotal,
       missionBonusTotal: this.missionBonusTotal,

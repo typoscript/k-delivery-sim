@@ -23,7 +23,7 @@ export function renderCallsTab(player: PlayerState, delivery: DeliveryManager): 
             <span class="dispatch-type-pill ${o.dispatchType === 'SINGLE' ? 'single' : 'alttle'}">${o.dispatchType === 'SINGLE' ? '한집' : '알뜰'}</span>
             ${o.shop.emoji} ${o.shop.name} ${delivery.isRegularShop(o.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${o.orderNumber}</span>
           </span>
-          <span class="order-fee">₩${(o.baseFee + o.rainBonus + o.nightBonus).toLocaleString()}</span>
+          <span class="order-fee">₩${(o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0)).toLocaleString()}</span>
         </div>
         <div class="order-menu">
           ${o.menuName}
@@ -31,6 +31,7 @@ export function renderCallsTab(player: PlayerState, delivery: DeliveryManager): 
           <span class="inst-badge">${getInstructionMeta(o.deliveryInstruction).badge}</span>
           ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
           ${o.nightBonus > 0 ? `<span class="night-bonus-tag">🌙 심야 +₩${o.nightBonus.toLocaleString()}</span>` : ''}
+          ${(o.peakBonus ?? 0) > 0 ? `<span class="peak-bonus-tag">🔥 피크 +₩${(o.peakBonus ?? 0).toLocaleString()}</span>` : ''}
         </div>
         <div class="order-bottom">
           <span class="order-dest">→ ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜계단+500</span>' : ''} (${o.distanceMeters}m)</span>
@@ -128,10 +129,10 @@ export function renderAcceptedTab(
             ${typeBadge}
             <span class="step-badge ${stepCls}">${getPhaseShortLabel(m.phase, m.cargoSlot, m.cookingRemainingSec)}</span>
             <span class="mission-timer-pill ${timerCls}">⏱ ${remMin}:${remS}</span>
-            <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus + m.order.nightBonus).toLocaleString()}</span>
+            <span class="order-fee">₩${(m.order.baseFee + m.order.rainBonus + m.order.nightBonus + (m.order.peakBonus ?? 0)).toLocaleString()}</span>
           </div>
           <div class="order-top">
-            <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}</span>
+            <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}${(m.order.peakBonus ?? 0) > 0 ? ' <span class="peak-bonus-tag">🔥+1천</span>' : ''}</span>
           </div>
           <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b>${villaPill} <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
           <div class="order-menu" style="margin-top:2px">

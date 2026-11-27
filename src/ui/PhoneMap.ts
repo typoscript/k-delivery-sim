@@ -54,6 +54,8 @@ export class PhoneMap {
   private readonly zoomCanvas = document.getElementById('phone-map-canvas') as HTMLCanvasElement;
   private readonly zoomCtx = this.zoomCanvas.getContext('2d')!;
   private readonly clockEl = document.getElementById('phone-clock')!;
+  /** Game clock "HH:MM" shown in the phone status bar */
+  public clockLabel: string | null = null;
   private readonly battPctEl = document.getElementById('sb-battery-pct')!;
   private readonly battWrapEl = document.getElementById('sb-battery-wrap')!;
   private readonly battFillEl = document.getElementById('sb-battery-fill')!;
@@ -562,10 +564,10 @@ export class PhoneMap {
 
     stepMapCamera(this.view, player, this.isZoomed);
 
+    // In-game time (GameClock via Hud.setClock); falls back to the device clock before the first frame
     const now = new Date();
-    const clockStr = `${String(now.getHours()).padStart(2, '0')}:${String(
-      now.getMinutes()
-    ).padStart(2, '0')}`;
+    const clockStr =
+      this.clockLabel ?? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const areaName = resolveAreaName(player.x, player.z, mapInfo);
 
     if (this.isZoomed) {

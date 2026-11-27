@@ -119,8 +119,9 @@ export function syncDispatchPopup(
 
     const rainTag = offer.totalRainBonus > 0 ? ` · 🌧️우천+₩${offer.totalRainBonus.toLocaleString()}` : '';
     const nightTag = offer.totalNightBonus > 0 ? ` · 🌙심야+₩${offer.totalNightBonus.toLocaleString()}` : '';
+    const peakTag = offer.totalPeakBonus > 0 ? ` · 🔥피크+₩${offer.totalPeakBonus.toLocaleString()}` : '';
     els.dpFeeEl.textContent = `₩${offer.totalFee.toLocaleString()}`;
-    els.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}${nightTag}`;
+    els.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}${nightTag}${peakTag}`;
 
     els.dpStopsEl.innerHTML = offer.orders
       .map(

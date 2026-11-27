@@ -38,6 +38,8 @@ import { SUWON_OPEN_WORLD, nearestLegacyDistrictId } from './data/suwonUnified';
 import { GameContext } from './game/GameContext';
 import { installKeyboardInput } from './game/keyboardInput';
 import { startGameLoop } from './game/gameLoop';
+import { GameClock } from './game/GameClock';
+import { applyGameClock } from './game/clockSync';
 import { GraphicsRuntime } from './game/GraphicsRuntime';
 import { runBenchmarkSuite } from './game/BenchmarkSuite';
 import { PerfMonitor } from './game/PerfMonitor';
@@ -1180,7 +1182,9 @@ const gameCtx: GameContext = {
   onboardingSettings,
   handheldPhone3D,
   handheldFoodBag3D,
+  clock: new GameClock(),
 };
+applyGameClock(gameCtx, false);
 
 const pressed = installKeyboardInput(gameCtx, {
   handleContextInteract,
@@ -1228,7 +1232,8 @@ const runSuite = async () => {
         window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' }));
       },
       setNight: (on) => {
-        if (world.isNight !== on) delivery.setNightMode(world.toggleDayNight());
+        if (gameCtx.clock.isNight !== on) gameCtx.clock.toggleDayNight();
+        applyGameClock(gameCtx, false);
       },
       setWeather: (mode) => {
         weather.setMode(mode);
@@ -1263,5 +1268,5 @@ if (IS_UNIFIED_MAP && new URLSearchParams(window.location.search).get('bench') =
 
 // Dev-only handle for automated playtests (stripped from production builds)
 if (import.meta.env.DEV) {
-  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, camController, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
+  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, camController, clock: gameCtx.clock, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
 }

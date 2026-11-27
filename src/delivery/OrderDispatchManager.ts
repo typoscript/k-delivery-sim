@@ -26,6 +26,8 @@ export interface DispatchOffer {
   totalFee: number;
   totalRainBonus: number;
   totalNightBonus: number;
+  /** Lunch / dinner rush surcharge over all orders of the offer */
+  totalPeakBonus: number;
   totalDistanceMeters: number;
   timeLimitSec: number; // 300s (SINGLE) | 500s (ALTTLE_BUNDLE)
   remainingOfferSec: number; // 20s countdown
@@ -58,6 +60,8 @@ export class OrderDispatchManager {
   private readonly residences: DeliveryLocation[];
   private readonly callbacks: DispatchCallbacks;
   private offerSeq = 1;
+  /** Demand multiplier on the wait between calls (game clock: rush hours < 1, dawn > 1) */
+  private offerIntervalMul = 1;
   private orderSeq = 100;
   private urgentNotified = false;
 
@@ -91,6 +95,7 @@ export class OrderDispatchManager {
     modalBlocking: boolean
   ): void {
     const clampedDt = Math.min(dt, 0.05);
+    this.offerIntervalMul = delivery.demandPhase.offerIntervalMul;
 
     // Pause dispatch generation indoors (underground corridor)
     if (inCorridor) {
@@ -125,7 +130,7 @@ export class OrderDispatchManager {
         const expired = this.activeOffer;
         this.activeOffer = null;
         this.state = 'COOLDOWN';
-        this.cooldownRemainingSec = REJECT_COOLDOWN_SEC;
+        this.cooldownRemainingSec = this.nextOfferDelaySec();
         this.callbacks.onOfferExpired(expired);
       }
       return;
@@ -162,17 +167,22 @@ export class OrderDispatchManager {
 
     this.activeOffer = null;
     this.state = 'COOLDOWN';
-    this.cooldownRemainingSec = REJECT_COOLDOWN_SEC;
+    this.cooldownRemainingSec = this.nextOfferDelaySec();
     return offer;
   }
 
-  /** Declines the active 20s call offer and starts the 10-second cooldown */
+  /** Seconds until the next call: 10s normally, ~4.5s in a lunch / dinner rush, 20s at dawn */
+  public nextOfferDelaySec(): number {
+    return REJECT_COOLDOWN_SEC * this.offerIntervalMul;
+  }
+
+  /** Declines the active 20s call offer and starts the cooldown until the next call */
   public rejectCurrentOffer(): DispatchOffer | null {
     if (this.state !== 'OFFERING' || !this.activeOffer) return null;
     const declined = this.activeOffer;
     this.activeOffer = null;
     this.state = 'COOLDOWN';
-    this.cooldownRemainingSec = REJECT_COOLDOWN_SEC;
+    this.cooldownRemainingSec = this.nextOfferDelaySec();
     return declined;
   }
 
@@ -212,6 +222,7 @@ export class OrderDispatchManager {
     const count = type === 'ALTTLE_BUNDLE' ? 2 : 1;
     const rainBonus = delivery.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0;
     const nightBonus = delivery.isNightMode ? NIGHT_SURCHARGE_BONUS : 0;
+    const peakBonus = delivery.demandPhase.peakBonus;
     const orders: DeliveryOrder[] = [];
 
     // For ALTTLE_BUNDLE, prefer geographically reasonable pairs (different customers)
@@ -270,6 +281,7 @@ export class OrderDispatchManager {
           baseFee: SINGLE_FLAT_FEE + distBonus,
           rainBonus,
           nightBonus,
+          peakBonus,
           distanceMeters,
         });
       } else {
@@ -293,6 +305,7 @@ export class OrderDispatchManager {
           baseFee: ALTTLE_FLAT_FEE,
           rainBonus,
           nightBonus,
+          peakBonus,
           distanceMeters,
         });
       }
@@ -300,9 +313,10 @@ export class OrderDispatchManager {
 
     if (orders.length < count) return null;
 
-    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus, 0);
+    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0), 0);
     const totalRainBonus = orders.reduce((acc, o) => acc + o.rainBonus, 0);
     const totalNightBonus = orders.reduce((acc, o) => acc + o.nightBonus, 0);
+    const totalPeakBonus = orders.reduce((acc, o) => acc + (o.peakBonus ?? 0), 0);
     const totalDistanceMeters =
       orders.length === 1
         ? orders[0].distanceMeters
@@ -322,6 +336,7 @@ export class OrderDispatchManager {
       totalFee,
       totalRainBonus,
       totalNightBonus,
+      totalPeakBonus,
       totalDistanceMeters,
       timeLimitSec: type === 'SINGLE' ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
       remainingOfferSec: OFFER_DURATION_SEC,

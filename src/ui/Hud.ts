@@ -1,4 +1,5 @@
 import { PlayerState } from '../player/PlayerController';
+import { DemandPhase } from '../game/GameClock';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { SCOOTER_MODELS } from '../vehicle/ScooterModels';
 import { CityMapInfo } from '../world/CityWorld';
@@ -42,6 +43,8 @@ export class Hud {
   private readonly ratingBadge = document.getElementById('rating-badge')!;
   private readonly buffBadge = document.getElementById('buff-badge')!;
   private readonly weatherBadge = document.getElementById('weather-badge')!;
+  private readonly clockBadge = document.getElementById('clock-badge')!;
+  private lastClockText = '';
   private readonly helpPanel = document.getElementById('help-panel')!;
   private readonly toggleHelpBtn = document.getElementById('toggle-help-btn')!;
 
@@ -219,6 +222,18 @@ export class Hud {
       window.clearTimeout(this.chatPopupTimer);
       this.chatPopupTimer = null;
     }
+  }
+
+  /** Game clock pill (time + demand phase) and the smartphone status-bar clock */
+  public setClock(label: string, phase: DemandPhase): void {
+    const text = phase.isPeak
+      ? `🕐 ${label} · ${phase.emoji} ${phase.label} +₩${phase.peakBonus.toLocaleString()}`
+      : `🕐 ${label} · ${phase.emoji} ${phase.label}`;
+    this.phoneMap.clockLabel = label;
+    if (text === this.lastClockText) return;
+    this.lastClockText = text;
+    this.clockBadge.textContent = text;
+    this.clockBadge.className = phase.isPeak ? 'clock-pill peak' : phase.id === 'dawn' || phase.id === 'evening' ? 'clock-pill night' : 'clock-pill';
   }
 
   public update(

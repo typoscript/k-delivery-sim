@@ -38,6 +38,7 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
       <div class="bc-rcpt-row inc"><span>거리 할증 합계</span><span>+${fmt(l.distanceBonusTotal)}</span></div>
       <div class="bc-rcpt-row inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(l.rainBonusTotal)}</span></div>
       <div class="bc-rcpt-row inc"><span>🌙 심야 할증</span><span>+${fmt(l.nightBonusTotal)}</span></div>
+      <div class="bc-rcpt-row inc"><span>🔥 피크타임 할증</span><span>+${fmt(l.peakBonusTotal)}</span></div>
       <div class="bc-rcpt-row inc"><span>${l.riderTier.icon} ${l.riderTier.name} 보너스</span><span>+${fmt(l.tierBonusTotal)}</span></div>
       <div class="bc-rcpt-row inc"><span>안전 배달 팁 / 미션 보너스</span><span>+${fmt(l.tipTotal + l.missionBonusTotal)}</span></div>
       <div class="bc-rcpt-divider"></div>

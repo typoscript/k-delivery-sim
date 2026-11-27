@@ -1,4 +1,5 @@
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { applyGameClock } from './clockSync';
 import { GameContext } from './GameContext';
 
 /** Gameplay actions the keyboard handler triggers (defined in main.ts, they close over game flow state) */
@@ -119,15 +120,13 @@ export function installKeyboardInput(ctx: GameContext, actions: KeyboardActions)
         break;
       }
       case 'KeyN': {
-        const night = world.toggleDayNight();
-        delivery.setNightMode(night);
-        if (night && !scooterPhysics.state.headlights) {
-          scooterPhysics.state.headlights = true;
-        }
+        // Skip the game clock to the evening (20:00) or the next morning (07:00)
+        const night = ctx.clock.toggleDayNight();
+        applyGameClock(ctx, false);
         hud.showToast(
           night
-            ? '🌙 야간 모드 ON! (헤드라이트 3D 빔 자동 점등 · 신규 콜 심야 할증 +₩1,200!)'
-            : '☀️ 주간 모드 ON',
+            ? `🌙 ${ctx.clock.label} 야간으로 이동! (헤드라이트 3D 빔 자동 점등 · 신규 콜 심야 할증 +₩1,200!)`
+            : `☀️ ${ctx.clock.label} 아침으로 이동`,
           3600
         );
         break;

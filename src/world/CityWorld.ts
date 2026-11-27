@@ -134,6 +134,11 @@ export class CityWorld {
   private readonly beaconRing: THREE.Mesh;
 
   public isNight = false;
+  /** 0 = day .. 1 = night, set from the game clock (setNightness) */
+  private nightness = -1;
+  private readonly skyColor = new THREE.Color();
+  private readonly tmpColor = new THREE.Color();
+  private readonly skyFog = new THREE.FogExp2(0xa5d4fb, 0.00145);
   public weatherMode: WeatherMode = 'clear';
 
   // Wet-road shader & slip-surface materials
@@ -1717,57 +1722,82 @@ export class CityWorld {
     this.manholeMat.metalness = 0.78 + rainIntensity * 0.16;
   }
 
-  private applySkyTheme(): void {
+  /** Day / night look for one weather: sky, fog, sun & sky light, lamp and window glow */
+  private skyLook(night: boolean): SkyLook {
     const isRain = this.weatherMode === 'rain';
     const isCloudy = this.weatherMode === 'cloudy';
+    if (night) {
+      const bg = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
+      return {
+        bg,
+        fog: bg,
+        fogDensity: isRain ? 0.0046 : isCloudy ? 0.0036 : 0.003,
+        dirI: isRain ? 0.16 : isCloudy ? 0.2 : 0.25,
+        dirColor: isRain ? 0x6b88b0 : 0x8aa8d6,
+        hemiI: isRain ? 0.22 : 0.28,
+        lampE: isRain ? 3.8 : 3.2,
+        windowE: isRain ? 1.3 : 1.1,
+        buildingE: isRain ? 0.96 : 0.84,
+      };
+    }
+    if (isRain) {
+      return { bg: 0x5b6d80, fog: 0x5b6d80, fogDensity: 0.0042, dirI: 0.54, dirColor: 0xb8cde0, hemiI: 0.58, lampE: 1.45, windowE: 0.42, buildingE: 0 };
+    }
+    if (isCloudy) {
+      return { bg: 0x889cb0, fog: 0x889cb0, fogDensity: 0.0024, dirI: 0.94, dirColor: 0xdce6f2, hemiI: 0.74, lampE: 0.45, windowE: 0.2, buildingE: 0 };
+    }
+    return { bg: 0x93c5fd, fog: 0xa5d4fb, fogDensity: 0.00145, dirI: 1.48, dirColor: 0xfff7e6, hemiI: 0.92, lampE: 0.2, windowE: 0.14, buildingE: 0 };
+  }
+
+  /**
+   * Applies the sky for the current weather and time of day. `nightness` (0 day .. 1 night, from the game
+   * clock) blends day and night looks so dusk and dawn darken / brighten gradually; street lamp light pools
+   * and landmark night lighting switch on in the darker half (isNight).
+   */
+  private applySkyTheme(): void {
+    const t = this.nightness;
+    const day = this.skyLook(false);
+    const night = this.skyLook(true);
+    const mix = (a: number, b: number) => a + (b - a) * t;
     for (const lb of this.landmarkBuilders) lb.setNightMode(this.isNight);
     this.streetLampPoolGroup.visible = this.isNight;
-    for (const bm of this.buildingNightMats) {
-      bm.emissiveIntensity = this.isNight ? (isRain ? 0.96 : 0.84) : 0;
-    }
+    for (const bm of this.buildingNightMats) bm.emissiveIntensity = mix(day.buildingE, night.buildingE);
 
-    if (this.isNight) {
-      const bgHex = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
-      const fogDensity = isRain ? 0.0046 : isCloudy ? 0.0036 : 0.003;
-      this.scene.background = new THREE.Color(bgHex);
-      this.scene.fog = new THREE.FogExp2(bgHex, this.fogDensity(fogDensity));
-      this.dirLight.intensity = isRain ? 0.16 : isCloudy ? 0.2 : 0.25;
-      this.dirLight.color.setHex(isRain ? 0x6b88b0 : 0x8aa8d6);
-      this.hemiLight.intensity = isRain ? 0.22 : 0.28;
-      this.lampGlowMat.emissiveIntensity = isRain ? 3.8 : 3.2;
-      this.windowGlowMat.emissiveIntensity = isRain ? 1.3 : 1.1;
-    } else if (isRain) {
-      this.scene.background = new THREE.Color(0x5b6d80);
-      this.scene.fog = new THREE.FogExp2(0x5b6d80, this.fogDensity(0.0042));
-      this.dirLight.intensity = 0.54;
-      this.dirLight.color.setHex(0xb8cde0);
-      this.hemiLight.intensity = 0.58;
-      this.lampGlowMat.emissiveIntensity = 1.45;
-      this.windowGlowMat.emissiveIntensity = 0.42;
-    } else if (isCloudy) {
-      this.scene.background = new THREE.Color(0x889cb0);
-      this.scene.fog = new THREE.FogExp2(0x889cb0, this.fogDensity(0.0024));
-      this.dirLight.intensity = 0.94;
-      this.dirLight.color.setHex(0xdce6f2);
-      this.hemiLight.intensity = 0.74;
-      this.lampGlowMat.emissiveIntensity = 0.45;
-      this.windowGlowMat.emissiveIntensity = 0.2;
-    } else {
-      this.scene.background = new THREE.Color(0x93c5fd);
-      this.scene.fog = new THREE.FogExp2(0xa5d4fb, 0.00145);
-      this.dirLight.intensity = 1.48;
-      this.dirLight.color.setHex(0xfff7e6);
-      this.hemiLight.intensity = 0.92;
-      this.lampGlowMat.emissiveIntensity = 0.2;
-      this.windowGlowMat.emissiveIntensity = 0.14;
-    }
+    this.skyColor.setHex(day.bg).lerp(this.tmpColor.setHex(night.bg), t);
+    this.scene.background = this.skyColor;
+    this.skyFog.color.setHex(day.fog).lerp(this.tmpColor.setHex(night.fog), t);
+    this.skyFog.density = mix(this.fogDensity(day.fogDensity), this.fogDensity(night.fogDensity));
+    this.scene.fog = this.skyFog;
+    this.dirLight.intensity = mix(day.dirI, night.dirI);
+    this.dirLight.color.setHex(day.dirColor).lerp(this.tmpColor.setHex(night.dirColor), t);
+    this.hemiLight.intensity = mix(day.hemiI, night.hemiI);
+    this.lampGlowMat.emissiveIntensity = mix(day.lampE, night.lampE);
+    this.windowGlowMat.emissiveIntensity = mix(day.windowE, night.windowE);
   }
 
-  public toggleDayNight(): boolean {
-    this.isNight = !this.isNight;
-    if (this.root.visible) {
-      this.applySkyTheme();
-    }
+  /**
+   * Time of day from the game clock: 0 = day, 1 = night (fractions during dusk / dawn).
+   * Re-applies the sky only when it visibly changed. Returns isNight (the darker half).
+   */
+  public setNightness(nightness: number): boolean {
+    const n = Math.max(0, Math.min(1, nightness));
+    const wasNight = this.isNight;
+    this.isNight = n >= 0.5;
+    if (Math.abs(n - this.nightness) < 0.01 && wasNight === this.isNight) return this.isNight;
+    this.nightness = n;
+    if (this.root.visible) this.applySkyTheme();
     return this.isNight;
   }
+}
+
+interface SkyLook {
+  bg: number;
+  fog: number;
+  fogDensity: number;
+  dirI: number;
+  dirColor: number;
+  hemiI: number;
+  lampE: number;
+  windowE: number;
+  buildingE: number;
 }

@@ -700,6 +700,7 @@ export class ModalUi {
         <div class="rep-line inc"><span>거리 할증 합계</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
         <div class="rep-line inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
         <div class="rep-line inc"><span>🌙 심야 할증</span><span>+${fmt(ledger.nightBonusTotal)}</span></div>
+        <div class="rep-line inc"><span>🔥 피크타임 할증</span><span>+${fmt(ledger.peakBonusTotal)}</span></div>
         <div class="rep-line inc"><span>${ledger.riderTier.icon} ${ledger.riderTier.name} 등급 보너스</span><span>+${fmt(ledger.tierBonusTotal)}</span></div>
         <div class="rep-line inc"><span>안전 배달 팁</span><span>+${fmt(ledger.tipTotal)}</span></div>
         <div class="rep-line inc"><span>🏆 일일 배달 미션 보너스</span><span>+${fmt(ledger.missionBonusTotal)}</span></div>
@@ -809,6 +810,10 @@ export class ModalUi {
       result.nightBonus > 0
         ? `<div class="st-row tip"><span>🌙 심야 할증 보너스</span><span>+₩${result.nightBonus.toLocaleString()}</span></div>`
         : '';
+    const peakRow =
+      result.peakBonus > 0
+        ? `<div class="st-row tip"><span>🔥 피크타임 할증</span><span>+₩${result.peakBonus.toLocaleString()}</span></div>`
+        : '';
     const tierRow =
       result.tierBonus > 0
         ? `<div class="st-row tip"><span>🏅 라이더 등급 보너스</span><span>+₩${result.tierBonus.toLocaleString()}</span></div>`
@@ -863,6 +868,7 @@ export class ModalUi {
       <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
       ${rainRow}
       ${nightRow}
+      ${peakRow}
       ${tierRow}
       ${tempRow}
       ${villaRow}

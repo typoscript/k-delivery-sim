@@ -22,6 +22,7 @@ import { ModalUi } from '../ui/ModalUi';
 import { VisorRainOverlay } from '../ui/VisorRainOverlay';
 import { OnboardingAndSettings } from '../ui/OnboardingAndSettings';
 import { DistrictSelectorUi } from '../ui/DistrictSelectorUi';
+import { GameClock } from './GameClock';
 
 /** Shared game systems created once in main.ts and handed to the input handler and game loop */
 export interface GameContext {
@@ -51,4 +52,6 @@ export interface GameContext {
   onboardingSettings: OnboardingAndSettings;
   handheldPhone3D: HandheldPhone3D;
   handheldFoodBag3D: HandheldFoodBag3D;
+  /** In-game time of day: lighting, night surcharge and rush-hour demand */
+  clock: GameClock;
 }

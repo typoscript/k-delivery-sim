@@ -2,6 +2,7 @@ import { InputActivity, targetFps } from './PowerSaver';
 import { GraphicsRuntime } from './GraphicsRuntime';
 import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world/renderLayers';
 import { PerfMonitor } from './PerfMonitor';
+import { applyGameClock } from './clockSync';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
 import { PedestrianCollisionEvent } from '../world/PedestrianManager';
 import { SCOOTER_SPECS, ScooterInput } from '../vehicle/ScooterPhysics';
@@ -88,6 +89,10 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
     lastTime = now;
     elapsed += dt;
+
+    // Game time of day: dusk / dawn lighting, night surcharge, rush-hour demand (1 real s = 1 game min)
+    ctx.clock.advance(dt);
+    applyGameClock(ctx);
 
     const inCorridor = playerCtrl.state.inCorridor;
     const isRiding = playerCtrl.state.mode === 'riding';
