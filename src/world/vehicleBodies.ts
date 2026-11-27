@@ -76,6 +76,24 @@ export function gapAheadOfBody(b: VehicleBody, x: number, z: number, radius: num
 }
 
 /**
+ * Sideways shift to the LEFT (toward the centre line, right-hand traffic) that moves the car's swept lane
+ * clear of a circle in its path: 0 if the circle is not ahead in the lane. Moving the car left by s turns
+ * the circle's right-side offset `side` into `side + s`, so s = needed clearance - side.
+ */
+export function passShiftFor(b: VehicleBody, x: number, z: number, radius: number, clearance = 0.35): number {
+  const { along, side } = toBodyFrame(b, x, z);
+  if (along <= 0) return 0;
+  const need = b.halfWidth + radius + clearance;
+  if (Math.abs(side) >= need) return 0;
+  return need - side;
+}
+
+/** The body moved sideways to the left by `shift` metres (same heading) */
+export function shiftedLeft(b: VehicleBody, shift: number): VehicleBody {
+  return { ...b, x: b.x + Math.cos(b.heading) * shift, z: b.z - Math.sin(b.heading) * shift };
+}
+
+/**
  * Pushes a circle out of every car body it overlaps (minimum translation along the body's length or width).
  * Returns the corrected position, or null if it was not inside any car.
  */

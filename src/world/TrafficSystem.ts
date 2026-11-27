@@ -3,7 +3,7 @@ import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { buildInstanced, placeMatrix } from './instancing';
 import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
-import { VehicleBody, gapAheadOfBody, vehicleObstacle } from './vehicleBodies';
+import { VehicleBody, gapAheadOfBody, passShiftFor, shiftedLeft, toBodyFrame, vehicleObstacle } from './vehicleBodies';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
   SIGNAL_STOP_LINE_OFFSET,
@@ -72,6 +72,12 @@ interface AiVehicle {
   blockedBy: number;
   ignoreIdx: number;
   ignoreTimer: number;
+  /** Going around a scooter left standing in our lane: current / target left shift (m) and the obstacle */
+  passOffset: number;
+  passTarget: number;
+  passWait: number;
+  passObsX: number;
+  passObsZ: number;
 }
 
 /** Squares (half-size = halfWidth) along the body axis that the AI forward ray tests against */
@@ -85,6 +91,11 @@ const PLAYER_RIDING_RADIUS = 0.9;
 const PLAYER_WALK_RADIUS = 0.6;
 const PEDESTRIAN_YIELD_RADIUS = 0.9;
 const SIGNAL_LOOKAHEAD = 32;
+/** Wait this long behind a scooter standing in the lane, then go around it on the left */
+export const PASS_WAIT_SEC = 3.0;
+const MAX_PASS_SHIFT = 3.6;
+const PASS_SHIFT_SPEED = 1.4; // m/s sideways while pulling out / back in
+const PASS_SPEED_CAP = 4.0; // m/s while squeezing past
 
 const CYCLE_DURATION = 18.0;
 const FRONT_RAY_RANGE = 12.5;
@@ -318,6 +329,11 @@ export class TrafficSystem {
         blockedBy: -1,
         ignoreIdx: -1,
         ignoreTimer: 0,
+        passOffset: 0,
+        passTarget: 0,
+        passWait: 0,
+        passObsX: 0,
+        passObsZ: 0,
       });
     }
   }
@@ -339,6 +355,39 @@ export class TrafficSystem {
   /** Live vehicle bodies (position, heading, size, speed) for pedestrians and push-out (do not mutate) */
   public getCarBodies(): readonly VehicleBody[] {
     return this.vehicles;
+  }
+
+  /**
+   * Going around a scooter standing in the lane (parked, or the rider stopped): after PASS_WAIT_SEC stopped
+   * behind it, pull out left just enough to clear it if that path is free of other cars, creep past, and
+   * merge back once it is behind us (or at the next node).
+   */
+  private updatePass(v: AiVehicle, idx: number, standing: { x: number; z: number; gap: number } | null, dt: number): void {
+    if (v.passTarget > 0) {
+      const { along } = toBodyFrame(v, v.passObsX, v.passObsZ);
+      if (along < -(v.halfLength + 1.5)) v.passTarget = 0;
+      return;
+    }
+    if (!standing || v.speed > 0.3) {
+      v.passWait = 0;
+      return;
+    }
+    v.passWait += dt;
+    if (v.passWait < PASS_WAIT_SEC) return;
+    const shift = passShiftFor(v, standing.x, standing.z, PLAYER_RIDING_RADIUS);
+    if (shift <= 0 || shift > MAX_PASS_SHIFT) return;
+    // The pulled-out path must be free of other cars (oncoming or parked in it) for the next 20m
+    const out = shiftedLeft(v, shift);
+    for (let j = 0; j < this.vehicles.length; j++) {
+      if (j === idx) continue;
+      const o = this.vehicles[j];
+      if ((o.x - v.x) ** 2 + (o.z - v.z) ** 2 > 900) continue;
+      if (gapAheadOfBody(out, o.x, o.z, o.halfWidth + 0.4, 20) < Infinity) return;
+    }
+    v.passTarget = shift;
+    v.passObsX = standing.x;
+    v.passObsZ = standing.z;
+    v.passWait = 0;
   }
 
   /** Forward-ray gap to vehicle `o` using its segment chain (Infinity if the ray misses) */
@@ -531,6 +580,9 @@ export class TrafficSystem {
                 v.heading = spawn.heading;
                 v.stuckTimer = 0;
                 v.ignoreIdx = -1;
+                v.passTarget = 0;
+                v.passOffset = 0;
+                v.passWait = 0;
               }
             }
           }
@@ -630,10 +682,16 @@ export class TrafficSystem {
         }
 
         // Parked scooter left on the road: stop behind it like any other obstacle
+        let standing: { x: number; z: number; gap: number } | null = null;
         if (parkedScooter) {
           const scGap = gapAheadOfBody(v, parkedScooter.x, parkedScooter.z, PLAYER_RIDING_RADIUS, FRONT_RAY_RANGE);
           if (scGap < minGap) minGap = scGap;
+          if (scGap < SAFE_FOLLOW_GAP + 1) standing = { x: parkedScooter.x, z: parkedScooter.z, gap: scGap };
+        } else if (isRiding && Math.abs(playerSpeedMps) < 0.3) {
+          const plGap = gapAheadOfBody(v, playerX, playerZ, PLAYER_RIDING_RADIUS, FRONT_RAY_RANGE);
+          if (plGap < SAFE_FOLLOW_GAP + 1) standing = { x: playerX, z: playerZ, gap: plGap };
         }
+        this.updatePass(v, i, standing, clampedDt);
 
         // Yield to pedestrians crossing the road (or lying fallen / startled in it) inside our lane ahead
         if (pedestrians) {
@@ -672,6 +730,8 @@ export class TrafficSystem {
           targetSpd = Math.min(targetSpd, v.cruiseSpeed * ((minGap - SAFE_FOLLOW_GAP) / (FRONT_RAY_RANGE - SAFE_FOLLOW_GAP)));
         }
 
+        if (v.passTarget > 0 || v.passOffset > 0.05) targetSpd = Math.min(targetSpd, PASS_SPEED_CAP);
+
         const accelRate = emergency ? 18 : targetSpd < v.speed ? 11 : 4.2;
         v.speed += clamp(targetSpd - v.speed, -accelRate * clampedDt, accelRate * clampedDt);
         v.braking = targetSpd < v.speed - 0.5 || v.speed < 0.2;
@@ -692,6 +752,8 @@ export class TrafficSystem {
           const nextEdge = v.nextEdge ?? this.pickNextEdge(v);
           v.nextEdge = null;
           const carry = v.progress - v.edgeDist;
+          // Pulled-out cars merge back at the next node (the lane blend smooths the jump)
+          v.passTarget = 0;
           v.fromNode = v.toNode;
           v.toNode = nextEdge.to;
           v.edgeDist = nextEdge.dist;
@@ -711,8 +773,10 @@ export class TrafficSystem {
         v.edgeDist,
         v.edgeWidth
       );
-      v.x = pose.x + v.blendX;
-      v.z = pose.z + v.blendZ;
+      // Pull out to / back in from the passing offset (left of travel = (cos h, -sin h))
+      v.passOffset += clamp(v.passTarget - v.passOffset, -PASS_SHIFT_SPEED * clampedDt, PASS_SHIFT_SPEED * clampedDt);
+      v.x = pose.x + v.blendX + Math.cos(pose.heading) * v.passOffset;
+      v.z = pose.z + v.blendZ - Math.sin(pose.heading) * v.passOffset;
       const dHead = wrapAngle(pose.heading - v.heading);
       v.heading = wrapAngle(v.heading + dHead * Math.min(1, clampedDt * 8));
 
