@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { DeliveryManager, REPAIR_COST_PER_DAMAGE_STAGE } from '../../delivery/DeliveryManager';
 import { DeliveryLocation } from '../../types';
 import { PIN_MAX_TOKENS, pinTokenFor, posCharFor } from './keypads';
@@ -17,6 +18,7 @@ import {
 } from './modalViews';
 import { SCOOTER_MODEL_LIST } from '../../vehicle/ScooterModels';
 import { RIDER_UPGRADE_LIST } from '../../delivery/RiderCareer';
+import { ledgerIncomeLines } from '../receiptLines';
 
 const loc = (id: string, x: number, z: number, type: 'shop' | 'residential', extra: Partial<DeliveryLocation> = {}): DeliveryLocation => ({
   id,
@@ -134,5 +136,77 @@ describe('modal views', () => {
     expect(weekly.match(/week-bar-col/g)).toHaveLength(7);
     const worse = { ...res, recap: { ...res.recap, previous: { ...res.ledger, day: 7, deliveries: 9, income: 0, expenses: 0, net: res.ledger.netProfit + 5000, avgStars: null, goalsMet: 0, goalsTotal: 4, accidents: 0 } } };
     expect(shiftRecapHtml(worse)).toContain('▼ ₩5,000');
+  });
+});
+
+/** One order from the board through pickup, cargo box, corridor and the doorstep photo */
+function deliverOne(dm: DeliveryManager): void {
+  const o = dm.availableOrders[0];
+  dm.acceptOrder(o.id);
+  dm.completePosPickup(o.id, false);
+  dm.loadFoodIntoCargoSlot(dm.getFirstEmptyCargoSlot());
+  dm.unloadFoodFromCargoSlot(dm.getMissionById(o.id)!.cargoSlot!);
+  dm.unlockLobbyDoor(o.id);
+  dm.enterCorridor(o.id);
+  dm.placeFoodAtDoor();
+  expect(dm.completePhotoSettlement()).not.toBeNull();
+  dm.finishAfterCorridorExit();
+}
+
+/** "+₩12,300" / "-₩500" / "₩0" -> number */
+const wonOf = (text: string) => Number(text.replace(/[^0-9-]/g, '') || 0);
+
+describe('daily statement', () => {
+  it("the 7th day's statement lists the weekly goals with progress and the paid bonus", () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    let res = null;
+    for (let d = 1; d <= 7; d++) {
+      deliverOne(dm);
+      res = dm.clockOut()!;
+    }
+    const goals = res!.recap.weekGoals!;
+    const html = dailyReportHtml(res!.ledger, res!);
+    expect(html).toContain('1주차 주간 정산 (1~7일차)');
+    // one row per goal: title, progress on its own line, bonus or 미달성
+    for (const g of goals) {
+      expect(html).toContain(`${g.icon} ${g.title}<small class="rep-progress">`);
+    }
+    expect(html.match(/class="rep-progress"/g)).toHaveLength(goals.length);
+    const paid = goals.filter((g) => g.met).reduce((a, g) => a + g.bonus, 0);
+    expect(html).toContain(`주간 목표 보너스 (지갑 반영)</span><span>+₩${paid.toLocaleString()}`);
+    expect(html.match(/미달성/g)?.length ?? 0).toBeGreaterThanOrEqual(goals.filter((g) => !g.met).length);
+    // day 1~6 statements have no weekly section
+    const day1 = new DeliveryManager(LOCATIONS);
+    deliverOne(day1);
+    const r1 = day1.clockOut()!;
+    expect(dailyReportHtml(r1.ledger, r1)).not.toContain('rep-progress');
+  });
+
+  it('income rows add up to the total income, weekly bonus included', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    let res = null;
+    for (let d = 1; d <= 7; d++) {
+      deliverOne(dm);
+      deliverOne(dm);
+      res = dm.clockOut()!;
+    }
+    const ledger = res!.ledger;
+    const rows = ledgerIncomeLines(ledger);
+    expect(rows.reduce((a, l) => a + l.amount, 0)).toBe(ledger.grossIncome);
+    const html = dailyReportHtml(ledger, res!);
+    const incomeSection = html.slice(html.indexOf('배달 수입 명세'), html.indexOf('총 수입 소계'));
+    const shown = [...incomeSection.matchAll(/<span>([^<]*)<\/span><\/div>/g)].map((m) => wonOf(m[1]));
+    expect(shown.reduce((a, b) => a + b, 0)).toBe(ledger.grossIncome);
+    expect(html).toContain(`총 수입 소계</span><span>+₩${ledger.grossIncome.toLocaleString()}`);
+    if (ledger.weeklyBonusTotal > 0) expect(rows.some((l) => l.amount === ledger.weeklyBonusTotal)).toBe(true);
+  });
+
+  it('the statement card fits the screen and its body scrolls (long weekly statements)', () => {
+    // Regression: the 7th day's statement was taller than the viewport and cut off its OK button
+    const css = readFileSync(new URL('../../style.css', import.meta.url), 'utf8');
+    const rule = (sel: string) => css.match(new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`))?.[1] ?? '';
+    expect(rule('.report-card')).toMatch(/max-height:\s*calc\(100vh/);
+    expect(rule('.report-body')).toMatch(/overflow-y:\s*auto/);
+    expect(rule('.report-body')).toMatch(/min-height:\s*0/);
   });
 });
