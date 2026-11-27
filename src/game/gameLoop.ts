@@ -469,7 +469,10 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     );
 
     // Update 1-Minute First-Shift Interactive Onboarding Guide progress
-    onboardingSettings.updateOnboarding(playerCtrl.state, delivery);
+    onboardingSettings.updateOnboarding(playerCtrl.state, delivery, {
+      financeTabOpen: hud.phoneMap.isZoomed && hud.phoneMap.activeTab === 'finance',
+      isPeakTime: delivery.demandPhase.isPeak,
+    });
 
     hud.update(
       playerCtrl.state,

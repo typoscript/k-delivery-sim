@@ -4,6 +4,17 @@ import { PlayerState } from '../player/PlayerController';
 
 const SETTINGS_STORAGE_KEY = 'k_delivery_settings_v1';
 const TUTORIAL_STORAGE_KEY = 'k_delivery_tutorial_done_v1';
+/** Second guide stage (working day: peak time, daily goals, clock-out), saved separately so riders who
+ *  finished the first-shift guide before it existed still see it once */
+const SHIFT_GUIDE_STORAGE_KEY = 'k_delivery_shift_guide_done_v1';
+
+/** Extra live state the guide watches (from the game loop) */
+export interface OnboardingWatch {
+  /** The zoomed phone shows the [수익] (finance) tab */
+  financeTabOpen: boolean;
+  /** The game clock is in a lunch / dinner rush */
+  isPeakTime: boolean;
+}
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   masterVolume: 0.8,
@@ -48,6 +59,7 @@ export class OnboardingAndSettings {
   private readonly guideStepList = document.getElementById('onboarding-steps')!;
   private readonly guideFill = document.getElementById('onboarding-fill')!;
   private readonly guideSkipBtn = document.getElementById('onboarding-skip-btn')!;
+  private readonly guideTitle = document.getElementById('onboarding-title')!;
 
   private tutorialDismissed = false;
   private stepAcceptDone = false;
@@ -55,11 +67,20 @@ export class OnboardingAndSettings {
   private stepLoadDone = false;
   private stepDeliverDone = false;
   private lastGuideFp = '';
+  /** Second stage: working day guide (shown after the first-shift guide) */
+  private shiftGuideDone = false;
+  private shiftStepPeakDone = false;
+  private shiftStepGoalsDone = false;
+  private shiftStepBonusDone = false;
+  private shiftStepClockOutDone = false;
+  private shiftGuideStartDay = -1;
+  private shiftGuideClosing = false;
 
   constructor(callbacks: SettingsCallbacks) {
     this.callbacks = callbacks;
     this.settings = this.loadSettings();
     this.tutorialDismissed = this.loadTutorialDone();
+    this.shiftGuideDone = this.loadFlag(SHIFT_GUIDE_STORAGE_KEY);
 
     this.syncControlsFromState();
 
@@ -124,12 +145,33 @@ export class OnboardingAndSettings {
       this.dismissTutorial();
     });
 
-    if (this.tutorialDismissed) {
+    if (this.tutorialDismissed && this.shiftGuideDone) {
       this.guideCard.classList.add('hidden');
     } else {
       this.guideCard.classList.remove('hidden');
       this.renderOnboarding();
     }
+  }
+
+  private loadFlag(key: string): boolean {
+    try {
+      return window.localStorage.getItem(key) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private saveFlag(key: string, done: boolean): void {
+    try {
+      window.localStorage.setItem(key, done ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }
+
+  /** The guide card currently shows the working-day stage */
+  private get inShiftStage(): boolean {
+    return this.tutorialDismissed && !this.shiftGuideDone;
   }
 
   private loadSettings(): GameSettings {
@@ -217,10 +259,22 @@ export class OnboardingAndSettings {
     else this.openSettingsModal();
   }
 
+  /** Skip / finish: the first-shift stage hands over to the working-day stage, which then closes the card */
   public dismissTutorial(): void {
+    if (this.inShiftStage) {
+      this.shiftGuideDone = true;
+      this.saveFlag(SHIFT_GUIDE_STORAGE_KEY, true);
+      this.guideCard.classList.add('hidden');
+      return;
+    }
     this.tutorialDismissed = true;
     this.saveTutorialDone(true);
-    this.guideCard.classList.add('hidden');
+    this.lastGuideFp = '';
+    if (this.shiftGuideDone) {
+      this.guideCard.classList.add('hidden');
+    } else {
+      this.renderOnboarding();
+    }
   }
 
   public restartTutorial(): void {
@@ -229,14 +283,25 @@ export class OnboardingAndSettings {
     this.stepMountDone = false;
     this.stepLoadDone = false;
     this.stepDeliverDone = false;
+    this.shiftGuideDone = false;
+    this.shiftStepPeakDone = false;
+    this.shiftStepGoalsDone = false;
+    this.shiftStepBonusDone = false;
+    this.shiftStepClockOutDone = false;
+    this.shiftGuideStartDay = -1;
     this.lastGuideFp = '';
     this.saveTutorialDone(false);
+    this.saveFlag(SHIFT_GUIDE_STORAGE_KEY, false);
     this.guideCard.classList.remove('hidden');
     this.renderOnboarding();
   }
 
   /** Tracks live player progress through the 4-step first-shift onboarding checklist */
-  public updateOnboarding(player: PlayerState, delivery: DeliveryManager): void {
+  public updateOnboarding(player: PlayerState, delivery: DeliveryManager, watch: OnboardingWatch): void {
+    if (this.inShiftStage) {
+      this.updateShiftGuide(delivery, watch);
+      return;
+    }
     if (this.tutorialDismissed) return;
 
     if (!this.stepAcceptDone && (delivery.activeMissions.length > 0 || delivery.completedCount > 0)) {
@@ -263,29 +328,73 @@ export class OnboardingAndSettings {
     this.renderOnboarding();
   }
 
+  /** Working-day guide: peak time, today's goals in the [수익] tab, goal bonuses, clocking out */
+  private updateShiftGuide(delivery: DeliveryManager, watch: OnboardingWatch): void {
+    if (this.shiftGuideStartDay < 0) this.shiftGuideStartDay = delivery.shiftDay;
+    if (watch.isPeakTime || delivery.peakDeliveries > 0) this.shiftStepPeakDone = true;
+    if (watch.financeTabOpen) this.shiftStepGoalsDone = true;
+    if (delivery.missionBonusTotal > 0 || delivery.getShiftGoals().some((g) => g.claimed)) this.shiftStepBonusDone = true;
+    if (delivery.shiftDay > this.shiftGuideStartDay) {
+      // Clocking out implies the rider found the goals and the finance tab too
+      this.shiftStepClockOutDone = this.shiftStepGoalsDone = this.shiftStepBonusDone = true;
+    }
+    const allDone = this.shiftStepPeakDone && this.shiftStepGoalsDone && this.shiftStepBonusDone && this.shiftStepClockOutDone;
+    this.renderOnboarding();
+    if (allDone && !this.shiftGuideClosing) {
+      this.shiftGuideClosing = true;
+      window.setTimeout(() => {
+        this.shiftGuideClosing = false;
+        if (this.inShiftStage) this.dismissTutorial();
+      }, 3600);
+    }
+  }
+
   private renderOnboarding(): void {
-    const fp = `${this.stepAcceptDone}:${this.stepMountDone}:${this.stepLoadDone}:${this.stepDeliverDone}`;
+    const shift = this.inShiftStage;
+    const fp = shift
+      ? `shift:${this.shiftStepPeakDone}:${this.shiftStepGoalsDone}:${this.shiftStepBonusDone}:${this.shiftStepClockOutDone}`
+      : `${this.stepAcceptDone}:${this.stepMountDone}:${this.stepLoadDone}:${this.stepDeliverDone}`;
     if (fp === this.lastGuideFp) return;
     this.lastGuideFp = fp;
+    this.guideTitle.textContent = shift ? '📅 근무 하루 가이드' : '🎓 첫 출근 1분 가이드';
 
-    const steps = [
-      {
-        done: this.stepAcceptDone,
-        label: '① [Tab] → [V] (또는 3D 폰 클릭) 첫 콜 수락',
-      },
-      {
-        done: this.stepMountDone,
-        label: '② [F] 오토바이 탑승 후 내비 따라 매장 이동',
-      },
-      {
-        done: this.stepLoadDone,
-        label: '③ 하차 → 매장 [E] 픽업 → 배달통 [E] 적재',
-      },
-      {
-        done: this.stepDeliverDone,
-        label: '④ 목적지 PIN 해제 후 문 앞 배달 완료!',
-      },
-    ];
+    const steps = shift
+      ? [
+          {
+            done: this.shiftStepPeakDone,
+            label: '① 상단 시계: 점심 11:00·저녁 17:00 피크엔 콜 2배 + 건당 +₩1,000 (밤 19시~ 심야 할증)',
+          },
+          {
+            done: this.shiftStepGoalsDone,
+            label: '② 휴대폰 [수익] 탭에서 오늘의 목표 3가지 확인',
+          },
+          {
+            done: this.shiftStepBonusDone,
+            label: '③ 목표 달성 시 보너스 즉시 지급 (배달 3건 · 피크 2건)',
+          },
+          {
+            done: this.shiftStepClockOutDone,
+            label: '④ 하루를 마치면 [수익] 탭 🏁 퇴근하기 → 무사고 보너스 · 다음 날 출근',
+          },
+        ]
+      : [
+          {
+            done: this.stepAcceptDone,
+            label: '① [Tab] → [V] (또는 3D 폰 클릭) 첫 콜 수락',
+          },
+          {
+            done: this.stepMountDone,
+            label: '② [F] 오토바이 탑승 후 내비 따라 매장 이동',
+          },
+          {
+            done: this.stepLoadDone,
+            label: '③ 하차 → 매장 [E] 픽업 → 배달통 [E] 적재',
+          },
+          {
+            done: this.stepDeliverDone,
+            label: '④ 목적지 PIN 해제 후 문 앞 배달 완료!',
+          },
+        ];
 
     const doneCount = steps.filter((s) => s.done).length;
     this.guideFill.style.width = `${(doneCount / steps.length) * 100}%`;
