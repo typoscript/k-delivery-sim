@@ -51,6 +51,12 @@ export interface LegacyDistrictData {
   origin: { x: number; z: number; lat: number; lon: number };
   halfSize: number;
   station: { name: string; x: number; z: number; badgeChar?: string };
+  /** Station in district-local coordinates (landmarks are authored around it) */
+  localStation: { name: string; x: number; z: number; badgeChar?: string };
+  /** Named buildings of the hand-tuned district map (district-local), for landmark placement */
+  namedBuildings: OsmBuildingData[];
+  /** All building footprints of the hand-tuned district map as [minX, maxX, minZ, maxZ] (district-local) */
+  buildingBoxes: Array<[number, number, number, number]>;
   scooterSpawn: { x: number; z: number; heading: number };
   playerSpawn: { x: number; z: number; heading: number };
   shops: OsmDeliverySpot[];

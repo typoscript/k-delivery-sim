@@ -27,7 +27,7 @@ import {
   UpcomingCameraAlert,
   WeatherMode,
 } from '../types';
-import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA, SUWON_DISTRICTS } from '../data/suwonDistricts';
+import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
 import { OsmParkData, OsmPlazaData, OsmServiceSpot, SuwonDistrictId } from '../data/suwonTypes';
 import { ChunkStreamer, ChunkStreamerStats } from './openworld/ChunkStreamer';
@@ -1070,8 +1070,6 @@ export class CityWorld {
     // Unified city: every district's hand-built landmarks, authored in that district's local coordinates,
     // placed under a group offset to the district origin (and culled when the player is far away)
     for (const d of SUWON_OPEN_WORLD.legacyDistricts) {
-      const meta = SUWON_DISTRICTS.find((m) => m.id === d.id);
-      if (!meta) continue;
       const group = new THREE.Group();
       group.position.set(d.origin.x, 0, d.origin.z);
       const zones: CityZoneMarker[] = [];
@@ -1080,7 +1078,7 @@ export class CityWorld {
         new SuwonLandmarksBuilder({
           root: group,
           districtId: d.id as SuwonDistrictId,
-          mapData: meta.data,
+          mapData: { meta: { station: d.localStation }, buildings: d.namedBuildings },
           zones,
           landmarks,
           createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
@@ -1102,13 +1100,12 @@ export class CityWorld {
     const labels: Record<string, string> = { ingye: '인계', haenggung: '행궁', suwon_station: '수원역', gwanggyo: '광교' };
     for (const set of ACTIVE_MAP_DATA.serviceSpotList) {
       const d = SUWON_OPEN_WORLD.legacyDistricts.find((x) => x.id === set.districtId)!;
-      const meta = SUWON_DISTRICTS.find((m) => m.id === set.districtId)!;
       // Buildings stream in later, so keep the convenience store clear of the district's known footprints
-      const legacyBoxes: ObstacleBox[] = meta.data.buildings.map((b) => ({
-        minX: b.minX + d.origin.x,
-        maxX: b.maxX + d.origin.x,
-        minZ: b.minZ + d.origin.z,
-        maxZ: b.maxZ + d.origin.z,
+      const legacyBoxes: ObstacleBox[] = d.buildingBoxes.map(([minX, maxX, minZ, maxZ]) => ({
+        minX: minX + d.origin.x,
+        maxX: maxX + d.origin.x,
+        minZ: minZ + d.origin.z,
+        maxZ: maxZ + d.origin.z,
       }));
       this.buildServiceStationSet(set.gas, set.repair, labels[set.districtId] ?? '수원', d.scooterSpawn, legacyBoxes);
     }

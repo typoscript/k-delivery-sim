@@ -570,6 +570,12 @@ async function main() {
       playerSpawn: { ...mv(j.meta.playerSpawn), heading: j.meta.playerSpawn.heading },
       shops: j.shops.map(mv),
       residences: j.residences.map(mv),
+      // What the open world still needs from the hand-tuned district maps (district-local coordinates), so the
+      // game does not have to download the full legacy datasets: the station for landmarks, named buildings
+      // landmarks are placed against, and building footprints the convenience stores keep clear of
+      localStation: j.meta.station,
+      namedBuildings: j.buildings.filter((b) => b.name),
+      buildingBoxes: j.buildings.map((b) => [r1(b.minX), r1(b.maxX), r1(b.minZ), r1(b.maxZ)]),
       serviceSpots: { gas: mvSpot(j.serviceSpots.gas), repair: mvSpot(j.serviceSpots.repair) },
     });
     stats[`legacy_${d.id}`] = {

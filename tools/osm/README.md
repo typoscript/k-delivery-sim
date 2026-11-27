@@ -11,7 +11,7 @@ npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map
 ## 출력
 | 파일 | 내용 | 로딩 |
 |---|---|---|
-| `src/data/openworld/suwonWorld.json` | 메타(원점·범위·청크 격자), 도로 그래프(nodes/edges/신호), 버스정류장, 기존 4개 구역의 가게·배달지·주유소·정비소·스폰 위치(월드 좌표로 이동), 맵 전체에서 생성한 가게·배달지(`generatedShops`/`generatedResidences`), 청크 목록 — 게임 번들에 포함 | 항상 |
+| `src/data/openworld/suwonWorld.json` | 메타(원점·범위·청크 격자), 도로 그래프(nodes/edges/신호), 버스정류장, 기존 4개 구역의 가게·배달지·주유소·정비소·스폰 위치(월드 좌표로 이동)와 오픈월드가 쓰는 구역 지도 일부(구역 좌표의 역·이름 있는 건물·건물 외곽 박스 — 게임이 구역별 지도 전체를 내려받지 않도록), 맵 전체에서 생성한 가게·배달지(`generatedShops`/`generatedResidences`), 청크 목록 — 게임 번들에 포함 | 항상 |
 | `public/map/suwon/chunks/c_<ix>_<iz>.json` | 200m 청크별 건물·공원·수면·하천선·보행광장 | 플레이어 주변만 |
 
 ## 규칙 (기존 구역 데이터와 호환)

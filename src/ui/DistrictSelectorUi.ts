@@ -3,9 +3,11 @@ import {
   IS_UNIFIED_MAP,
   SUWON_DISTRICTS,
   SuwonDistrictId,
+  SuwonMapDataset,
   rememberSuwonDistrict,
   switchSuwonDistrict,
 } from '../data/suwonDistricts';
+import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
 
 export interface DistrictSelectorOptions {
   /** Unified open world: move the rider to that district in place (no reload, missions kept) */
@@ -76,7 +78,7 @@ export class DistrictSelectorUi {
   private renderDistrictList(): void {
     this.listEl.innerHTML = SUWON_DISTRICTS.map((d) => {
       const isCurrent = d.id === this.currentId;
-      const villaCount = d.data.residences.filter((r) => r.residenceKind === 'walkup_villa').length;
+      const stats = IS_UNIFIED_MAP ? unifiedDistrictStats(d.id) : legacyDistrictStats(d.data);
       const chips = d.highlights.map((h) => `<span class="di-stat-chip">${h}</span>`).join('');
       return `
         <button class="district-item ${isCurrent ? 'active' : ''}" data-district="${d.id}">
@@ -89,7 +91,7 @@ export class DistrictSelectorUi {
           <div class="di-desc">${d.description}</div>
           <div class="di-stats">
             ${chips}
-            <span>도로 ${d.data.edges.length}구간 · 건물 ${d.data.buildings.length}동 · 빌라 ${villaCount}곳</span>
+            <span>${stats}</span>
           </div>
         </button>
       `;
@@ -125,4 +127,17 @@ export class DistrictSelectorUi {
     if (this.isOpen) this.close();
     else this.open();
   }
+}
+
+function legacyDistrictStats(data: SuwonMapDataset): string {
+  const villas = data.residences.filter((r) => r.residenceKind === 'walkup_villa').length;
+  return `도로 ${data.edges.length}구간 · 건물 ${data.buildings.length}동 · 빌라 ${villas}곳`;
+}
+
+/** Open world: the district's hand-tuned pickup shops and delivery spots (calls also come from all around it) */
+function unifiedDistrictStats(id: SuwonDistrictId): string {
+  const d = SUWON_OPEN_WORLD.legacyDistricts.find((x) => x.id === id);
+  if (!d) return '';
+  const villas = d.residences.filter((r) => r.residenceKind === 'walkup_villa').length;
+  return `대표 매장 ${d.shops.length}곳 · 배달지 ${d.residences.length}곳 · 빌라 ${villas}곳`;
 }

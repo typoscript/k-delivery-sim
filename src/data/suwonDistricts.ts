@@ -1,9 +1,6 @@
 import { SuwonDistrictId, SuwonMapDataset } from './suwonTypes';
-import { SUWON_INGYE_DATA } from './suwonIngyeData';
-import { SUWON_HAENGGUNG_DATA } from './suwonHaenggungData';
-import { SUWON_STATION_DATA } from './suwonStationData';
-import { SUWON_GWANGGYO_DATA } from './suwonGwanggyoData';
 import { buildUnifiedSuwonDataset } from './suwonUnified';
+import { requireLegacyDistrict } from './mapSources';
 
 export type { SuwonDistrictId, SuwonMapDataset };
 
@@ -17,11 +14,22 @@ export interface SuwonDistrictMeta {
   fullTitle: string;
   description: string;
   highlights: string[];
-  data: SuwonMapDataset;
+  /** The old separate 820m district map (loaded only in ?map=legacy mode) */
+  readonly data: SuwonMapDataset;
+}
+
+/** `data` is read lazily: the legacy district maps are only downloaded for ?map=legacy */
+function withLegacyData(meta: Omit<SuwonDistrictMeta, 'data'>): SuwonDistrictMeta {
+  return {
+    ...meta,
+    get data() {
+      return requireLegacyDistrict(meta.id);
+    },
+  };
 }
 
 export const SUWON_DISTRICTS: SuwonDistrictMeta[] = [
-  {
+  withLegacyData({
     id: 'ingye',
     icon: '📍',
     shortName: '수원 인계동 · 수원시청역',
@@ -29,9 +37,8 @@ export const SUWON_DISTRICTS: SuwonDistrictMeta[] = [
     fullTitle: '팔달구 인계동 (수원시청역 · 나혜석거리)',
     description: '효원로·권광로 대형 상권, 효원공원, 고층 오피스텔과 인계동 아파트 단지가 조화된 대표 배달 상권',
     highlights: ['수원시청역', '나혜석거리', '효원공원', '유치회관·교동짬뽕'],
-    data: SUWON_INGYE_DATA,
-  },
-  {
+  }),
+  withLegacyData({
     id: 'haenggung',
     icon: '🏰',
     shortName: '수원 행궁동 · 통닭거리',
@@ -39,9 +46,8 @@ export const SUWON_DISTRICTS: SuwonDistrictMeta[] = [
     fullTitle: '팔달구 행궁동 (수원 통닭거리 · 화성행궁)',
     description: '정조로·수원천로 옛 골목과 진미·남문·용성통닭이 밀집한 로컬 성지! 엘리베이터 없는 구축 빌라 비중↑',
     highlights: ['화성행궁', '수원 통닭거리', '팔달문', '구축 빌라 6곳'],
-    data: SUWON_HAENGGUNG_DATA,
-  },
-  {
+  }),
+  withLegacyData({
     id: 'suwon_station',
     icon: '🚉',
     shortName: '수원역 · 매산로 로데오',
@@ -49,9 +55,8 @@ export const SUWON_DISTRICTS: SuwonDistrictMeta[] = [
     fullTitle: '팔달구 매산동 (수원역 로데오 · AK/롯데몰)',
     description: '덕영대로·매산로 번화가와 수원역 환승센터, 로데오거리 24시 식당·카페가 몰린 초고밀도 역세권',
     highlights: ['수원역(KTX·1호선)', '로데오거리', 'AK·타임빌라스', '뼈나라감자탕·한신포차'],
-    data: SUWON_STATION_DATA,
-  },
-  {
+  }),
+  withLegacyData({
     id: 'gwanggyo',
     icon: '🌊',
     shortName: '수원 광교 · 호수공원',
@@ -59,8 +64,7 @@ export const SUWON_DISTRICTS: SuwonDistrictMeta[] = [
     fullTitle: '영통구 광교신도시 (광교중앙역 · 광교호수공원)',
     description: '광교호수공원(원천호수) 수변과 넓은 도청로·센트럴타운로 대로, 갤러리아 백화점과 초고층 신축 아파트 대단지 상권',
     highlights: ['광교중앙역(신분당선)', '광교 호수공원', '갤러리아 광교', '초고층 대단지'],
-    data: SUWON_GWANGGYO_DATA,
-  },
+  }),
 ];
 
 function isValidDistrictId(v: string | null): v is SuwonDistrictId {

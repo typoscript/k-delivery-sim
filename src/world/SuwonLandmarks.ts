@@ -1,11 +1,17 @@
 import * as THREE from 'three';
 import { SuwonDistrictId, SuwonMapDataset, OsmBuildingData } from '../data/suwonTypes';
+
+/** What the landmarks need from a district map: its station and (named) buildings, in district-local coordinates */
+export interface LandmarkMapSource {
+  meta: { station: SuwonMapDataset['meta']['station'] };
+  buildings: OsmBuildingData[];
+}
 import { CityZoneMarker, LandmarkMarker } from '../types';
 
 export interface SuwonLandmarksContext {
   root: THREE.Group;
   districtId: SuwonDistrictId;
-  mapData: SuwonMapDataset;
+  mapData: LandmarkMapSource;
   zones: CityZoneMarker[];
   landmarks: LandmarkMarker[];
   createSignTexture: (title: string, bg: string, fg?: string) => THREE.CanvasTexture;

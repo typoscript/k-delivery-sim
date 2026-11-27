@@ -21,9 +21,10 @@
 - **기술 스택:** TypeScript, Three.js, Vite, Web Audio API (별도 백엔드 없음 — 정적 웹 배포)
 
 ### 핵심 아키텍처 (파일 안내 — 기능 상세는 README.md 참고)
-- `src/main.ts` — 시스템 초기화·통합, 모달·HUD 콜백 (초기화 순서 주의: `const` 선언 전 참조 시 TDZ 오류. `gameCtx` 이후에 만드는 `flow` 등은 앞선 콜백에서 화살표 함수로 늦게 호출)
-- `src/game/` — 공유 시스템 묶음(`GameContext`), 배달 흐름 핸들러(`deliveryFlow`: [E] 상호작용·복도 출입·사진·정산·콜 수락), 3D 휴대폰 터치(`phoneTouchInput`), 전도·방지턱 피드백(`crashFeedback`), 게임 시계(`GameClock`, `clockSync`: 낮밤·피크타임·날씨), 키보드 입력(`keyboardInput`), 프레임 루프(`gameLoop`, 60fps 상한), 성능 프로파일러(`PerfMonitor`: F9 오버레이·F10 A/B 벤치마크), 그래픽 품질 런타임(`GraphicsRuntime`: 품질별 해상도 범위·그림자 크기/갱신 주기, `AdaptiveResolution` 자동 해상도). 대기·메뉴 중 30fps 절전(`PowerSaver`). 성능 개선 작업은 프로파일러와 최악 조건 벤치마크(`BenchmarkSuite`, `?bench=suite`)로 전후를 측정해 확인합니다
-- `src/data/` — 맵 데이터. 기본은 수원 통합 오픈월드(`suwonUnified.ts` + 생성 데이터 `openworld/suwonWorld.json`), `?map=legacy`면 기존 4개 구역별 데이터. 게임은 항상 `ACTIVE_MAP_DATA`(`IS_UNIFIED_MAP`로 모드 구분)를 사용
+- `src/main.ts` — 진입점: 로딩 화면 → (`?map=legacy`면 구역별 지도 내려받기) → 게임(`app.ts`) 동적 import. 게임 코드·three.js·지도 데이터(`map-suwon`)는 `vite.config.ts`의 `manualChunks`로 나뉘어 동시에 내려받습니다
+- `src/app.ts` — 시스템 초기화·통합, 모달·HUD 콜백 (초기화 순서 주의: `const` 선언 전 참조 시 TDZ 오류. `gameCtx` 이후에 만드는 `flow` 등은 앞선 콜백에서 화살표 함수로 늦게 호출)
+- `src/game/` — 공유 시스템 묶음(`GameContext`), 배달 흐름 핸들러(`deliveryFlow`: [E] 상호작용·복도 출입·사진·정산·콜 수락), 3D 휴대폰 터치(`phoneTouchInput`), 전도·방지턱 피드백(`crashFeedback`), 게임 시계(`GameClock`, `clockSync`: 낮밤·피크타임, `WeatherSchedule`: 시간에 따른 날씨), 키보드 입력(`keyboardInput`), 프레임 루프(`gameLoop`, 60fps 상한), 성능 프로파일러(`PerfMonitor`: F9 오버레이·F10 A/B 벤치마크), 그래픽 품질 런타임(`GraphicsRuntime`: 품질별 해상도 범위·그림자 크기/갱신 주기, `AdaptiveResolution` 자동 해상도). 대기·메뉴 중 30fps 절전(`PowerSaver`). 성능 개선 작업은 프로파일러와 최악 조건 벤치마크(`BenchmarkSuite`, `?bench=suite`)로 전후를 측정해 확인합니다
+- `src/data/` — 맵 데이터. 기본은 수원 통합 오픈월드(`suwonUnified.ts` + 생성 데이터 `openworld/suwonWorld.json`), `?map=legacy`면 기존 4개 구역별 데이터(`mapSources.ts`로 그때만 내려받음 — 오픈월드 모드에서 `SUWON_DISTRICTS[].data`를 읽지 말고 `SUWON_OPEN_WORLD.legacyDistricts`의 `localStation`·`namedBuildings`·`buildingBoxes`를 사용). 게임은 항상 `ACTIVE_MAP_DATA`(`IS_UNIFIED_MAP`로 모드 구분)를 사용
 - `src/world/` — 도시(`CityWorld`), 실내 복도(`CorridorRoom`, `y = -500`), 교통 AI(`TrafficSystem`), 교통 공통 규칙(`TrafficRules`), 단속·순찰·경쟁 라이더(`RoadHazardManager`), 보행자, 날씨
 - `src/player/`, `src/vehicle/`, `src/camera/` — 1인칭 도보·승하차, 스쿠터 물리·메시, 1인칭 카메라
 - `src/delivery/` — 배달 상태 머신(`DeliveryManager`), 도메인 타입·요금 상수(`deliveryTypes`), 주문 생성(`orderFactory`, 콜 목록·배차 공용), 정산 금액(`settlementPay`), 음식 상태·채팅 이벤트(`cargoCare`), 추천 경로(`missionRoute`), 배차(`OrderDispatchManager`), 근무일·목표(`ShiftDay`), 커리어 저장(`RiderCareer`, localStorage)
@@ -45,7 +46,7 @@
 4. **빌드·테스트 검증 필수:** 코드 변경 후 반드시 `npm run build` (`tsc && vite build`)와 `npm test` (Vitest)가 모두 통과하는지 확인합니다. 순수 로직(교통 규칙, 좌표계, 저장 데이터 검증)을 바꾸면 `*.test.ts`에 테스트를 추가합니다.
 5. **GitHub Pages 호환성:** `vite.config.ts`의 `base: './'` 상대 경로를 유지하고, 외부 CDN 의존성 없이 정적 빌드(`dist/`)만으로 완전히 동작해야 합니다.
 6. **교통 신호 규칙 단일화:** 신호 판정은 반드시 `TrafficRules`의 `getSignalAxis(nodeId, dirX, dirZ)`와 `signalSpeedCap()`을 사용합니다. 월드 축 기준(`Math.abs(fz) >= Math.abs(fx)`)으로 NS/EW를 직접 판정하지 않습니다(비스듬한 실측 교차로에서 동시 녹색 발생). 과속 단속 카메라는 도로 중간에 있으므로 과속만 단속합니다.
-7. **구매 시 잔액 확인:** 정비소·차고 등 유료 구매 콜백은 결제 전에 `rejectIfInsufficientFunds(cost)`(`main.ts`)로 지갑 잔액을 확인합니다.
+7. **구매 시 잔액 확인:** 정비소·차고 등 유료 구매 콜백은 결제 전에 `rejectIfInsufficientFunds(cost)`(`app.ts`)로 지갑 잔액을 확인합니다.
 8. **모달 입력 규칙:** `ModalUi.handleKeyDown`은 키 자동 반복(`e.repeat`)을 무시합니다. 구역 선택(`P`)·설정(`O`) 메뉴가 열려 있을 때는 `O`/`P`/`Esc`/`M` 외 게임 키를 막고, 모달 뒤에서 주행 중이면 `null` 대신 중립 입력으로 물리를 진행합니다.
 9. **생성 맵 데이터는 직접 수정 금지:** `src/data/openworld/`와 `public/map/`은 `npm run map:build` 출력물입니다. 변환 규칙은 `tools/osm/build-suwon-map.mjs`를 고친 뒤 다시 생성하고, 좌표 규약(`+X` = 서쪽)과 OSM 출처 표기(© OpenStreetMap contributors)를 유지합니다.
 10. **청크 리소스 관리:** 청크 단위로 만든 지오메트리는 청크 해제 시 반드시 `dispose()`하고, 재질·텍스처는 공용으로 만들어 청크마다 새로 만들지 않습니다. 청크 하나를 그리는 드로우콜은 재질별 병합으로 10개 안팎을 유지합니다.
