@@ -28,6 +28,9 @@ import { renderMapToContext } from './phone/mapRenderer';
 import { computeDeliverySheetFingerprint, renderDeliverySheetHtml } from './phone/deliverySheet';
 import { resolveAreaName } from './phone/phoneFormat';
 
+
+/** Phone map / screen refresh interval (10Hz): the map canvas is the costliest 2D draw per frame */
+const PHONE_MAP_REFRESH_SEC = 0.1;
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
 
 export class PhoneMap {
@@ -99,6 +102,10 @@ export class PhoneMap {
   private readonly touchState: TouchHandState = { tapTimer: null };
   private lastSheetFingerprint = '';
   private last3DRenderTime = -1;
+  private lastZoomMapRenderTime = -1;
+  private lastZoomMapLevel = -1;
+  private lastZoomCanvasW = -1;
+  private lastZoomCanvasH = -1;
   private readonly ripple3D: Ripple3DState = { current: null };
   private lastElapsed = 0;
 
@@ -260,6 +267,7 @@ export class PhoneMap {
     // Show expanding touch ripple directly on the 3D phone canvas texture!
     this.ripple3D.current = { x: cx, y: cy, bornAt: this.lastElapsed };
     this.last3DRenderTime = -1;
+    this.lastZoomMapRenderTime = -1;
     this.callbacks.onScreenTap?.();
 
     if (hasActiveOffer) {
@@ -350,6 +358,7 @@ export class PhoneMap {
     this.lowBatteryWarned = false;
     this.deadBatteryWarned = false;
     this.last3DRenderTime = -1;
+    this.lastZoomMapRenderTime = -1;
   }
 
   public setPlacement(next: PhonePlacement): void {
@@ -358,6 +367,7 @@ export class PhoneMap {
       this.isZoomed = false;
     }
     this.last3DRenderTime = -1;
+    this.lastZoomMapRenderTime = -1;
     this.syncOverlayVisibility();
   }
 
@@ -382,6 +392,7 @@ export class PhoneMap {
       this.followBtn.classList.add('active');
       this.touchHandEl.classList.remove('active', 'tapping');
       this.last3DRenderTime = -1;
+    this.lastZoomMapRenderTime = -1;
     }
     return this.isZoomed;
   }
@@ -587,6 +598,25 @@ export class PhoneMap {
       syncCookingBanner(this.cookingBannerEl, delivery);
       syncDispatchPopup(this.dispatchEls, this.dispatchState, activeOffer, delivery);
 
+      // Zoomed phone map redraws at 10Hz (was every frame). Redraw right away while the rider is
+      // dragging / flicking / zooming it, or after a canvas resize (which clears it), so input stays smooth.
+      const v = this.view;
+      const interacting =
+        v.isMapDragging || Math.abs(v.panVelX) + Math.abs(v.panVelZ) > 0.01 || v.zoomLevel !== this.lastZoomMapLevel;
+      const resized = this.zoomCanvas.width !== this.lastZoomCanvasW || this.zoomCanvas.height !== this.lastZoomCanvasH;
+      if (
+        !interacting &&
+        !resized &&
+        this.lastZoomMapRenderTime >= 0 &&
+        elapsedTime - this.lastZoomMapRenderTime < PHONE_MAP_REFRESH_SEC
+      ) {
+        return;
+      }
+      this.lastZoomMapRenderTime = elapsedTime;
+      this.lastZoomMapLevel = v.zoomLevel;
+      this.lastZoomCanvasW = this.zoomCanvas.width;
+      this.lastZoomCanvasH = this.zoomCanvas.height;
+
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       renderMapToContext(
         this.zoomCtx,
@@ -604,8 +634,8 @@ export class PhoneMap {
         false
       );
     } else {
-      // Throttle 3D CanvasTexture updates to ~20Hz for smooth GPU performance
-      if (elapsedTime - this.last3DRenderTime < 0.05 && this.last3DRenderTime >= 0) {
+      // Throttle 3D CanvasTexture redraw + GPU upload to 10Hz
+      if (elapsedTime - this.last3DRenderTime < PHONE_MAP_REFRESH_SEC && this.last3DRenderTime >= 0) {
         return;
       }
       this.last3DRenderTime = elapsedTime;

@@ -17,6 +17,9 @@ export interface GameLoopHooks {
   isNpcHoldingFoodBag: () => boolean;
 }
 
+/** Upper bound for simulated & rendered frames per second */
+export const MAX_FPS = 60;
+
 /** Starts the requestAnimationFrame loop: simulation step for every system, then rendering */
 export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
   const { renderer, scene, camera, world, traffic, corridorRoom, roadNavigator, pedestrians, roadHazards, weather, visorRain, voiceNav, delivery, dispatch, scooterPhysics, scooterMesh, playerCtrl, playerMesh, camController, audio, hud, modalUi, districtUi, onboardingSettings, handheldPhone3D, handheldFoodBag3D } = ctx;
@@ -32,9 +35,16 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
 
   let lastTime = performance.now();
   let elapsed = 0;
+  // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
+  // callbacks roughly halves GPU/CPU load (and laptop heat) with no visible difference.
+  // 1.5ms of slack so a 60Hz display's slightly early callbacks are never dropped.
+  const MIN_FRAME_MS = 1000 / MAX_FPS - 1.5;
+  let lastFrameAt = -Infinity;
 
   function animate(now: number): void {
     requestAnimationFrame(animate);
+    if (now - lastFrameAt < MIN_FRAME_MS) return;
+    lastFrameAt = now;
 
     const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
     lastTime = now;

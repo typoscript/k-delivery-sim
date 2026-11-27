@@ -358,7 +358,8 @@ export class RoadHazardManager {
     u.toNode = edge.to;
     u.edgeDist = edge.dist;
     u.edgeWidth = edge.width;
-    u.progress = Math.min(edge.dist * 0.25, Math.max(0, edge.dist - 0.2));
+    // Stay close to the picked start node (<= 15m) so the unit really lands inside the requested ring
+    u.progress = Math.min(edge.dist * 0.25, 15, Math.max(0, edge.dist - 0.2));
     u.blendX = 0;
     u.blendZ = 0;
     u.speed = u.cruiseSpeed * 0.7;

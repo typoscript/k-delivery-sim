@@ -1197,5 +1197,5 @@ startGameLoop(gameCtx, {
 
 // Dev-only handle for automated playtests (stripped from production builds)
 if (import.meta.env.DEV) {
-  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, traffic, roadHazards, delivery };
+  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer };
 }
