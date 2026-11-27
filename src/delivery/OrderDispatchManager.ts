@@ -1,7 +1,7 @@
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
+import { buildDeliveryOrder, pickOrderNumber } from './orderFactory';
 import { DeliveryLocation } from '../types';
 import {
-  ALTTLE_FLAT_FEE,
   ALTTLE_TIME_LIMIT_SEC,
   DeliveryManager,
   DeliveryOrder,
@@ -9,12 +9,7 @@ import {
   MAX_CONCURRENT_ORDERS,
   NIGHT_SURCHARGE_BONUS,
   RAIN_SURCHARGE_BONUS,
-  SINGLE_FLAT_FEE,
   SINGLE_TIME_LIMIT_SEC,
-  classifyMenuFood,
-  generateKoreanLobbyPin,
-  generateRandomInstruction,
-  generateUnitNumberForLocation,
 } from './DeliveryManager';
 
 export type DispatchOfferState = 'IDLE' | 'OFFERING' | 'COOLDOWN';
@@ -197,17 +192,7 @@ export class OrderDispatchManager {
   }
 
   private generateOrderNumber(usedNumbers: Set<string>, type: DispatchOrderType): string {
-    const prefixes = type === 'SINGLE' ? ['S-', 'A-'] : ['B-', 'C-'];
-    for (let tries = 0; tries < 25; tries++) {
-      const p = prefixes[Math.floor(Math.random() * prefixes.length)];
-      const num = String(10 + Math.floor(Math.random() * 89));
-      const code = `${p}${num}`;
-      if (!usedNumbers.has(code)) {
-        usedNumbers.add(code);
-        return code;
-      }
-    }
-    return `K-${this.orderSeq++}`;
+    return pickOrderNumber(usedNumbers, type === 'SINGLE' ? ['S-', 'A-'] : ['B-', 'C-'], `K-${this.orderSeq++}`);
   }
 
   private createOffer(type: DispatchOrderType, delivery: DeliveryManager): DispatchOffer | null {
@@ -248,67 +233,16 @@ export class OrderDispatchManager {
       usedPairs.add(pairKey);
       if (!firstShop) firstShop = shop;
 
-      const menus = shop.menus ?? ['배달 음식 세트'];
-      const menuName = menus[Math.floor(Math.random() * menus.length)];
-      const distanceMeters = Math.round(
-        Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z)
+      orders.push(
+        buildDeliveryOrder({
+          id: `DSP-${this.orderSeq++}`,
+          orderNumber: this.generateOrderNumber(usedNumbers, type),
+          type,
+          shop,
+          customer,
+          surcharges: { rainBonus, nightBonus, peakBonus },
+        })
       );
-
-      const pinObj = generateKoreanLobbyPin();
-      const deliveryInstruction = generateRandomInstruction();
-      const foodMeta = classifyMenuFood(menuName, shop.id);
-      const unitNumber = generateUnitNumberForLocation(customer);
-
-      if (type === 'SINGLE') {
-        // 한집배달: 기본 ₩4,500 + 거리 할증, 제한시간 300초
-        const distBonus = Math.round((distanceMeters * 12) / 100) * 100;
-        orders.push({
-          id: `DSP-${this.orderSeq++}`,
-          orderNumber: this.generateOrderNumber(usedNumbers, type),
-          dispatchType: 'SINGLE',
-          deliveryInstruction,
-          baseFlatFee: SINGLE_FLAT_FEE,
-          timeLimitSec: SINGLE_TIME_LIMIT_SEC,
-          shop,
-          customer,
-          unitNumber,
-          doorPin: pinObj.code,
-          doorPinLabel: pinObj.label,
-          menuName,
-          foodTempType: foodMeta.tempType,
-          isSpillSensitive: foodMeta.isSpillSensitive,
-          foodCategoryTag: foodMeta.categoryTag,
-          baseFee: SINGLE_FLAT_FEE + distBonus,
-          rainBonus,
-          nightBonus,
-          peakBonus,
-          distanceMeters,
-        });
-      } else {
-        // 알뜰배달: 기본 ₩2,800 × 2건, 제한시간 500초
-        orders.push({
-          id: `DSP-${this.orderSeq++}`,
-          orderNumber: this.generateOrderNumber(usedNumbers, type),
-          dispatchType: 'ALTTLE_BUNDLE',
-          deliveryInstruction,
-          baseFlatFee: ALTTLE_FLAT_FEE,
-          timeLimitSec: ALTTLE_TIME_LIMIT_SEC,
-          shop,
-          customer,
-          unitNumber,
-          doorPin: pinObj.code,
-          doorPinLabel: pinObj.label,
-          menuName,
-          foodTempType: foodMeta.tempType,
-          isSpillSensitive: foodMeta.isSpillSensitive,
-          foodCategoryTag: foodMeta.categoryTag,
-          baseFee: ALTTLE_FLAT_FEE,
-          rainBonus,
-          nightBonus,
-          peakBonus,
-          distanceMeters,
-        });
-      }
     }
 
     if (orders.length < count) return null;

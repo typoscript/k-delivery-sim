@@ -21,12 +21,12 @@
 - **기술 스택:** TypeScript, Three.js, Vite, Web Audio API (별도 백엔드 없음 — 정적 웹 배포)
 
 ### 핵심 아키텍처 (파일 안내 — 기능 상세는 README.md 참고)
-- `src/main.ts` — 시스템 초기화·통합, 배달 흐름 핸들러, 모달 콜백 (초기화 순서 주의: `const` 선언 전 참조 시 TDZ 오류)
-- `src/game/` — 공유 시스템 묶음(`GameContext`), 키보드 입력(`keyboardInput`), 프레임 루프(`gameLoop`, 60fps 상한), 성능 프로파일러(`PerfMonitor`: F9 오버레이·F10 A/B 벤치마크), 그래픽 품질 런타임(`GraphicsRuntime`: 품질별 해상도 범위·그림자 크기/갱신 주기, `AdaptiveResolution` 자동 해상도). 대기·메뉴 중 30fps 절전(`PowerSaver`). 성능 개선 작업은 프로파일러와 최악 조건 벤치마크(`BenchmarkSuite`, `?bench=suite`)로 전후를 측정해 확인합니다
+- `src/main.ts` — 시스템 초기화·통합, 모달·HUD 콜백 (초기화 순서 주의: `const` 선언 전 참조 시 TDZ 오류. `gameCtx` 이후에 만드는 `flow` 등은 앞선 콜백에서 화살표 함수로 늦게 호출)
+- `src/game/` — 공유 시스템 묶음(`GameContext`), 배달 흐름 핸들러(`deliveryFlow`: [E] 상호작용·복도 출입·사진·정산·콜 수락), 3D 휴대폰 터치(`phoneTouchInput`), 전도·방지턱 피드백(`crashFeedback`), 게임 시계(`GameClock`, `clockSync`: 낮밤·피크타임·날씨), 키보드 입력(`keyboardInput`), 프레임 루프(`gameLoop`, 60fps 상한), 성능 프로파일러(`PerfMonitor`: F9 오버레이·F10 A/B 벤치마크), 그래픽 품질 런타임(`GraphicsRuntime`: 품질별 해상도 범위·그림자 크기/갱신 주기, `AdaptiveResolution` 자동 해상도). 대기·메뉴 중 30fps 절전(`PowerSaver`). 성능 개선 작업은 프로파일러와 최악 조건 벤치마크(`BenchmarkSuite`, `?bench=suite`)로 전후를 측정해 확인합니다
 - `src/data/` — 맵 데이터. 기본은 수원 통합 오픈월드(`suwonUnified.ts` + 생성 데이터 `openworld/suwonWorld.json`), `?map=legacy`면 기존 4개 구역별 데이터. 게임은 항상 `ACTIVE_MAP_DATA`(`IS_UNIFIED_MAP`로 모드 구분)를 사용
 - `src/world/` — 도시(`CityWorld`), 실내 복도(`CorridorRoom`, `y = -500`), 교통 AI(`TrafficSystem`), 교통 공통 규칙(`TrafficRules`), 단속·순찰·경쟁 라이더(`RoadHazardManager`), 보행자, 날씨
 - `src/player/`, `src/vehicle/`, `src/camera/` — 1인칭 도보·승하차, 스쿠터 물리·메시, 1인칭 카메라
-- `src/delivery/` — 배달 상태 머신(`DeliveryManager`), 배차, 커리어 저장(`RiderCareer`, localStorage)
+- `src/delivery/` — 배달 상태 머신(`DeliveryManager`), 도메인 타입·요금 상수(`deliveryTypes`), 주문 생성(`orderFactory`, 콜 목록·배차 공용), 정산 금액(`settlementPay`), 음식 상태·채팅 이벤트(`cargoCare`), 추천 경로(`missionRoute`), 배차(`OrderDispatchManager`), 근무일·목표(`ShiftDay`), 커리어 저장(`RiderCareer`, localStorage)
 - `src/ui/`, `src/audio/` — HUD·모달, 스마트폰(`PhoneMap` 조율 + `ui/phone/` 지도·화면·탭 모듈), Web Audio 프로시저럴 사운드·음성 안내
 - `tools/osm/` → `src/data/openworld/` + `public/map/suwon/chunks/` — 수원 통합 오픈월드 맵 생성 파이프라인(OSM 다운로드·변환·200m 청크 분할), 상세는 `tools/osm/README.md`
 - `src/world/openworld/` — 오픈월드 청크 스트리밍(`ChunkStreamer`: 주변 청크 로드·해제, `ChunkMeshBuilder`: 청크별 메시 병합·충돌체, `ChunkGrid`: 청크 범위 계산), 미리보기 `openworld.html`
