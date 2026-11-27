@@ -153,187 +153,114 @@ export class GameAudio {
     }
   }
 
+  /** True when one-shot effects can play (audio started, not muted) */
+  private ready(): boolean {
+    return this.started && !!this.ctx && !!this.masterGain && !this.muted;
+  }
+
+  /**
+   * One synthesized note: oscillator (optional frequency sweep) -> optional filter -> gain envelope -> master.
+   * Envelope: start at `peak` (or ramp up from silence over `attack`), optional `hold` step, then an
+   * exponential decay to silence at `decay`; the oscillator stops at `stop`. Times are seconds after `at`.
+   */
+  private tone(o: ToneSpec): void {
+    if (!this.ready()) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + (o.at ?? 0);
+    const osc = ctx.createOscillator();
+    osc.type = o.type;
+    applyFreq(osc.frequency, o.freq, o.sweep, t);
+    const g = ctx.createGain();
+    envelope(g.gain, t, o);
+    const filter = o.filter ? makeFilter(ctx, o.filter, t) : null;
+    if (filter) {
+      osc.connect(filter);
+      filter.connect(g);
+    } else {
+      osc.connect(g);
+    }
+    g.connect(this.masterGain!);
+    osc.start(t);
+    osc.stop(t + o.stop);
+  }
+
+  /**
+   * One noise burst: white noise shaped by `env(x)` (x = 0..1 over the buffer) -> optional filter -> gain.
+   * Without `decay` the gain stays at `peak`.
+   */
+  private noise(o: NoiseSpec): void {
+    if (!this.ready()) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const len = Math.floor(ctx.sampleRate * o.duration);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * o.env(i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    if (o.decay === undefined) g.gain.value = o.peak;
+    else envelope(g.gain, t, { peak: o.peak, attack: o.attack, decay: o.decay });
+    const filter = o.filter ? makeFilter(ctx, o.filter, t) : null;
+    if (filter) {
+      src.connect(filter);
+      filter.connect(g);
+    } else {
+      src.connect(g);
+    }
+    g.connect(this.masterGain!);
+    src.start(t);
+    if (o.stop !== undefined) src.stop(t + o.stop);
+  }
+
   public setHorn(active: boolean): void {
     if (!this.started || !this.hornGain || !this.ctx) return;
     this.hornGain.gain.setTargetAtTime(active ? 0.35 : 0, this.ctx.currentTime, 0.02);
   }
 
   public playMountSound(mounting: boolean): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    if (mounting) {
-      osc.frequency.setValueAtTime(140, now);
-      osc.frequency.exponentialRampToValueAtTime(240, now + 0.14);
-    } else {
-      osc.frequency.setValueAtTime(200, now);
-      osc.frequency.exponentialRampToValueAtTime(95, now + 0.14);
-    }
-    gain.gain.setValueAtTime(0.22, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-    osc.connect(gain);
-    gain.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.17);
+    this.tone({ type: 'triangle', freq: mounting ? 140 : 200, sweep: [[0.14, mounting ? 240 : 95]], peak: 0.22, decay: 0.16, stop: 0.17 });
   }
 
   public playCrashSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-
-    // Low impact thud
-    const thud = this.ctx.createOscillator();
-    const thudGain = this.ctx.createGain();
-    thud.type = 'sine';
-    thud.frequency.setValueAtTime(135, now);
-    thud.frequency.exponentialRampToValueAtTime(34, now + 0.28);
-    thudGain.gain.setValueAtTime(0.65, now);
-    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-    thud.connect(thudGain);
-    thudGain.connect(this.masterGain);
-    thud.start(now);
-    thud.stop(now + 0.32);
-
-    // Asphalt scrape noise burst
-    const len = Math.floor(this.ctx.sampleRate * 0.55);
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.4);
-    }
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = buf;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = 1100;
-    const nGain = this.ctx.createGain();
-    nGain.gain.setValueAtTime(0.45, now);
-    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.54);
-    noise.connect(filter);
-    filter.connect(nGain);
-    nGain.connect(this.masterGain);
-    noise.start(now);
+    // Low impact thud + asphalt scrape noise burst
+    this.tone({ type: 'sine', freq: 135, sweep: [[0.28, 34]], peak: 0.65, decay: 0.3, stop: 0.32 });
+    this.noise({ duration: 0.55, env: (x) => Math.pow(1 - x, 1.4), filter: { type: 'bandpass', freq: 1100 }, peak: 0.45, decay: 0.54 });
   }
 
   public playPhoneMountClick(mounting: boolean): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = 'triangle';
-    if (mounting) {
-      osc.frequency.setValueAtTime(520, now);
-      osc.frequency.exponentialRampToValueAtTime(1120, now + 0.045);
-    } else {
-      osc.frequency.setValueAtTime(840, now);
-      osc.frequency.exponentialRampToValueAtTime(360, now + 0.055);
-    }
-    g.gain.setValueAtTime(0.24, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.07);
+    this.tone({
+      type: 'triangle',
+      freq: mounting ? 520 : 840,
+      sweep: [[mounting ? 0.045 : 0.055, mounting ? 1120 : 360]],
+      peak: 0.24,
+      decay: 0.065,
+      stop: 0.07,
+    });
   }
 
   public playKeypadBeep(ok: boolean): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = ok ? 'sine' : 'sawtooth';
-    osc.frequency.value = ok ? 920 : 210;
-    g.gain.setValueAtTime(0.16, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + (ok ? 0.07 : 0.22));
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + (ok ? 0.08 : 0.24));
+    this.tone({ type: ok ? 'sine' : 'sawtooth', freq: ok ? 920 : 210, peak: 0.16, decay: ok ? 0.07 : 0.22, stop: ok ? 0.08 : 0.24 });
   }
 
   public playCargoBoxSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(220, now);
-    osc.frequency.exponentialRampToValueAtTime(110, now + 0.16);
-    g.gain.setValueAtTime(0.28, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.19);
+    this.tone({ type: 'triangle', freq: 220, sweep: [[0.16, 110]], peak: 0.28, decay: 0.18, stop: 0.19 });
   }
 
   public playElevatorDing(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    [880, 1174.66].forEach((freq, i) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = now + i * 0.18;
-      g.gain.setValueAtTime(0.22, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.58);
-    });
+    [880, 1174.66].forEach((freq, i) => this.tone({ type: 'sine', freq, at: i * 0.18, peak: 0.22, decay: 0.55, stop: 0.58 }));
   }
 
   public playCameraShutter(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const len = Math.floor(this.ctx.sampleRate * 0.09);
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
-    }
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = buf;
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.value = 1800;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.42, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
-    noise.connect(filter);
-    filter.connect(g);
-    g.connect(this.masterGain);
-    noise.start(now);
+    this.noise({ duration: 0.09, env: (x) => Math.pow(1 - x, 2), filter: { type: 'highpass', freq: 1800 }, peak: 0.42, decay: 0.085 });
   }
 
   public playChime(kind: 'accept' | 'pickup' | 'complete'): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const notes =
-      kind === 'complete'
-        ? [523.25, 659.25, 783.99, 1046.5]
-        : kind === 'pickup'
-          ? [440, 587.33, 659.25]
-          : [523.25, 659.25];
-
-    notes.forEach((freq, idx) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = now + idx * 0.085;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.22, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.26);
-    });
+      kind === 'complete' ? [523.25, 659.25, 783.99, 1046.5] : kind === 'pickup' ? [440, 587.33, 659.25] : [523.25, 659.25];
+    notes.forEach((freq, idx) =>
+      this.tone({ type: 'sine', freq, at: idx * 0.085, attack: 0.015, peak: 0.22, decay: 0.24, stop: 0.26 })
+    );
   }
 
   private playBlinkerClick(isOnPhase: boolean): void {
@@ -354,180 +281,91 @@ export class GameAudio {
 
   /** Dual-tone realistic car klaxon honk when player cuts in front of an AI sedan/taxi */
   public playAiCarHorn(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     // Classic Korean sedan dual-horn harmony (F4 ~349Hz + A4 ~440Hz, crisp short warning blast)
-    [349.23, 440.0].forEach((freq) => {
-      const osc = this.ctx!.createOscillator();
-      const filter = this.ctx!.createBiquadFilter();
-      const g = this.ctx!.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.value = freq;
-      filter.type = 'bandpass';
-      filter.frequency.value = 920;
-      filter.Q.value = 1.6;
-      g.gain.setValueAtTime(0.001, now);
-      g.gain.linearRampToValueAtTime(0.24, now + 0.02);
-      g.gain.setValueAtTime(0.22, now + 0.28);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
-      osc.connect(filter);
-      filter.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(now);
-      osc.stop(now + 0.38);
-    });
+    [349.23, 440.0].forEach((freq) =>
+      this.tone({
+        type: 'sawtooth',
+        freq,
+        filter: { type: 'bandpass', freq: 920, Q: 1.6 },
+        attack: 0.02,
+        peak: 0.24,
+        hold: [0.28, 0.22],
+        decay: 0.36,
+        stop: 0.38,
+      })
+    );
   }
 
   /** Korean GPS navi 80m speed-camera zone chime ("딩동!" entry, or rapid "삐-삐!" when speeding >50km/h) */
   public playCameraApproachBeep(overSpeed: boolean): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-
     if (overSpeed) {
       // Urgent T-map style overspeed double-beep ("삐! 삐!")
-      [0, 0.12].forEach((offset) => {
-        const t = now + offset;
-        const osc = this.ctx!.createOscillator();
-        const g = this.ctx!.createGain();
-        osc.type = 'square';
-        osc.frequency.value = 1480;
-        const filt = this.ctx!.createBiquadFilter();
-        filt.type = 'lowpass';
-        filt.frequency.value = 2400;
-        g.gain.setValueAtTime(0.001, t);
-        g.gain.linearRampToValueAtTime(0.14, t + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
-        osc.connect(filt);
-        filt.connect(g);
-        g.connect(this.masterGain!);
-        osc.start(t);
-        osc.stop(t + 0.095);
-      });
+      [0, 0.12].forEach((at) =>
+        this.tone({ type: 'square', freq: 1480, at, filter: { type: 'lowpass', freq: 2400 }, attack: 0.008, peak: 0.14, decay: 0.085, stop: 0.095 })
+      );
     } else {
       // Friendly 80m camera-ahead notice chime ("딩~동!")
-      [880, 1174.66].forEach((freq, idx) => {
-        const t = now + idx * 0.12;
-        const osc = this.ctx!.createOscillator();
-        const g = this.ctx!.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        g.gain.setValueAtTime(0.001, t);
-        g.gain.linearRampToValueAtTime(0.2, t + 0.012);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-        osc.connect(g);
-        g.connect(this.masterGain!);
-        osc.start(t);
-        osc.stop(t + 0.24);
-      });
+      [880, 1174.66].forEach((freq, idx) =>
+        this.tone({ type: 'sine', freq, at: idx * 0.12, attack: 0.012, peak: 0.2, decay: 0.22, stop: 0.24 })
+      );
     }
   }
 
   /** Korean police patrol car wail siren ("우~웅 우~웅!") on live patrol enforcement */
   public playPoliceSiren(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const filt = this.ctx.createBiquadFilter();
-    const g = this.ctx.createGain();
-    osc.type = 'sawtooth';
-    filt.type = 'bandpass';
-    filt.frequency.value = 1100;
-    filt.Q.value = 1.8;
-
     // 2 classic rising/falling siren sweeps (~1.45s)
-    osc.frequency.setValueAtTime(620, now);
-    osc.frequency.linearRampToValueAtTime(1260, now + 0.36);
-    osc.frequency.linearRampToValueAtTime(640, now + 0.72);
-    osc.frequency.linearRampToValueAtTime(1280, now + 1.08);
-    osc.frequency.linearRampToValueAtTime(600, now + 1.44);
-
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(0.2, now + 0.06);
-    g.gain.setValueAtTime(0.18, now + 1.25);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 1.48);
-
-    osc.connect(filt);
-    filt.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 1.5);
+    this.tone({
+      type: 'sawtooth',
+      freq: 620,
+      sweep: [
+        [0.36, 1260, 'lin'],
+        [0.72, 640, 'lin'],
+        [1.08, 1280, 'lin'],
+        [1.44, 600, 'lin'],
+      ],
+      filter: { type: 'bandpass', freq: 1100, Q: 1.8 },
+      attack: 0.06,
+      peak: 0.2,
+      hold: [1.25, 0.18],
+      decay: 1.48,
+      stop: 1.5,
+    });
   }
 
   /** Sharp roadside speed/red-light enforcement camera strobe click + penalty warning beep */
   public playSpeedCameraFlash(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-
-    // 1. Crisp camera shutter snap
+    if (!this.ready()) return;
+    // 1. Crisp camera shutter snap, 2. two-tone Korean enforcement alert chime (high-low)
     this.playCameraShutter();
-
-    // 2. Two-tone Korean enforcement alert chime (high-low)
-    [1046.5, 783.99].forEach((freq, i) => {
-      const t = now + 0.08 + i * 0.15;
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'square';
-      osc.frequency.value = freq;
-      const filt = this.ctx!.createBiquadFilter();
-      filt.type = 'lowpass';
-      filt.frequency.value = 2100;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.16, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-      osc.connect(filt);
-      filt.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.16);
-    });
+    [1046.5, 783.99].forEach((freq, i) =>
+      this.tone({ type: 'square', freq, at: 0.08 + i * 0.15, filter: { type: 'lowpass', freq: 2100 }, attack: 0.01, peak: 0.16, decay: 0.14, stop: 0.16 })
+    );
   }
 
   /** Subtle tactile capacitive glass tap click when touching the smartphone screen */
   public playPhoneScreenTap(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1150, now);
-    osc.frequency.exponentialRampToValueAtTime(380, now + 0.026);
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(0.14, now + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.034);
+    this.tone({ type: 'sine', freq: 1150, sweep: [[0.026, 380]], attack: 0.004, peak: 0.14, decay: 0.03, stop: 0.034 });
   }
 
   /** Short startled pedestrian gasp when scooter passes within 3.5m on the sidewalk */
   public playPedestrianStartle(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const filt = this.ctx.createBiquadFilter();
-    const g = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(340, now);
-    osc.frequency.exponentialRampToValueAtTime(590, now + 0.08);
-    osc.frequency.exponentialRampToValueAtTime(420, now + 0.19);
-    filt.type = 'bandpass';
-    filt.frequency.value = 950;
-    filt.Q.value = 2.0;
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(0.24, now + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.21);
-    osc.connect(filt);
-    filt.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.23);
+    this.tone({
+      type: 'triangle',
+      freq: 340,
+      sweep: [
+        [0.08, 590],
+        [0.19, 420],
+      ],
+      filter: { type: 'bandpass', freq: 950, Q: 2.0 },
+      attack: 0.02,
+      peak: 0.24,
+      decay: 0.21,
+      stop: 0.23,
+    });
   }
 
   /** Urgent emergency alert chime for pedestrian contact accident */
   public playPedestrianAccidentAlert(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const tones = [
       { t: 0, f: 880, dur: 0.16 },
       { t: 0.17, f: 622.25, dur: 0.18 },
@@ -535,65 +373,31 @@ export class GameAudio {
       { t: 0.53, f: 523.25, dur: 0.32 },
     ];
     for (const n of tones) {
-      const t = now + n.t;
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.value = n.f;
-      const filt = this.ctx.createBiquadFilter();
-      filt.type = 'lowpass';
-      filt.frequency.value = 1800;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.26, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
-      osc.connect(filt);
-      filt.connect(g);
-      g.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + n.dur + 0.02);
+      this.tone({ type: 'sawtooth', freq: n.f, at: n.t, filter: { type: 'lowpass', freq: 1800 }, attack: 0.015, peak: 0.26, decay: n.dur, stop: n.dur + 0.02 });
     }
   }
 
   /** Celebratory fanfare chime for completing the Daily Delivery Mission (+₩5,000 bonus!) */
   public playMissionBonusFanfare(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98];
-    notes.forEach((freq, idx) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = idx >= 4 ? 'triangle' : 'sine';
-      osc.frequency.value = freq;
-      const t = now + idx * 0.08;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.26, t + 0.014);
-      g.gain.exponentialRampToValueAtTime(0.001, t + (idx === notes.length - 1 ? 0.55 : 0.22));
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.58);
-    });
+    notes.forEach((freq, idx) =>
+      this.tone({
+        type: idx >= 4 ? 'triangle' : 'sine',
+        freq,
+        at: idx * 0.08,
+        attack: 0.014,
+        peak: 0.26,
+        decay: idx === notes.length - 1 ? 0.55 : 0.22,
+        stop: 0.58,
+      })
+    );
   }
 
-  /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
   /** Short melodic phrase: notes (Hz) played one after another */
   private playNotes(notes: number[], type: OscillatorType, spacing: number, peak: number, length: number): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    notes.forEach((freq, idx) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      const t = now + idx * spacing;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(peak, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.001, t + length);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + length + 0.02);
-    });
+    notes.forEach((freq, idx) =>
+      this.tone({ type, freq, at: idx * spacing, attack: 0.015, peak, decay: length, stop: length + 0.02 })
+    );
   }
 
   /** Lunch / dinner rush begins: bright rising "rush hour" jingle */
@@ -608,29 +412,13 @@ export class GameAudio {
 
   /** Rain starts: distant low thunder roll (filtered noise) */
   public playThunderRumble(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const dur = 2.6;
-    const len = Math.floor(this.ctx.sampleRate * dur);
-    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) {
-      const t = i / len;
-      // Two rolling swells
-      const env = Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.6)), 2) * (1 - t) + 0.5 * Math.pow(Math.sin(Math.PI * t), 4);
-      data[i] = (Math.random() * 2 - 1) * env;
-    }
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    const lp = this.ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 180;
-    const g = this.ctx.createGain();
-    g.gain.value = 0.9;
-    src.connect(lp);
-    lp.connect(g);
-    g.connect(this.masterGain);
-    src.start(now);
+    // Two rolling swells
+    this.noise({
+      duration: 2.6,
+      env: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.6)), 2) * (1 - t) + 0.5 * Math.pow(Math.sin(Math.PI * t), 4),
+      filter: { type: 'lowpass', freq: 180 },
+      peak: 0.9,
+    });
   }
 
   /** Special order call (urgent / group): distinct double alert before the normal call alert */
@@ -654,476 +442,233 @@ export class GameAudio {
     this.playNotes([523.25, 659.25, 783.99, 659.25, 523.25, 392, 523.25], 'triangle', 0.13, 0.17, 0.42);
   }
 
+  /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
   public playFoodReadyDingDong(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const tones = [
       { t: 0, f: 783.99, dur: 0.24 }, // G5
       { t: 0.16, f: 659.25, dur: 0.28 }, // E5
       { t: 0.36, f: 1046.5, dur: 0.45 }, // C6 bright finish
     ];
     for (const n of tones) {
-      const t = now + n.t;
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = n.f;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.28, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
-      osc.connect(g);
-      g.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + n.dur + 0.02);
+      this.tone({ type: 'sine', freq: n.f, at: n.t, attack: 0.012, peak: 0.28, decay: n.dur, stop: n.dur + 0.02 });
     }
   }
 
   /** Realistic hollow wooden apartment door knock sound ("똑! 똑! 똑!") */
   public playDoorKnockSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    [0, 0.22, 0.44].forEach((offset) => {
-      const t = now + offset;
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(190, t);
-      osc.frequency.exponentialRampToValueAtTime(72, t + 0.075);
-      g.gain.setValueAtTime(0.42, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.09);
-    });
+    [0, 0.22, 0.44].forEach((at) =>
+      this.tone({ type: 'triangle', freq: 190, at, sweep: [[0.075, 72]], peak: 0.42, decay: 0.085, stop: 0.09 })
+    );
   }
 
   /** Apartment intercom doorbell ("딩동~") + synthesized friendly dialogue cadence ("누구세요? 배달이요!") */
   public playIntercomBellAndVoice(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-
     // 1. Classic Korean apartment "딩~ 동~" chime (E5 -> C5)
-    [659.25, 523.25].forEach((freq, i) => {
-      const t = now + i * 0.28;
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.28, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.46);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.48);
-    });
-
-    // 2. Subtle intercom speaker cadence ("누구세요?" rising tone, then "배달이요!" confirmation tone)
+    [659.25, 523.25].forEach((freq, i) =>
+      this.tone({ type: 'sine', freq, at: i * 0.28, attack: 0.015, peak: 0.28, decay: 0.46, stop: 0.48 })
+    );
+    // 2. Intercom speaker cadence: "누-구-세-요?" rising, then "배-달-이-요!" slightly lower rider voice contour
     const syllables: Array<{ t: number; f: number; dur: number }> = [
-      // "누-구-세-요?" (intercom bandpass voice pitch contour)
       { t: 0.65, f: 290, dur: 0.08 },
       { t: 0.75, f: 310, dur: 0.08 },
       { t: 0.85, f: 340, dur: 0.09 },
       { t: 0.96, f: 390, dur: 0.12 },
-      // "배-달-이-요!" (slightly lower rider voice contour)
       { t: 1.22, f: 210, dur: 0.08 },
       { t: 1.32, f: 230, dur: 0.08 },
       { t: 1.42, f: 245, dur: 0.08 },
       { t: 1.52, f: 265, dur: 0.11 },
     ];
-    for (const s of syllables) {
-      const t = now + s.t;
-      const osc = this.ctx.createOscillator();
-      const filt = this.ctx.createBiquadFilter();
-      const g = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(s.f, t);
-      filt.type = 'bandpass';
-      filt.frequency.value = 1100;
-      filt.Q.value = 3.2;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.11, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.001, t + s.dur);
-      osc.connect(filt);
-      filt.connect(g);
-      g.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + s.dur + 0.02);
+    for (const sy of syllables) {
+      this.tone({
+        type: 'sawtooth',
+        freq: sy.f,
+        sweep: [], // pitch set at the syllable start (as before), no glide
+        at: sy.t,
+        filter: { type: 'bandpass', freq: 1100, Q: 3.2 },
+        attack: 0.015,
+        peak: 0.11,
+        decay: sy.dur,
+        stop: sy.dur + 0.02,
+      });
     }
   }
 
   /** Baemin Connect style crisp double-arpeggio dispatch notification + haptic vibrate pulse */
   public playDispatchCallAlert(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-
-    // Signature bright "띠리링~ 띠리링~" ascending electronic chime (E6 - G#6 - B6 - E7)
+    // Signature bright "띠리링~ 띠리링~" ascending electronic chime (E6 - G#6 - B6 - E7), twice,
+    // over a low haptic smartphone vibration hum on the handlebar mount
     const melody = [1318.5, 1661.2, 1975.5, 2637.0];
     for (let rep = 0; rep < 2; rep++) {
-      const baseT = now + rep * 0.34;
-      melody.forEach((freq, idx) => {
-        const osc = this.ctx!.createOscillator();
-        const g = this.ctx!.createGain();
-        osc.type = idx === melody.length - 1 ? 'triangle' : 'sine';
-        osc.frequency.value = freq;
-        const t = baseT + idx * 0.062;
-        g.gain.setValueAtTime(0.001, t);
-        g.gain.linearRampToValueAtTime(0.24, t + 0.01);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
-        osc.connect(g);
-        g.connect(this.masterGain!);
-        osc.start(t);
-        osc.stop(t + 0.18);
-      });
-
-      // Subtle low haptic smartphone vibration hum on handlebar mount
-      const vib = this.ctx.createOscillator();
-      const vg = this.ctx.createGain();
-      vib.type = 'sawtooth';
-      vib.frequency.value = 92;
-      const vFilter = this.ctx.createBiquadFilter();
-      vFilter.type = 'lowpass';
-      vFilter.frequency.value = 180;
-      vg.gain.setValueAtTime(0.14, baseT);
-      vg.gain.exponentialRampToValueAtTime(0.001, baseT + 0.2);
-      vib.connect(vFilter);
-      vFilter.connect(vg);
-      vg.connect(this.masterGain);
-      vib.start(baseT);
-      vib.stop(baseT + 0.22);
+      const baseT = rep * 0.34;
+      melody.forEach((freq, idx) =>
+        this.tone({
+          type: idx === melody.length - 1 ? 'triangle' : 'sine',
+          freq,
+          at: baseT + idx * 0.062,
+          attack: 0.01,
+          peak: 0.24,
+          decay: 0.16,
+          stop: 0.18,
+        })
+      );
+      this.tone({ type: 'sawtooth', freq: 92, at: baseT, filter: { type: 'lowpass', freq: 180 }, peak: 0.14, decay: 0.2, stop: 0.22 });
     }
   }
 
   /** Soft descending two-tone sound when a 20s call offer expires or is declined */
   public playDispatchExpiredSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    [440, 311.13].forEach((freq, i) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = now + i * 0.12;
-      g.gain.setValueAtTime(0.16, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.16);
-    });
+    [440, 311.13].forEach((freq, i) => this.tone({ type: 'sine', freq, at: i * 0.12, peak: 0.16, decay: 0.14, stop: 0.16 }));
   }
 
   /** Synthesizes low-fuel dashboard warning double-beep */
   public playLowFuelWarningBeep(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    [1318.5, 987.77].forEach((freq, i) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = now + i * 0.13;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.18, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.11);
-    });
+    [1318.5, 987.77].forEach((freq, i) =>
+      this.tone({ type: 'sine', freq, at: i * 0.13, attack: 0.012, peak: 0.18, decay: 0.1, stop: 0.11 })
+    );
   }
 
   /** Soft rhythmic pump click while refueling */
   public playFuelPumpTick(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(340, now);
-    osc.frequency.exponentialRampToValueAtTime(520, now + 0.04);
-    g.gain.setValueAtTime(0.12, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.055);
+    this.tone({ type: 'triangle', freq: 340, sweep: [[0.04, 520]], peak: 0.12, decay: 0.05, stop: 0.055 });
   }
 
   /** Korean self-service POS / card terminal payment complete chime ("결제가 완료되었습니다" tone) */
   public playPaymentCompleteSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const notes = [1046.5, 1318.5, 1567.98, 2093.0];
-    notes.forEach((freq, idx) => {
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = freq;
-      const t = now + idx * 0.075;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.24, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.24);
-    });
+    [1046.5, 1318.5, 1567.98, 2093.0].forEach((freq, idx) =>
+      this.tone({ type: 'triangle', freq, at: idx * 0.075, attack: 0.01, peak: 0.24, decay: 0.22, stop: 0.24 })
+    );
   }
 
   /** Mechanic air-wrench whir & confirmation chime for scooter repair */
   public playRepairSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     for (let i = 0; i < 3; i++) {
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      const t = now + i * 0.14;
-      osc.frequency.setValueAtTime(220, t);
-      osc.frequency.exponentialRampToValueAtTime(640, t + 0.09);
-      g.gain.setValueAtTime(0.18, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
-      osc.connect(g);
-      g.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + 0.12);
+      this.tone({ type: 'sawtooth', freq: 220, at: i * 0.14, sweep: [[0.09, 640]], peak: 0.18, decay: 0.11, stop: 0.12 });
     }
   }
 
   /** Deep double-thud suspension jolt ("덜컹-덜컹!") when crossing a speed bump */
   public playSpeedBumpThud(intensity = 0.7): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const vol = Math.min(0.48, 0.18 + intensity * 0.3);
-    [0, 0.095].forEach((offset, idx) => {
-      const t = now + offset;
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(idx === 0 ? 128 : 104, t);
-      osc.frequency.exponentialRampToValueAtTime(38, t + 0.11);
-      g.gain.setValueAtTime(vol * (idx === 0 ? 1 : 0.8), t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.14);
-    });
+    [0, 0.095].forEach((at, idx) =>
+      this.tone({
+        type: 'triangle',
+        freq: idx === 0 ? 128 : 104,
+        at,
+        sweep: [[0.11, 38]],
+        peak: vol * (idx === 0 ? 1 : 0.8),
+        decay: 0.13,
+        stop: 0.14,
+      })
+    );
   }
 
   /** Filtered liquid slosh cue when soup/drink spills inside top box from harsh lean/braking */
   public playLiquidSlosh(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const bufLen = Math.floor(this.ctx.sampleRate * 0.24);
-    const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufLen) * Math.PI);
-    }
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    const filt = this.ctx.createBiquadFilter();
-    filt.type = 'bandpass';
-    filt.frequency.setValueAtTime(480, now);
-    filt.frequency.exponentialRampToValueAtTime(1150, now + 0.11);
-    filt.frequency.exponentialRampToValueAtTime(420, now + 0.23);
-    filt.Q.value = 3.2;
-
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.24, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
-
-    src.connect(filt);
-    filt.connect(g);
-    g.connect(this.masterGain);
-    src.start(now);
+    this.noise({
+      duration: 0.24,
+      env: (x) => Math.sin(x * Math.PI),
+      filter: {
+        type: 'bandpass',
+        freq: 480,
+        sweep: [
+          [0.11, 1150],
+          [0.23, 420],
+        ],
+        Q: 3.2,
+      },
+      peak: 0.24,
+      decay: 0.24,
+    });
   }
 
   /** Crisp Korean messenger-style two-tone ping ("카톡/띠링!") for live customer chat messages */
   public playCustomerChatPing(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const notes = [
       { t: 0, f: 880, dur: 0.11 },
       { t: 0.095, f: 1318.5, dur: 0.22 },
     ];
     for (const n of notes) {
-      const t = now + n.t;
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = n.f;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.25, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
-      osc.connect(g);
-      g.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + n.dur + 0.02);
+      this.tone({ type: 'sine', freq: n.f, at: n.t, attack: 0.01, peak: 0.25, decay: n.dur, stop: n.dur + 0.02 });
     }
   }
 
   /** Subtle terrazzo stair footstep click while climbing walk-up villa stairs */
   public playStairFootstep(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(175 + Math.random() * 35, now);
-    osc.frequency.exponentialRampToValueAtTime(62, now + 0.055);
-    g.gain.setValueAtTime(0.14, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.07);
+    if (!this.ready()) return;
+    this.tone({ type: 'triangle', freq: 175 + Math.random() * 35, sweep: [[0.055, 62]], peak: 0.14, decay: 0.065, stop: 0.07 });
   }
 
   /** Wet rubber glove wiping across helmet visor ("쓱~ 뽀드득!") */
   public playVisorWipeSound(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const dur = 0.34;
-    const bufLen = Math.floor(this.ctx.sampleRate * dur);
-    const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) {
-      const env = Math.sin((i / bufLen) * Math.PI);
-      data[i] = (Math.random() * 2 - 1) * env;
-    }
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-
-    const filt = this.ctx.createBiquadFilter();
-    filt.type = 'bandpass';
-    filt.frequency.setValueAtTime(720, now);
-    filt.frequency.exponentialRampToValueAtTime(1950, now + dur * 0.55);
-    filt.frequency.exponentialRampToValueAtTime(640, now + dur);
-    filt.Q.value = 3.8;
-
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.26, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
-
-    src.connect(filt);
-    filt.connect(g);
-    g.connect(this.masterGain);
-    src.start(now);
+    this.noise({
+      duration: dur,
+      env: (x) => Math.sin(x * Math.PI),
+      filter: {
+        type: 'bandpass',
+        freq: 720,
+        sweep: [
+          [dur * 0.55, 1950],
+          [dur, 640],
+        ],
+        Q: 3.8,
+      },
+      peak: 0.26,
+      decay: dur,
+    });
   }
 
   /** Classic Korean 24h convenience store bright entrance/checkout chime ("띠리링~!") */
   public playConvenienceChime(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const notes = [
       { t: 0, f: 987.77, dur: 0.16 }, // B5
       { t: 0.13, f: 1318.51, dur: 0.16 }, // E6
       { t: 0.26, f: 1567.98, dur: 0.32 }, // G6
     ];
     for (const n of notes) {
-      const t = now + n.t;
-      const osc = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = n.f;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.24, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
-      osc.connect(g);
-      g.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + n.dur + 0.02);
+      this.tone({ type: 'sine', freq: n.f, at: n.t, attack: 0.012, peak: 0.24, decay: n.dur, stop: n.dur + 0.02 });
     }
   }
 
   /** Soft modern smartphone wireless charging confirmation harmonic ping */
   public playWirelessChargeStart(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    [587.33, 880, 1174.66].forEach((freq, i) => {
-      const t = now + i * 0.075;
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.16, t + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.26);
-    });
+    [587.33, 880, 1174.66].forEach((freq, i) =>
+      this.tone({ type: 'sine', freq, at: i * 0.075, attack: 0.012, peak: 0.16, decay: 0.24, stop: 0.26 })
+    );
   }
 
   /** Gentle descending low-battery alert chime */
   public playLowBatteryBeep(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    [740, 554.37].forEach((freq, i) => {
-      const t = now + i * 0.14;
-      const osc = this.ctx!.createOscillator();
-      const g = this.ctx!.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(0.001, t);
-      g.gain.linearRampToValueAtTime(0.18, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.16);
-    });
+    [740, 554.37].forEach((freq, i) =>
+      this.tone({ type: 'triangle', freq, at: i * 0.14, attack: 0.01, peak: 0.18, decay: 0.14, stop: 0.16 })
+    );
   }
 
   /** Metallic sliding sound for 3D stainless-steel apartment elevator doors */
   public playElevatorDoorSlide(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
     const dur = 0.55;
-    const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) {
-      data[i] = (Math.random() * 2 - 1) * 0.45;
-    }
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    const filt = this.ctx.createBiquadFilter();
-    filt.type = 'bandpass';
-    filt.frequency.setValueAtTime(420, now);
-    filt.frequency.linearRampToValueAtTime(680, now + dur * 0.5);
-    filt.frequency.linearRampToValueAtTime(340, now + dur);
-    filt.Q.value = 3.2;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(0.14, now + 0.08);
-    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
-    src.connect(filt);
-    filt.connect(g);
-    g.connect(this.masterGain);
-    src.start(now);
-    src.stop(now + dur + 0.02);
+    this.noise({
+      duration: dur,
+      env: () => 0.45,
+      filter: {
+        type: 'bandpass',
+        freq: 420,
+        sweep: [
+          [dur * 0.5, 680, 'lin'],
+          [dur, 340, 'lin'],
+        ],
+        Q: 3.2,
+      },
+      attack: 0.08,
+      peak: 0.14,
+      decay: dur,
+      stop: dur + 0.02,
+    });
   }
 
   /** Soft digital LED floor-pass tick inside the 3D apartment elevator */
   public playElevatorFloorTick(): void {
-    if (!this.started || !this.ctx || !this.masterGain || this.muted) return;
-    const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = 1120;
-    g.gain.setValueAtTime(0.001, now);
-    g.gain.linearRampToValueAtTime(0.055, now + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
-    osc.connect(g);
-    g.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.065);
+    this.tone({ type: 'sine', freq: 1120, attack: 0.008, peak: 0.055, decay: 0.055, stop: 0.065 });
   }
 
   /** Continuous low traction-motor hum while riding the 3D apartment elevator */
@@ -1253,4 +798,74 @@ export class GameAudio {
     }
     this.lastBlinkPhase = blinkPhase;
   }
+}
+
+/** [seconds after the note start, value, curve] frequency automation step (exponential by default) */
+type FreqStep = [number, number, ('exp' | 'lin')?];
+
+interface FilterSpec {
+  type: BiquadFilterType;
+  freq: number;
+  Q?: number;
+  sweep?: FreqStep[];
+}
+
+interface ToneSpec {
+  type: OscillatorType;
+  freq: number;
+  sweep?: FreqStep[];
+  /** Start offset from now (s) */
+  at?: number;
+  peak: number;
+  /** Linear fade-in from silence (s); without it the note starts at `peak` */
+  attack?: number;
+  /** Extra [time, level] step before the decay (sustain then release) */
+  hold?: [number, number];
+  /** Exponential decay to silence at this time (s) */
+  decay: number;
+  /** Oscillator stop time (s) */
+  stop: number;
+  filter?: FilterSpec;
+}
+
+interface NoiseSpec {
+  duration: number;
+  /** Amplitude shape over the buffer, x = 0..1 */
+  env: (x: number) => number;
+  filter?: FilterSpec;
+  peak: number;
+  attack?: number;
+  decay?: number;
+  stop?: number;
+}
+
+function applyFreq(param: AudioParam, freq: number, sweep: FreqStep[] | undefined, t: number): void {
+  if (!sweep) {
+    param.value = freq;
+    return;
+  }
+  param.setValueAtTime(freq, t);
+  for (const [dt, value, curve] of sweep) {
+    if (curve === 'lin') param.linearRampToValueAtTime(value, t + dt);
+    else param.exponentialRampToValueAtTime(value, t + dt);
+  }
+}
+
+function envelope(gain: AudioParam, t: number, o: { peak: number; attack?: number; hold?: [number, number]; decay: number }): void {
+  if (o.attack !== undefined) {
+    gain.setValueAtTime(0.001, t);
+    gain.linearRampToValueAtTime(o.peak, t + o.attack);
+  } else {
+    gain.setValueAtTime(o.peak, t);
+  }
+  if (o.hold) gain.setValueAtTime(o.hold[1], t + o.hold[0]);
+  gain.exponentialRampToValueAtTime(0.001, t + o.decay);
+}
+
+function makeFilter(ctx: BaseAudioContext, f: FilterSpec, t: number): BiquadFilterNode {
+  const filter = ctx.createBiquadFilter();
+  filter.type = f.type;
+  applyFreq(filter.frequency, f.freq, f.sweep, t);
+  if (f.Q !== undefined) filter.Q.value = f.Q;
+  return filter;
 }
