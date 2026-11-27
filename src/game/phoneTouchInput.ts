@@ -120,7 +120,7 @@ export function installPhoneTouchInput(ctx: GameContext, flow: DeliveryFlow): vo
       audio.ensureStarted();
       const uv = hits[0].uv;
       if (uv) {
-        const action = hud.phoneMap.handle3DScreenTouch(uv.x, uv.y, dispatch.activeOffer !== null);
+        const action = hud.phoneMap.handle3DScreenTouch(uv.x, uv.y, dispatch.activeOffer?.id ?? null);
         if (action === 'accept_offer') {
           tryAcceptIncomingOffer(true);
           return;
@@ -129,6 +129,7 @@ export function installPhoneTouchInput(ctx: GameContext, flow: DeliveryFlow): vo
           handleRejectIncomingOffer();
           return;
         }
+        if (action === 'expand_offer') return; // banner opened the full call card
       }
       hud.phoneMap.setExternal3DHandHover(false, e.clientX, e.clientY);
       // Open the zoomed view unless this tap turns out to be the first half of a double tap

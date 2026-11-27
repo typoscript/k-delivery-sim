@@ -10,9 +10,12 @@ import { renderMapToContext } from './mapRenderer';
 import { renderRidingNavOverlay } from './ridingNavOverlay3D';
 import { renderOnFootPhoneOverlay } from './onFootOverlay3D';
 import { render3DDispatchCallCard } from './dispatchCallCard3D';
+import { render3DCallBanner } from './callBanner3D';
 
 /** Phone status snapshot needed to draw the 3D screen */
 export interface Phone3DScreenStatus {
+  /** The incoming call was expanded to the full card (otherwise the compact banner shows) */
+  offerExpanded: boolean;
   battery: number;
   isWirelessCharging: boolean;
   placement: PhonePlacement;
@@ -119,9 +122,10 @@ export function render3DPhoneScreen(
     renderOnFootPhoneOverlay(ctx, w, h, player, delivery, navPlan, isNight, areaName);
   }
 
-  // Centered 20-Second Incoming Call Popup Card on the 3D Mounted / Handheld Phone Screen!
+  // Incoming call: compact banner at the top (map stays visible), or the full card once expanded
   if (activeOffer) {
-    render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
+    if (phone.offerExpanded) render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
+    else render3DCallBanner(ctx, w, activeOffer, elapsedTime);
   }
 
   // Expanding capacitive glass touch ripple rendered directly onto the 3D phone screen!

@@ -115,9 +115,7 @@ const dispatch = new OrderDispatchManager(world.locations, {
     const hint =
       hud.phoneMap.placement === 'pocket'
         ? '[Tab]으로 휴대폰을 꺼낸 뒤 화면을 터치해 20초 내 수락하세요!'
-        : hud.phoneMap.isZoomed
-          ? '스마트폰 화면의 [콜 수락] 버튼을 클릭해 터치하세요!'
-          : '3D 휴대폰 화면의 [👆 바로 터치 수락]을 직접 클릭하세요!';
+        : '휴대폰 위쪽 콜 배너의 [수락]을 누르세요 (배너를 누르면 자세히)';
     const rivalHint = offer.rival ? ' · 🛵 근처 경쟁 라이더도 노리는 콜!' : '';
     hud.showToast(`🔔 신규 콜 도착! ${label} · ₩${offer.totalFee.toLocaleString()}${rivalHint} — ${hint}`, 4500);
   },

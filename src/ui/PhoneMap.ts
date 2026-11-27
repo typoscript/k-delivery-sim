@@ -24,6 +24,7 @@ import {
   syncPinTooltip,
 } from './phone/topbarBanners';
 import { Ripple3DState, render3DPhoneScreen } from './phone/screen3D';
+import { hitCallBanner } from './phone/callBanner3D';
 import { renderMapToContext } from './phone/mapRenderer';
 import { computeDeliverySheetFingerprint, renderDeliverySheetHtml } from './phone/deliverySheet';
 import { resolveAreaName } from './phone/phoneFormat';
@@ -273,8 +274,9 @@ export class PhoneMap {
   public handle3DScreenTouch(
     u: number,
     v: number,
-    hasActiveOffer: boolean
-  ): 'accept_offer' | 'reject_offer' | 'zoom' {
+    activeOfferId: string | null
+  ): 'accept_offer' | 'reject_offer' | 'expand_offer' | 'zoom' {
+    const hasActiveOffer = activeOfferId !== null;
     const cx = clamp(u, 0, 1) * this.texCanvas.width;
     const cy = clamp(1 - v, 0, 1) * this.texCanvas.height;
 
@@ -284,7 +286,15 @@ export class PhoneMap {
     this.lastZoomMapRenderTime = -1;
     this.callbacks.onScreenTap?.();
 
-    if (hasActiveOffer) {
+    if (hasActiveOffer && this.dispatchState.expandedOfferId !== activeOfferId) {
+      // Compact banner: 수락 / ✕, or the banner body opens the full card (in this view and the zoomed one)
+      const hit = hitCallBanner(cx, cy, this.texCanvas.width);
+      if (hit === 'expand_offer') {
+        this.dispatchState.expandedOfferId = activeOfferId;
+        this.last3DRenderTime = -1;
+      }
+      if (hit) return hit;
+    } else if (hasActiveOffer) {
       // Match split CTA button row drawn in render3DDispatchCallCard (y = 452..502, padded slightly for touch)
       if (cy >= 438 && cy <= 518) {
         if (cx >= 134 && cx <= 336) {
@@ -661,6 +671,7 @@ export class PhoneMap {
           battery: this.battery,
           isWirelessCharging: this.isWirelessCharging,
           placement: this.placement,
+          offerExpanded: activeOffer !== null && this.dispatchState.expandedOfferId === activeOffer.id,
         },
         this.view,
         this.ripple3D,
