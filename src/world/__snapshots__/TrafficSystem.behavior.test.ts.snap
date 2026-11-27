@@ -2,8 +2,8 @@
 
 exports[`TrafficSystem behaviour > drives the same way every run 1`] = `
 {
-  "collisions": 7,
-  "hash": -308517023,
+  "collisions": 10,
+  "hash": -310382227,
   "redLights": 0,
   "signal": "red/green",
 }

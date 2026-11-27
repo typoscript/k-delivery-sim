@@ -4,6 +4,9 @@ import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world
 import { PerfMonitor } from './PerfMonitor';
 import { applyGameClock } from './clockSync';
 import { activeRoadProximity } from '../world/roadProximity';
+import { ALERT_MAX_DIST_M, RiderAlertMonitor } from './riderAlerts';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { getSignalAxis, signalNodesNear } from '../world/TrafficRules';
 import type { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
 import {
   RED_LIGHT_TICKET_FINE,
@@ -57,6 +60,8 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
 
   const roadProximity = activeRoadProximity();
   const sidewalkMonitor = new SidewalkRidingMonitor();
+  const riderAlerts = new RiderAlertMonitor();
+  const nearSignalIds: number[] = [];
   /** Red-light / sidewalk ticket written by a patrol car: fine, rider rating, siren and the ticket card */
   const issuePatrolTicket = (ticket: SpeedCameraTriggerEvent, what: string) => {
     const res = delivery.applyTrafficTicket(ticket.fine, TICKET_RATING_PENALTY, ticket.kind === 'patrol_sidewalk' ? 'sidewalk' : 'signal');
@@ -288,6 +293,34 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
           audio.playPedestrianStartle();
           hud.showToast(`🚸 인도 주행 중! 보행자 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`, 3600);
         }
+      }
+
+      // Red light / pedestrian in the path within stopping distance: warn before it is too late
+      const fx = Math.sin(scooterPhysics.state.heading);
+      const fz = Math.cos(scooterPhysics.state.heading);
+      nearSignalIds.length = 0;
+      const signalsNear = isRiding
+        ? signalNodesNear(sx, sz, ALERT_MAX_DIST_M, nearSignalIds).map((id) => {
+            const n = ACTIVE_MAP_DATA.nodes[id];
+            const axis = getSignalAxis(id, fx, fz);
+            return { id, x: n.x, z: n.z, color: axis === 'ns' ? traffic.signalState.ns : traffic.signalState.ew };
+          })
+        : [];
+      const alert = riderAlerts.step(
+        dt,
+        isRiding && !scooterPhysics.state.crashed,
+        { x: sx, z: sz, heading: scooterPhysics.state.heading, speed: scooterPhysics.state.speed },
+        signalsNear,
+        isRiding ? pedestrians.agents : []
+      );
+      if (alert) {
+        audio.playCameraApproachBeep(true);
+        hud.showToast(
+          alert.kind === 'pedestrian'
+            ? `🚸 전방 ${Math.round(alert.distance)}m 보행자 · 감속하세요`
+            : `🚦 전방 ${Math.round(alert.distance)}m 빨간불 · 정지하세요`,
+          2200
+        );
       }
     } else {
       world.mapInfo.upcomingCamera = null;

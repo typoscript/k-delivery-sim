@@ -2,7 +2,7 @@
 
 exports[`CityWorld build (legacy district map) > builds the same scene every time 1`] = `
 {
-  "hash": 13178588,
+  "hash": -1271701164,
   "instances": 977,
   "meshes": 1314,
   "vertices": 30225,

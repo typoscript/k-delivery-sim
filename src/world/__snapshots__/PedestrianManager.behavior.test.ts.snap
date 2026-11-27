@@ -2,10 +2,10 @@
 
 exports[`PedestrianManager behaviour > moves the same way every run 1`] = `
 {
-  "collisions": 5,
-  "hash": 1277982450,
-  "recycled": 82,
-  "startles": 3,
-  "visible": 0,
+  "collisions": 1,
+  "hash": 619500264,
+  "recycled": 81,
+  "startles": 2,
+  "visible": 6,
 }
 `;
