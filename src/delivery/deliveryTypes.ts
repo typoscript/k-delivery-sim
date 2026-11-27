@@ -332,6 +332,8 @@ export interface SettlementResult {
   /** Special order surcharge actually paid (urgent: only if on time) + regular customer tip */
   specialBonus: number;
   regularCustomerTip: number;
+  /** Deducted from the base fee for damaged food */
+  damageDeduction: number;
   tierBonus: number;
   tierPromotedTo: RiderTierSpec | null;
   foodIntegrity: number;

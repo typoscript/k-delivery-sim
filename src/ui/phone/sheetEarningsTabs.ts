@@ -1,4 +1,5 @@
 import { DeliveryManager } from '../../delivery/DeliveryManager';
+import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, lineValue } from '../receiptLines';
 
 /** [수익] top-nav tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
 export function renderDailyMissionWidget(delivery: DeliveryManager): string {
@@ -53,18 +54,13 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
         <span class="bc-receipt-brand">🧾 배민커넥트 일일 정산 명세서</span>
         <span class="bc-receipt-date">${dateStr} · ★ ${l.riderRating.toFixed(1)}</span>
       </div>
-      <div class="bc-rcpt-row inc"><span>기본 배달료 합계</span><span>+${fmt(l.baseFeeTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>거리 할증 합계</span><span>+${fmt(l.distanceBonusTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(l.rainBonusTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>🌙 심야 할증</span><span>+${fmt(l.nightBonusTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>🔥 피크타임 할증</span><span>+${fmt(l.peakBonusTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>💊🍱 특별 주문 · ⭐단골 고객</span><span>+${fmt(l.specialBonusTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>${l.riderTier.icon} ${l.riderTier.name} 보너스</span><span>+${fmt(l.tierBonusTotal)}</span></div>
-      <div class="bc-rcpt-row inc"><span>안전 배달 팁 / 미션 보너스</span><span>+${fmt(l.tipTotal + l.missionBonusTotal)}</span></div>
+      ${compactLines(ledgerIncomeLines(l), PHONE_RECEIPT_GROUPS)
+        .map((r) => `<div class="bc-rcpt-row inc"><span>${r.label}</span><span>${lineValue(r)}</span></div>`)
+        .join('')}
       <div class="bc-rcpt-divider"></div>
-      <div class="bc-rcpt-row ded"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(l.fineExpense)}</span></div>
-      <div class="bc-rcpt-row ded"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(l.damageDeductionTotal)}</span></div>
-      <div class="bc-rcpt-row ded"><span>⛽ 유류 · 🔧 정비 · ⚙️ 업그레이드</span><span>-${fmt(l.fuelExpense + l.repairExpense + l.upgradeExpense + l.convenienceExpense)}</span></div>
+      ${compactLines(ledgerExpenseLines(l), PHONE_RECEIPT_GROUPS)
+        .map((r) => `<div class="bc-rcpt-row ded"><span>${r.label}</span><span>${lineValue(r)}</span></div>`)
+        .join('')}
       <div class="bc-rcpt-total">
         <span>누적 지갑 잔고 (${l.riderTier.icon} ${l.lifetimeCompleted}건)</span>
         <span class="bc-rcpt-net ${l.walletBalance < 0 ? 'neg' : ''}">${walletSign}${fmt(l.walletBalance)}</span>

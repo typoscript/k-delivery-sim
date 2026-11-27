@@ -812,6 +812,7 @@ export class DeliveryManager {
       peakBonus,
       specialBonus,
       regularCustomerTip,
+      damageDeduction: pay.damageDed,
       tierBonus,
       tierPromotedTo,
       foodIntegrity: Math.round(m.foodIntegrity),

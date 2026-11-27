@@ -28,7 +28,7 @@
 - `src/world/` — 도시(`CityWorld`: 도로·건물·소품 조립, 하위 모듈 `serviceStations`(주유소·정비소·편의점)·`deliveryProps`(픽업대·공동현관)·`worldSky`(날씨×시간대 하늘·조명)), 실내 복도(`CorridorRoom`, `y = -500`), 교통 AI(`TrafficSystem`), 교통 공통 규칙(`TrafficRules`), 단속·순찰·경쟁 라이더(`RoadHazardManager`), 보행자, 날씨
 - `src/player/`, `src/vehicle/`, `src/camera/` — 1인칭 도보·승하차, 스쿠터 물리·메시, 1인칭 카메라
 - `src/delivery/` — 배달 상태 머신(`DeliveryManager`), 도메인 타입·요금 상수(`deliveryTypes`), 주문 생성(`orderFactory`, 콜 목록·배차 공용), 정산 금액(`settlementPay`), 음식 상태·채팅 이벤트(`cargoCare`), 추천 경로(`missionRoute`), 배차(`OrderDispatchManager`), 근무일·목표(`ShiftDay`), 커리어 저장(`RiderCareer`, localStorage)
-- `src/ui/`, `src/audio/` — HUD·모달, 스마트폰(`PhoneMap` 조율 + `ui/phone/` 지도·화면·탭 모듈), Web Audio 프로시저럴 사운드·음성 안내
+- `src/ui/`, `src/audio/` — HUD·모달(정산서·일일 명세서·휴대폰 영수증의 항목은 `receiptLines` 한 곳에서 만듦 — 새 할증·지출은 여기에만 추가), 스마트폰(`PhoneMap` 조율 + `ui/phone/` 지도·화면·탭 모듈), Web Audio 프로시저럴 사운드·음성 안내
 - `tools/osm/` → `src/data/openworld/` + `public/map/suwon/chunks/` — 수원 통합 오픈월드 맵 생성 파이프라인(OSM 다운로드·변환·200m 청크 분할), 상세는 `tools/osm/README.md`
 - `src/world/openworld/` — 오픈월드 청크 스트리밍(`ChunkStreamer`: 주변 청크 로드·해제, `ChunkMeshBuilder`: 청크별 메시 병합·충돌체, `ChunkGrid`: 청크 범위 계산), 미리보기 `openworld.html`
 - `src/world/cityTextures.ts` — 건물 외벽·도로·인도 텍스처와 건물 재질(기존 맵·오픈월드 공용)

@@ -1,8 +1,8 @@
+import { ledgerExpenseLines, ledgerIncomeLines, lineValue, settlementLines, LineTone } from './receiptLines';
 import {
   ActiveMission,
   CARGO_SLOT_COUNT,
   ClockOutResult,
-  SPECIAL_ORDERS,
   DailyFinanceLedger,
   DeliveryManager,
   DeliveryOrder,
@@ -66,6 +66,9 @@ export interface ModalCallbacks {
  * 5. Delivery Completion Settlement Popup (with captured proof photo)
  * 6. 2-Second Black Fade-Out Elevator Transition
  */
+/** Settlement popup row classes by line tone */
+const SETTLEMENT_ROW_CLASS: Record<LineTone, string> = { income: 'tip', rain: 'rain-bonus', expense: 'warn', warn: 'warn', info: '' };
+
 export class ModalUi {
   public activeModal: ActiveModalType = 'none';
 
@@ -719,26 +722,13 @@ export class ModalUi {
 
       <div class="rep-section">
         <div class="rep-sec-title">💰 배달 수입 명세</div>
-        <div class="rep-line inc"><span>기본 배달료 합계 (${ledger.completedCount}건)</span><span>+${fmt(ledger.baseFeeTotal)}</span></div>
-        <div class="rep-line inc"><span>거리 할증 합계</span><span>+${fmt(ledger.distanceBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>🌧️ 우천/기상 할증</span><span>+${fmt(ledger.rainBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>🌙 심야 할증</span><span>+${fmt(ledger.nightBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>🔥 피크타임 할증</span><span>+${fmt(ledger.peakBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>💊🍱 특별 주문 · ⭐단골 고객</span><span>+${fmt(ledger.specialBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>${ledger.riderTier.icon} ${ledger.riderTier.name} 등급 보너스</span><span>+${fmt(ledger.tierBonusTotal)}</span></div>
-        <div class="rep-line inc"><span>안전 배달 팁</span><span>+${fmt(ledger.tipTotal)}</span></div>
-        <div class="rep-line inc"><span>🏆 일일 배달 미션 보너스</span><span>+${fmt(ledger.missionBonusTotal)}</span></div>
+        ${ledgerIncomeLines(ledger).map((l) => `<div class="rep-line inc"><span>${l.label}</span><span>${lineValue(l)}</span></div>`).join('')}
         <div class="rep-line sub inc"><span>총 수입 소계</span><span>+${fmt(ledger.grossIncome)}</span></div>
       </div>
 
       <div class="rep-section">
         <div class="rep-sec-title">🧾 차감 및 운영 지출 명세</div>
-        <div class="rep-line exp"><span>🚨 신호위반/인도사고 과태료 차감</span><span>-${fmt(ledger.fineExpense)}</span></div>
-        <div class="rep-line exp"><span>📦 음식 파손 페널티 차감</span><span>-${fmt(ledger.damageDeductionTotal)}</span></div>
-        <div class="rep-line exp"><span>⛽ 유류비 지출</span><span>-${fmt(ledger.fuelExpense)}</span></div>
-        <div class="rep-line exp"><span>🔧 오토바이 수리·기종·도색</span><span>-${fmt(ledger.repairExpense)}</span></div>
-        <div class="rep-line exp"><span>⚙️ 성능 장비 업그레이드</span><span>-${fmt(ledger.upgradeExpense)}</span></div>
-        <div class="rep-line exp"><span>🏪 편의점 음료·충전</span><span>-${fmt(ledger.convenienceExpense)}</span></div>
+        ${ledgerExpenseLines(ledger).map((l) => `<div class="rep-line exp"><span>${l.label}</span><span>${lineValue(l)}</span></div>`).join('')}
         <div class="rep-line sub exp"><span>총 차감/지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
       </div>
       ${goalsHtml}
@@ -827,63 +817,6 @@ export class ModalUi {
             : '✓ 문 앞 배달 인증 완료';
     }
     this.settlementRoute.textContent = `[#${result.order.orderNumber}] ${result.order.shop.emoji} ${result.order.shop.name} → ${result.order.customer.name} ${result.order.unitNumber}`;
-    const rainRow =
-      result.rainBonus > 0
-        ? `<div class="st-row rain-bonus"><span>🌧️ 우천 할증 보너스</span><span>+₩${result.rainBonus.toLocaleString()}</span></div>`
-        : '';
-    const nightRow =
-      result.nightBonus > 0
-        ? `<div class="st-row tip"><span>🌙 심야 할증 보너스</span><span>+₩${result.nightBonus.toLocaleString()}</span></div>`
-        : '';
-    const sp = result.order.special ? SPECIAL_ORDERS[result.order.special] : null;
-    const specialRow = sp
-      ? result.specialBonus > 0
-        ? `<div class="st-row tip"><span>${sp.icon} ${sp.label} 할증</span><span>+₩${result.specialBonus.toLocaleString()}</span></div>`
-        : `<div class="st-row warn"><span>${sp.icon} ${sp.label} 제한시간 초과 · 급송 할증 없음</span><span>₩0</span></div>`
-      : '';
-    const regularRow =
-      result.regularCustomerTip > 0
-        ? `<div class="st-row tip"><span>⭐ 단골 고객 팁</span><span>+₩${result.regularCustomerTip.toLocaleString()}</span></div>`
-        : '';
-    const peakRow =
-      result.peakBonus > 0
-        ? `<div class="st-row tip"><span>🔥 피크타임 할증</span><span>+₩${result.peakBonus.toLocaleString()}</span></div>`
-        : '';
-    const tierRow =
-      result.tierBonus > 0
-        ? `<div class="st-row tip"><span>🏅 라이더 등급 보너스</span><span>+₩${result.tierBonus.toLocaleString()}</span></div>`
-        : '';
-
-    const tempIcon = result.order.foodTempType === 'cold' ? '🧊 보냉' : '🔥 보온';
-    const tempRow =
-      result.tempBonus > 0
-        ? `<div class="st-row tip"><span>${tempIcon} 최적 온도 유지 (${result.foodTemp}%)</span><span>+₩${result.tempBonus.toLocaleString()}</span></div>`
-        : result.foodTemp < 50
-          ? `<div class="st-row warn"><span>${tempIcon} 온도 저하 (${result.foodTemp}%)</span><span>배달팁 감액 반영</span></div>`
-          : `<div class="st-row"><span>${tempIcon} 상태 (${result.foodTemp}%)</span><span>보통</span></div>`;
-
-    const villaRow =
-      result.villaStairBonus > 0
-        ? `<div class="st-row tip"><span>🪜 구축 빌라 계단 수고비</span><span>+₩${result.villaStairBonus.toLocaleString()}</span></div>`
-        : '';
-
-    const chatTipRow =
-      result.promisedTipBonus > 0
-        ? `<div class="st-row tip"><span>💬 고객 약속 조심배달 팁</span><span>+₩${result.promisedTipBonus.toLocaleString()}</span></div>`
-        : '';
-
-    const spillNote = result.spillDamageAccum > 0 ? ` · 국물/방지턱 -${result.spillDamageAccum}%` : '';
-    // Same rounding as DeliveryManager's payout so the popup matches the wallet; hidden when nothing was deducted
-    const damageDed = Math.max(0, Math.round((result.baseFee * (1 - result.foodIntegrity / 100)) / 100) * 100);
-    const damageRow =
-      damageDed > 0
-        ? `<div class="st-row warn"><span>음식 파손 배상 차감</span><span>-₩${damageDed.toLocaleString()}</span></div>`
-        : '';
-    const tipRow =
-      result.tipPenalty === 0
-        ? `<div class="st-row tip"><span>안전 배달 팁 (음식 상태 ${result.foodIntegrity}%)</span><span>+₩${result.tip.toLocaleString()}</span></div>${damageRow}`
-        : `<div class="st-row warn"><span>파손 배달팁 감액 (상태 ${result.foodIntegrity}%${spillNote})</span><span>팁 ₩${result.tip.toLocaleString()} (-₩${result.tipPenalty.toLocaleString()})</span></div>${damageRow}`;
-
     const starsFilled = '★'.repeat(result.review.stars) + '☆'.repeat(5 - result.review.stars);
     const reviewTagsHtml = result.review.tags
       .map((t) => `<span class="st-rev-tag">${t}</span>`)
@@ -900,17 +833,9 @@ export class ModalUi {
     `;
 
     this.settlementBreakdown.innerHTML = `
-      <div class="st-row"><span>기본 배달료 (${result.order.menuName})</span><span>₩${result.baseFee.toLocaleString()}</span></div>
-      ${rainRow}
-      ${nightRow}
-      ${peakRow}
-      ${specialRow}
-      ${regularRow}
-      ${tierRow}
-      ${tempRow}
-      ${villaRow}
-      ${chatTipRow}
-      ${tipRow}
+      ${settlementLines(result)
+        .map((l) => `<div class="st-row ${SETTLEMENT_ROW_CLASS[l.tone]}"><span>${l.label}</span><span>${lineValue(l)}</span></div>`)
+        .join('')}
       ${reviewBoxHtml}
     `;
     const okBtn = document.getElementById('settlement-ok-btn');
