@@ -100,7 +100,8 @@ export class PhoneMap {
   public activeTab: PhoneTab = 'calls';
 
   // GPS map camera / pan-drag state (see phone/mapView.ts)
-  private readonly view: MapViewState = createMapViewState();
+  /** GPS map camera / zoom state (the in-world phone touch zooms it too) */
+  public readonly view: MapViewState = createMapViewState();
   private readonly touchState: TouchHandState = { tapTimer: null };
   private lastSheetFingerprint = '';
   private last3DRenderTime = -1;

@@ -61,8 +61,17 @@ export class CameraController {
     });
 
     domElement.addEventListener('dblclick', () => {
+      if (performance.now() < this.ignoreDblclickUntil) return;
       this.resetLook();
     });
+  }
+
+  private ignoreDblclickUntil = 0;
+
+  /** A gesture on the in-world phone owns this press: stop turning the view, skip the double-click reset */
+  public yieldPointerToPhone(): void {
+    this.isDragging = false;
+    this.ignoreDblclickUntil = performance.now() + 600;
   }
 
   public rotateOnFootYaw(deltaRad: number): void {

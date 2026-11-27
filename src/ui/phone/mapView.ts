@@ -7,6 +7,8 @@ import { DoubleTapZoomGesture, MAX_MAP_ZOOM, MIN_MAP_ZOOM } from './doubleTapZoo
 export interface MapViewState {
   followPlayer: boolean;
   zoomLevel: number;
+  /** Zoom of the heading-up riding navigation map on the handlebar phone */
+  navZoomLevel: number;
   camX: number;
   camZ: number;
   isMapDragging: boolean;
@@ -21,6 +23,7 @@ export function createMapViewState(): MapViewState {
   return {
     followPlayer: true,
     zoomLevel: 1.4,
+    navZoomLevel: 1.85,
     camX: ACTIVE_MAP_DATA.meta.playerSpawn.x,
     camZ: ACTIVE_MAP_DATA.meta.playerSpawn.z,
     isMapDragging: false,

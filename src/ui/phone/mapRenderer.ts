@@ -61,7 +61,7 @@ export function renderMapToContext(
   ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, w, h);
 
-  const effectiveZoom = rotateHeadingUp ? 1.85 : view.zoomLevel;
+  const effectiveZoom = rotateHeadingUp ? view.navZoomLevel : view.zoomLevel;
   const baseScale = Math.min(w, h) / 285;
   const scale = baseScale * effectiveZoom;
   const centerX = w * 0.5;
