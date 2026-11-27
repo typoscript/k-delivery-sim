@@ -7,7 +7,6 @@ import {
   createPuddleRoughnessTexture,
   createSidewalkTexture,
 } from './cityTextures';
-import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
 import {
   BusStopPoint,
   CITY_BLOCK_CENTERS,
@@ -29,11 +28,14 @@ import {
 } from '../types';
 import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
-import { OsmParkData, OsmPlazaData, OsmServiceSpot, SuwonDistrictId } from '../data/suwonTypes';
+import { OsmParkData, OsmPlazaData, SuwonDistrictId } from '../data/suwonTypes';
 import { ChunkStreamer, ChunkStreamerStats } from './openworld/ChunkStreamer';
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
+import { ServiceStations, WorldPropHost } from './serviceStations';
+import { DeliveryLocationProps } from './deliveryProps';
+import { WorldSky } from './worldSky';
 
 
 /** Sun direction (target -> sun) used by the stabilized follow-the-player shadow frustum */
@@ -88,8 +90,6 @@ interface SignalHazardZone {
  * 10 real local shops, 12 real residences (including 4 walk-up villas), 8 Suwon bus stops,
  * 14 rotated speed bumps, wet-road PBR puddle shader, and self-service gas/repair stations!
  */
-/** Pickup counters & lobby portals are built / shown within this many 200m chunks of the player */
-const LOCATION_PROP_RADIUS_CHUNKS = 1;
 
 export class CityWorld {
   public readonly root = new THREE.Group();
@@ -106,6 +106,13 @@ export class CityWorld {
 
   // Unified open world: chunk streaming for buildings/roads/parks + distance culling for static props
   private readonly unified = ACTIVE_MAP_DATA.meta.unified === true;
+  /** addProp / sign textures for the world sub-builders (service stations, delivery props) */
+  private readonly propHost: WorldPropHost = {
+    addProp: (obj, x, z, radiusChunks, keep) => this.addProp(obj, x, z, radiusChunks, keep),
+    createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
+  };
+  /** Gas station / repair shop / convenience store sets (serviceStations.ts) */
+  private readonly stations: ServiceStations;
   private streamer?: ChunkStreamer;
   private readonly culler?: ProximityCuller;
   private streamerVersionSeen = -1;
@@ -121,27 +128,16 @@ export class CityWorld {
   private readonly windowGlowMat: THREE.MeshStandardMaterial;
   private readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
   private readonly streetLampPoolGroup = new THREE.Group();
-  private readonly lobbyDoors = new Map<
-    string,
-    { leftDoor: THREE.Mesh; rightDoor: THREE.Mesh; open: boolean }
-  >();
-  /** Lobby whose door is unlocked (kept separately: open-world lobby props are rebuilt when re-approached) */
-  private openLobbyId: string | null = null;
-  private readonly shopTrays = new Map<
-    string,
-    { bag: THREE.Group; ledMat: THREE.MeshStandardMaterial }
-  >();
+  /** Pickup counters & lobby portals with their animated doors / food trays (deliveryProps.ts) */
+  private deliveryProps!: DeliveryLocationProps;
 
   private readonly beaconGroup = new THREE.Group();
   private readonly beaconRingMat: THREE.MeshBasicMaterial;
   private readonly beaconRing: THREE.Mesh;
 
   public isNight = false;
-  /** 0 = day .. 1 = night, set from the game clock (setNightness) */
-  private nightness = -1;
-  private readonly skyColor = new THREE.Color();
-  private readonly tmpColor = new THREE.Color();
-  private readonly skyFog = new THREE.FogExp2(0xa5d4fb, 0.00145);
+  /** Sky, fog, sun / sky light and night glow for weather x time of day (worldSky.ts) */
+  private sky!: WorldSky;
   public weatherMode: WeatherMode = 'clear';
 
   // Wet-road shader & slip-surface materials
@@ -225,11 +221,25 @@ export class CityWorld {
     this.buildSuwonOsmBuildings();
     this.initOpenWorldStreaming();
     this.buildSuwonStationLandmark();
-    this.buildServiceStations();
+    this.stations = new ServiceStations(this.propHost, this.serviceStations, this.obstacles, this.unified);
+    this.stations.build();
     this.buildBusStops();
     this.initDeliveryLocations();
-    this.buildPickupWindowsAndLobbies();
+    this.deliveryProps = new DeliveryLocationProps(this.propHost, this.root, this.culler, this.locations);
+    this.deliveryProps.build();
     this.buildStreetLamps();
+
+    this.sky = new WorldSky({
+      scene: this.scene,
+      dirLight: this.dirLight,
+      hemiLight: this.hemiLight,
+      lampGlowMat: this.lampGlowMat,
+      windowGlowMat: this.windowGlowMat,
+      buildingNightMats: this.buildingNightMats,
+      streetLampPools: this.streetLampPoolGroup,
+      landmarkBuilders: this.landmarkBuilders,
+      fogDensity: (d) => this.fogDensity(d),
+    });
   }
 
 
@@ -1094,266 +1104,24 @@ export class CityWorld {
     }
   }
 
-  /** Builds K-Oil Self-Service Gas Station & Lightning Motorcycle Repair Center in open roadside bays */
-  private buildServiceStations(): void {
-    if (!this.unified || !ACTIVE_MAP_DATA.serviceSpotList) {
-      this.buildServiceStationSet(ACTIVE_MAP_DATA.serviceSpots.gas, ACTIVE_MAP_DATA.serviceSpots.repair, '인계', ACTIVE_MAP_DATA.meta.scooterSpawn, this.obstacles);
-      return;
-    }
-    const labels: Record<string, string> = { ingye: '인계', haenggung: '행궁', suwon_station: '수원역', gwanggyo: '광교' };
-    for (const set of ACTIVE_MAP_DATA.serviceSpotList) {
-      const d = SUWON_OPEN_WORLD.legacyDistricts.find((x) => x.id === set.districtId)!;
-      // Buildings stream in later, so keep the convenience store clear of the district's known footprints
-      const legacyBoxes: ObstacleBox[] = d.buildingBoxes.map(([minX, maxX, minZ, maxZ]) => ({
-        minX: minX + d.origin.x,
-        maxX: maxX + d.origin.x,
-        minZ: minZ + d.origin.z,
-        maxZ: maxZ + d.origin.z,
-      }));
-      this.buildServiceStationSet(set.gas, set.repair, labels[set.districtId] ?? '수원', d.scooterSpawn, legacyBoxes);
-    }
-  }
-
-  private buildServiceStationSet(
-    gas: OsmServiceSpot,
-    rep: OsmServiceSpot,
-    label: string,
-    spawn: { x: number; z: number },
-    buildingBoxes: ObstacleBox[]
-  ): void {
-
-    // 1. 인계 K-오일 셀프주유소
-    const gasGroup = new THREE.Group();
-    gasGroup.position.set(gas.x, 0, gas.z);
-    gasGroup.rotation.y = gas.facingHeading;
-
-    const padMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.7 });
-    const gasPad = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.06, 4.4), padMat);
-    gasPad.position.set(0, 0.04, 1.4);
-    const canopyMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.45 });
-    const canopy = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.5, 4.8), canopyMat);
-    canopy.position.set(0, 3.85, 0.6);
-    const gasSign = new THREE.Mesh(
-      new THREE.BoxGeometry(6.2, 0.85, 0.18),
-      new THREE.MeshBasicMaterial({ map: this.createSignTexture('⛽ 인계 K-오일 셀프주유소', '#eab308', '#0f172a') })
-    );
-    gasSign.position.set(0, 4.45, 2.95);
-
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.4, roughness: 0.4 });
-    for (const px of [-2.8, 2.8]) {
-      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.35, 3.8, 0.35), pillarMat);
-      pil.position.set(px, 1.9, -1.2);
-      gasGroup.add(pil);
-    }
-    const pump = new THREE.Mesh(
-      new THREE.BoxGeometry(0.85, 1.65, 0.65),
-      new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 })
-    );
-    pump.position.set(0, 0.84, -0.7);
-    gasGroup.add(gasPad, canopy, gasSign, pump);
-    this.addProp(gasGroup, gas.x, gas.z, 3);
-
-    this.serviceStations.push({
-      name: `${label} K-오일 셀프주유소`,
-      kind: 'gas',
-      padMinX: gas.x - 5.2,
-      padMaxX: gas.x + 5.2,
-      padMinZ: gas.z - 5.2,
-      padMaxZ: gas.z + 5.2,
-      interactX: gas.x,
-      interactZ: gas.z,
-      interactRadius: 5.5,
-    });
-
-    // 2. 인계 번개 오토바이 센터
-    const repGroup = new THREE.Group();
-    repGroup.position.set(rep.x, 0, rep.z);
-    repGroup.rotation.y = rep.facingHeading;
-
-    const repPad = new THREE.Mesh(
-      new THREE.BoxGeometry(5.6, 0.06, 4.4),
-      new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.72 })
-    );
-    repPad.position.set(0, 0.04, 1.4);
-    const garage = new THREE.Mesh(
-      new THREE.BoxGeometry(6.2, 3.6, 2.4),
-      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.65 })
-    );
-    garage.position.set(0, 1.8, -1.5);
-    const repSign = new THREE.Mesh(
-      new THREE.BoxGeometry(6.0, 0.9, 0.2),
-      new THREE.MeshBasicMaterial({ map: this.createSignTexture('🔧 인계 번개 오토바이 센터', '#ea580c', '#ffffff') })
-    );
-    repSign.position.set(0, 3.9, -0.25);
-    repGroup.add(repPad, garage, repSign);
-    this.addProp(repGroup, rep.x, rep.z, 3);
-
-    this.serviceStations.push({
-      name: '번개 오토바이 센터',
-      kind: 'repair',
-      padMinX: rep.x - 5.2,
-      padMaxX: rep.x + 5.2,
-      padMinZ: rep.z - 5.2,
-      padMaxZ: rep.z + 5.2,
-      interactX: rep.x,
-      interactZ: rep.z,
-      interactRadius: 5.5,
-    });
-
-    // 3. 24시 한국 편의점 (K-24 편의점 — 스태미나 음료 & 보조배터리 급속 충전!)
-    const nodes = ACTIVE_MAP_DATA.nodes;
-    let cvsX = spawn.x + 32;
-    let cvsZ = spawn.z + 18;
-    let cvsHeading = 0;
-    let bestScore = Infinity;
-
-    for (const e of ACTIVE_MAP_DATA.edges) {
-      if (e.dist < 16) continue;
-      const na = nodes[e.a];
-      const nb = nodes[e.b];
-      const mx = (na.x + nb.x) * 0.5;
-      const mz = (na.z + nb.z) * 0.5;
-      const dx = nb.x - na.x;
-      const dz = nb.z - na.z;
-      const len = Math.hypot(dx, dz) || 1;
-      const nx = -dz / len;
-      const nz = dx / len;
-      for (const side of [1, -1]) {
-        const px = mx + nx * side * (e.width * 0.5 + 2.4);
-        const pz = mz + nz * side * (e.width * 0.5 + 2.4);
-        if (Math.abs(px) > CITY_WORLD_LIMIT - 35 || Math.abs(pz) > CITY_WORLD_LIMIT - 35) continue;
-        const dSpawn = Math.hypot(px - spawn.x, pz - spawn.z);
-        if (dSpawn < 24 || dSpawn > 135) continue;
-        if (Math.hypot(px - gas.x, pz - gas.z) < 28) continue;
-        if (Math.hypot(px - rep.x, pz - rep.z) < 28) continue;
-        const hitsBldg = buildingBoxes.some(
-          (o) => px + 2.2 > o.minX && px - 2.2 < o.maxX && pz + 2.2 > o.minZ && pz - 2.2 < o.maxZ
-        );
-        if (hitsBldg) continue;
-        const sc = Math.abs(dSpawn - 52);
-        if (sc < bestScore) {
-          bestScore = sc;
-          cvsX = px;
-          cvsZ = pz;
-          cvsHeading = Math.atan2(mx - px, mz - pz);
-        }
-      }
-    }
-
-    const cvsGroup = new THREE.Group();
-    cvsGroup.position.set(cvsX, 0, cvsZ);
-    cvsGroup.rotation.y = cvsHeading;
-
-    const cvsPad = new THREE.Mesh(
-      new THREE.BoxGeometry(5.2, 0.06, 3.6),
-      new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.72 })
-    );
-    cvsPad.position.set(0, 0.04, 1.3);
-
-    const cvsBody = new THREE.Mesh(
-      new THREE.BoxGeometry(5.6, 3.3, 2.5),
-      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 })
-    );
-    cvsBody.position.set(0, 1.65, -1.4);
-
-    // Brightly lit Korean convenience store showcase window
-    const cvsWindow = new THREE.Mesh(
-      new THREE.BoxGeometry(4.4, 2.0, 0.08),
-      new THREE.MeshStandardMaterial({
-        color: 0xe0f2fe,
-        emissive: 0xfffbeb,
-        emissiveIntensity: 0.95,
-        roughness: 0.2,
-      })
-    );
-    cvsWindow.position.set(0, 1.22, -0.14);
-
-    // Signature 3-color Korean convenience store neon fascia stripes (emerald / sky / orange)
-    const stripe1 = new THREE.Mesh(
-      new THREE.BoxGeometry(5.75, 0.22, 0.24),
-      new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 1.4 })
-    );
-    stripe1.position.set(0, 3.36, -0.15);
-    const stripe2 = new THREE.Mesh(
-      new THREE.BoxGeometry(5.75, 0.14, 0.24),
-      new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0ea5e9, emissiveIntensity: 1.4 })
-    );
-    stripe2.position.set(0, 3.16, -0.15);
-    const stripe3 = new THREE.Mesh(
-      new THREE.BoxGeometry(5.75, 0.12, 0.24),
-      new THREE.MeshStandardMaterial({ color: 0xf97316, emissive: 0xf97316, emissiveIntensity: 1.4 })
-    );
-    stripe3.position.set(0, 3.01, -0.15);
-
-    const cvsSign = new THREE.Mesh(
-      new THREE.BoxGeometry(5.4, 0.85, 0.2),
-      new THREE.MeshBasicMaterial({
-        map: this.createSignTexture('🏪 K-24 편의점 · 24시간', '#047857', '#ecfdf5'),
-      })
-    );
-    cvsSign.position.set(0, 3.92, -0.15);
-
-    // Outdoor plastic table + blue umbrella parasol (classic Korean CVS!)
-    const tblPole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 2.2, 6),
-      new THREE.MeshStandardMaterial({ color: 0x64748b })
-    );
-    tblPole.position.set(2.1, 1.1, 0.75);
-    const tblTop = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.58, 0.58, 0.07, 10),
-      new THREE.MeshStandardMaterial({ color: 0xf8fafc })
-    );
-    tblTop.position.set(2.1, 0.76, 0.75);
-    const parasol = new THREE.Mesh(
-      new THREE.ConeGeometry(1.15, 0.45, 8),
-      new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.7 })
-    );
-    parasol.position.set(2.1, 2.25, 0.75);
-
-    cvsGroup.add(cvsPad, cvsBody, cvsWindow, stripe1, stripe2, stripe3, cvsSign, tblPole, tblTop, parasol);
-    this.addProp(cvsGroup, cvsX, cvsZ, 3);
-
-    this.serviceStations.push({
-      name: 'K-24 편의점 (24시)',
-      kind: 'convenience',
-      padMinX: cvsX - 4.8,
-      padMaxX: cvsX + 4.8,
-      padMinZ: cvsZ - 4.8,
-      padMaxZ: cvsZ + 4.8,
-      interactX: cvsX,
-      interactZ: cvsZ,
-      interactRadius: 5.4,
-    });
-  }
-
   public isPlayerNearConvenienceStore(px: number, pz: number): boolean {
-    return this.serviceStations.some(
-      (st) => st.kind === 'convenience' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
-    );
+    return this.stations.isPlayerNearConvenienceStore(px, pz);
   }
 
   public isScooterOnGasPad(sx: number, sz: number): boolean {
-    return this.serviceStations.some(
-      (st) => st.kind === 'gas' && sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ
-    );
+    return this.stations.isScooterOnGasPad(sx, sz);
   }
 
   public isPlayerNearGasPump(px: number, pz: number): boolean {
-    return this.serviceStations.some(
-      (st) => st.kind === 'gas' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
-    );
+    return this.stations.isPlayerNearGasPump(px, pz);
   }
 
   public isScooterOnRepairPad(sx: number, sz: number): boolean {
-    return this.serviceStations.some(
-      (st) => st.kind === 'repair' && sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ
-    );
+    return this.stations.isScooterOnRepairPad(sx, sz);
   }
 
   public isPlayerNearRepairShop(px: number, pz: number): boolean {
-    return this.serviceStations.some(
-      (st) => st.kind === 'repair' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
-    );
+    return this.stations.isPlayerNearRepairShop(px, pz);
   }
 
   /** Builds 8 real Suwon City Hall Station / NewCore / Ingye bus stops from OSM */
@@ -1447,155 +1215,6 @@ export class CityWorld {
     }
   }
 
-  /**
-   * Builds outdoor pickup counters & residential glass lobby portals oriented cleanly toward each Suwon road.
-   * Open world: thousands of generated spots, so each prop (with its sign texture) is built only when the
-   * player comes near and disposed again when far away (ProximityCuller lazy entries).
-   */
-  private buildPickupWindowsAndLobbies(): void {
-    const shared = {
-      counterMat: new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.35, metalness: 0.45 }),
-      darkMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 }),
-      innerMat: new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 }),
-      screenMat: new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x38bdf8, emissiveIntensity: 0.9 }),
-      glassDoorMat: new THREE.MeshStandardMaterial({
-        color: 0x7dd3fc,
-        roughness: 0.12,
-        metalness: 0.3,
-        transparent: true,
-        opacity: 0.48,
-      }),
-      pinPadMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x22c55e, emissiveIntensity: 0.6 }),
-    };
-    const sharedMats = new Set<THREE.Material>(Object.values(shared));
-
-    for (const loc of this.locations) {
-      if (this.culler) {
-        // Counters / lobbies are small: draw them within 1 chunk (~200-300m) of the player, not the default 2,
-        // which with ~1,800 spots city-wide would add 100+ draw calls while driving
-        this.culler.registerLazy(
-          this.root,
-          loc.x,
-          loc.z,
-          () => {
-            const built = this.buildLocationProp(loc, shared);
-            mergeStaticByMaterial(built.object, built.keep);
-            excludeFromMirrors(built.object);
-            freezeStatic(built.object);
-            return { object: built.object, dispose: () => this.disposeLocationProp(loc.id, built.object, sharedMats) };
-          },
-          LOCATION_PROP_RADIUS_CHUNKS
-        );
-      } else {
-        const built = this.buildLocationProp(loc, shared);
-        this.addProp(built.object, loc.x, loc.z, undefined, built.keep);
-      }
-    }
-  }
-
-  private buildLocationProp(
-    loc: DeliveryLocation,
-    m: {
-      counterMat: THREE.Material;
-      darkMat: THREE.Material;
-      innerMat: THREE.Material;
-      screenMat: THREE.Material;
-      glassDoorMat: THREE.Material;
-      pinPadMat: THREE.Material;
-    }
-  ): { object: THREE.Group; keep: (o: THREE.Object3D) => boolean } {
-    const heading = loc.facingHeading ?? 0;
-    const g = new THREE.Group();
-    // Place slightly back from the interaction point so player stands cleanly on sidewalk facing counter/lobby
-    const backX = -Math.sin(heading) * 1.1;
-    const backZ = -Math.cos(heading) * 1.1;
-    g.position.set(loc.x + backX, 0.05, loc.z + backZ);
-    g.rotation.y = heading;
-
-    if (loc.type === 'shop') {
-      const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.72), m.counterMat);
-      counter.position.set(0, 0.52, 0);
-      const awning = new THREE.Mesh(
-        new THREE.BoxGeometry(3.0, 0.65, 0.25),
-        new THREE.MeshBasicMaterial({
-          map: this.createSignTexture(`${loc.emoji} ${loc.name}`, '#c2410c', '#fff7ed'),
-        })
-      );
-      awning.position.set(0, 2.35, 0.15);
-
-      const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), m.darkMat);
-      posStand.position.set(0.82, 1.18, 0.08);
-      posStand.rotation.x = -0.35;
-      const posScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.22), m.screenMat);
-      posScreen.position.set(0.82, 1.21, 0.21);
-      posScreen.rotation.x = -0.35;
-
-      const tray = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.032, 0.42), m.darkMat);
-      tray.position.set(-0.35, 1.06, 0.04);
-      const trayLedMat = new THREE.MeshStandardMaterial({
-        color: 0x1e293b,
-        emissive: 0xfacc15,
-        emissiveIntensity: 0.08,
-      });
-      const trayLed = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.035, 0.03), trayLedMat);
-      trayLed.position.set(-0.35, 1.07, 0.25);
-
-      const trayBag = HandheldFoodBag3D.createFoodBagMesh();
-      trayBag.position.set(-0.35, 1.21, 0.04);
-      trayBag.scale.set(1.12, 1.12, 1.12);
-      trayBag.visible = false;
-
-      // syncShopPickupTrays() refreshes the bag / LED from the delivery state every frame
-      this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
-      g.add(counter, awning, posStand, posScreen, tray, trayLed, trayBag);
-      return { object: g, keep: (o) => o === trayBag };
-    }
-
-    const isVilla = loc.residenceKind === 'walkup_villa';
-    const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), m.darkMat);
-    archFrame.position.set(0, 1.35, 0);
-    const innerCut = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.4, 0.45), m.innerMat);
-    innerCut.position.set(0, 1.2, -0.02);
-
-    const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), m.glassDoorMat);
-    leftDoor.position.set(-0.56, 1.18, 0.22);
-    const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), m.glassDoorMat);
-    rightDoor.position.set(0.56, 1.18, 0.22);
-
-    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.36, 0.08), m.pinPadMat);
-    pad.position.set(1.32, 1.3, 0.22);
-
-    const signBg = isVilla ? '#065f46' : '#1e3a8a';
-    const lobbySign = new THREE.Mesh(
-      new THREE.BoxGeometry(3.2, 0.62, 0.2),
-      new THREE.MeshBasicMaterial({
-        map: this.createSignTexture(`${loc.emoji} ${loc.name}`, signBg, '#f8fafc'),
-      })
-    );
-    lobbySign.position.set(0, 3.0, 0.16);
-
-    // A lobby rebuilt while its door is unlocked starts open (updateLobbyDoors animates from here)
-    this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: this.openLobbyId === loc.id });
-    g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
-    return { object: g, keep: (o) => o === leftDoor || o === rightDoor };
-  }
-
-  /** Frees a lazily built counter / lobby: its geometries, sign texture and per-prop materials (not the shared ones) */
-  private disposeLocationProp(id: string, obj: THREE.Object3D, sharedMats: Set<THREE.Material>): void {
-    this.shopTrays.delete(id);
-    this.lobbyDoors.delete(id);
-    obj.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.geometry.dispose();
-      for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-        if (sharedMats.has(mat)) continue;
-        (mat as THREE.MeshBasicMaterial).map?.dispose();
-        mat.dispose();
-      }
-    });
-  }
-
   private buildStreetLamps(): void {
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4 });
     const poleGeo = new THREE.CylinderGeometry(0.08, 0.11, 6.2, 6);
@@ -1634,50 +1253,15 @@ export class CityWorld {
   }
 
   public setLobbyDoorOpen(locationId: string | null): void {
-    this.openLobbyId = locationId;
-    for (const [id, entry] of this.lobbyDoors.entries()) {
-      entry.open = locationId === id;
-    }
+    this.deliveryProps.setLobbyDoorOpen(locationId);
   }
 
-  public syncShopPickupTrays(
-    cookingShopIds: Set<string>,
-    readyShopIds: Set<string>,
-    elapsedTime: number
-  ): void {
-    const pulse = 0.5 + 0.5 * Math.sin(elapsedTime * 5.5);
-    for (const [shopId, entry] of this.shopTrays.entries()) {
-      const isReady = readyShopIds.has(shopId);
-      const isCooking = cookingShopIds.has(shopId);
-      entry.bag.visible = isReady;
-      if (isReady) {
-        entry.ledMat.emissive.setHex(0x22c55e);
-        entry.ledMat.emissiveIntensity = 1.6 + pulse * 1.4;
-      } else if (isCooking) {
-        entry.ledMat.emissive.setHex(0xfacc15);
-        entry.ledMat.emissiveIntensity = 1.0 + pulse * 1.6;
-      } else {
-        entry.ledMat.emissiveIntensity = 0.08;
-      }
-    }
+  public syncShopPickupTrays(cookingShopIds: Set<string>, readyShopIds: Set<string>, elapsedTime: number): void {
+    this.deliveryProps.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsedTime);
   }
 
   public updateLobbyDoors(dt: number): void {
-    const step = Math.min(1, dt * 6);
-    for (const entry of this.lobbyDoors.values()) {
-      const targetL = entry.open ? -1.42 : -0.56;
-      const targetR = entry.open ? 1.42 : 0.56;
-      const dl = (targetL - entry.leftDoor.position.x) * step;
-      const dr = (targetR - entry.rightDoor.position.x) * step;
-      if (Math.abs(dl) < 1e-4 && Math.abs(dr) < 1e-4) continue;
-      entry.leftDoor.position.x += dl;
-      entry.rightDoor.position.x += dr;
-      // Lobby groups are frozen static props: push the moved doors' matrices explicitly
-      for (const door of [entry.leftDoor, entry.rightDoor]) {
-        door.updateMatrix();
-        door.updateMatrixWorld(true);
-      }
-    }
+    this.deliveryProps.updateLobbyDoors(dt);
   }
 
   public updateBeacon(
@@ -1730,57 +1314,9 @@ export class CityWorld {
     this.manholeMat.metalness = 0.78 + rainIntensity * 0.16;
   }
 
-  /** Day / night look for one weather: sky, fog, sun & sky light, lamp and window glow */
-  private skyLook(night: boolean): SkyLook {
-    const isRain = this.weatherMode === 'rain';
-    const isCloudy = this.weatherMode === 'cloudy';
-    if (night) {
-      const bg = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
-      return {
-        bg,
-        fog: bg,
-        fogDensity: isRain ? 0.0046 : isCloudy ? 0.0036 : 0.003,
-        dirI: isRain ? 0.16 : isCloudy ? 0.2 : 0.25,
-        dirColor: isRain ? 0x6b88b0 : 0x8aa8d6,
-        hemiI: isRain ? 0.22 : 0.28,
-        lampE: isRain ? 3.8 : 3.2,
-        windowE: isRain ? 1.3 : 1.1,
-        buildingE: isRain ? 0.96 : 0.84,
-      };
-    }
-    if (isRain) {
-      return { bg: 0x5b6d80, fog: 0x5b6d80, fogDensity: 0.0042, dirI: 0.54, dirColor: 0xb8cde0, hemiI: 0.58, lampE: 1.45, windowE: 0.42, buildingE: 0 };
-    }
-    if (isCloudy) {
-      return { bg: 0x889cb0, fog: 0x889cb0, fogDensity: 0.0024, dirI: 0.94, dirColor: 0xdce6f2, hemiI: 0.74, lampE: 0.45, windowE: 0.2, buildingE: 0 };
-    }
-    return { bg: 0x93c5fd, fog: 0xa5d4fb, fogDensity: 0.00145, dirI: 1.48, dirColor: 0xfff7e6, hemiI: 0.92, lampE: 0.2, windowE: 0.14, buildingE: 0 };
-  }
-
-  /**
-   * Applies the sky for the current weather and time of day. `nightness` (0 day .. 1 night, from the game
-   * clock) blends day and night looks so dusk and dawn darken / brighten gradually; street lamp light pools
-   * and landmark night lighting switch on in the darker half (isNight).
-   */
+  /** Re-applies sky, fog, lights and night glow for the current weather and time of day */
   private applySkyTheme(): void {
-    const t = this.nightness;
-    const day = this.skyLook(false);
-    const night = this.skyLook(true);
-    const mix = (a: number, b: number) => a + (b - a) * t;
-    for (const lb of this.landmarkBuilders) lb.setNightMode(this.isNight);
-    this.streetLampPoolGroup.visible = this.isNight;
-    for (const bm of this.buildingNightMats) bm.emissiveIntensity = mix(day.buildingE, night.buildingE);
-
-    this.skyColor.setHex(day.bg).lerp(this.tmpColor.setHex(night.bg), t);
-    this.scene.background = this.skyColor;
-    this.skyFog.color.setHex(day.fog).lerp(this.tmpColor.setHex(night.fog), t);
-    this.skyFog.density = mix(this.fogDensity(day.fogDensity), this.fogDensity(night.fogDensity));
-    this.scene.fog = this.skyFog;
-    this.dirLight.intensity = mix(day.dirI, night.dirI);
-    this.dirLight.color.setHex(day.dirColor).lerp(this.tmpColor.setHex(night.dirColor), t);
-    this.hemiLight.intensity = mix(day.hemiI, night.hemiI);
-    this.lampGlowMat.emissiveIntensity = mix(day.lampE, night.lampE);
-    this.windowGlowMat.emissiveIntensity = mix(day.windowE, night.windowE);
+    this.sky.apply(this.weatherMode, this.isNight);
   }
 
   /**
@@ -1791,21 +1327,8 @@ export class CityWorld {
     const n = Math.max(0, Math.min(1, nightness));
     const wasNight = this.isNight;
     this.isNight = n >= 0.5;
-    if (Math.abs(n - this.nightness) < 0.01 && wasNight === this.isNight) return this.isNight;
-    this.nightness = n;
+    if (!this.sky.setNightness(n, wasNight !== this.isNight)) return this.isNight;
     if (this.root.visible) this.applySkyTheme();
     return this.isNight;
   }
-}
-
-interface SkyLook {
-  bg: number;
-  fog: number;
-  fogDensity: number;
-  dirI: number;
-  dirColor: number;
-  hemiI: number;
-  lampE: number;
-  windowE: number;
-  buildingE: number;
 }
