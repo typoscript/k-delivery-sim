@@ -5,11 +5,10 @@ import {
   VILLA_STAIR_BONUS,
 } from './DeliveryManager';
 import { DeliveryLocation } from '../types';
-import { SHIFT_GOALS } from './ShiftDay';
+import { DELIVERIES_GOAL, SAFE_GOAL, goalsForDay } from './ShiftDay';
 import { SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 
-const DAILY_MISSION_TARGET = SHIFT_GOALS[0].target;
-const DAILY_MISSION_BONUS = SHIFT_GOALS[0].bonus;
+const DAILY_MISSION_TARGET = DELIVERIES_GOAL.target;
 
 const loc = (id: string, x: number, z: number, type: 'shop' | 'residential', extra: Partial<DeliveryLocation> = {}): DeliveryLocation => ({
   id,
@@ -159,24 +158,29 @@ describe('DeliveryManager mission flow', () => {
     const l = dm.getDailyLedger();
     expect(l.netProfit - startLedger).toBe(dm.totalEarnings - start);
     expect(l.completedCount).toBe(DAILY_MISSION_TARGET);
-    expect([0, DAILY_MISSION_BONUS]).toContain(missionBonus);
+    expect(missionBonus).toBeGreaterThanOrEqual(DELIVERIES_GOAL.bonus);
   });
 
-  it('daily goals pay once each: 3 deliveries, then 2 rush-hour deliveries', () => {
+  it('daily goals pay once each: 3 deliveries, and a rotating goal when its counter is reached', () => {
     const dm = new DeliveryManager(LOCATIONS);
+    // pick a day whose rotating goals include the rush-hour goal
+    const districts = [{ id: 'ingye', label: '인계동' }];
+    let day = 1;
+    while (!goalsForDay(day, districts).some((g) => g.id === 'peak')) day++;
+    dm.shiftDay = day;
+    const ids = dm.todaysGoals().map((g) => g.id);
+    expect(ids[0]).toBe('deliveries');
+    expect(ids.at(-1)).toBe('safe');
+    expect(ids).toContain('peak');
     const paid: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const r = deliver(dm, accept(dm).order.id);
-      paid.push(...r.goalsCompleted.map((g) => g.id));
-    }
-    expect(paid).toEqual(['deliveries']);
+    for (let i = 0; i < 3; i++) paid.push(...deliver(dm, accept(dm).order.id).goalsCompleted.map((g) => g.id));
+    expect(paid).toContain('deliveries');
+    expect(paid).not.toContain('peak');
     dm.setDemandPhase(demandPhaseAt(12 * 60)); // lunch rush: new calls carry the peak surcharge
-    for (let i = 0; i < 2; i++) {
-      const r = deliver(dm, accept(dm).order.id);
-      paid.push(...r.goalsCompleted.map((g) => g.id));
-    }
-    expect(paid).toEqual(['deliveries', 'peak']);
-    expect(dm.getShiftGoals().map((g) => g.claimed)).toEqual([true, true, false]);
+    for (let i = 0; i < 2; i++) paid.push(...deliver(dm, accept(dm).order.id).goalsCompleted.map((g) => g.id));
+    expect(paid).toContain('peak');
+    expect(new Set(paid).size).toBe(paid.length); // each goal paid once
+    expect(dm.getShiftGoals().find((g) => g.id === 'peak')!.claimed).toBe(true);
   });
 
   it('clock-out pays the accident-free bonus, closes the day and starts the next one fresh', () => {
@@ -187,9 +191,11 @@ describe('DeliveryManager mission flow', () => {
     expect(res.day).toBe(1);
     expect(res.nextDay).toBe(2);
     expect(res.awardedAtClockOut.map((g) => g.id)).toEqual(['safe']);
-    expect(dm.totalEarnings).toBe(wallet + SHIFT_GOALS[2].bonus);
+    expect(dm.totalEarnings).toBe(wallet + SAFE_GOAL.bonus);
     expect(res.ledger.completedCount).toBe(3);
-    expect(res.ledger.missionBonusTotal).toBe(SHIFT_GOALS[0].bonus + SHIFT_GOALS[2].bonus);
+    // every claimed goal's bonus (deliveries, maybe a rotating one, and the clock-out goal) is in the ledger
+    expect(res.ledger.missionBonusTotal).toBe(res.goals.filter((g) => g.claimed).reduce((a, g) => a + g.bonus, 0));
+    expect(res.goals.find((g) => g.id === 'safe')!.claimed).toBe(true);
     // day 2: empty ledger, fresh goals, shift start time
     expect(dm.shiftDay).toBe(2);
     expect(dm.getDailyLedger().completedCount).toBe(0);

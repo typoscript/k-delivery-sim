@@ -1,5 +1,5 @@
 import { SuwonDistrictId, SuwonMapDataset } from './suwonTypes';
-import { buildUnifiedSuwonDataset } from './suwonUnified';
+import { buildUnifiedSuwonDataset, nearestLegacyDistrictId } from './suwonUnified';
 import { requireLegacyDistrict } from './mapSources';
 
 export type { SuwonDistrictId, SuwonMapDataset };
@@ -137,4 +137,23 @@ export function switchSuwonDistrict(nextId: SuwonDistrictId): void {
   url.searchParams.set('district', nextId);
   if (!IS_UNIFIED_MAP) url.searchParams.set('map', 'legacy');
   window.location.href = url.toString();
+}
+
+/** Short district names for goals and labels */
+export const DISTRICT_SHORT_LABELS: Record<SuwonDistrictId, string> = {
+  ingye: '인계동',
+  haenggung: '행궁동',
+  suwon_station: '수원역',
+  gwanggyo: '광교',
+};
+
+/** District a world position belongs to (open world: the nearest district centre; legacy map: the active one) */
+export function districtIdAt(x: number, z: number): SuwonDistrictId {
+  return IS_UNIFIED_MAP ? nearestLegacyDistrictId(x, z) : ACTIVE_DISTRICT_ID;
+}
+
+/** Districts the rider can deliver in (district goals): all four in the open world, the active one on a legacy map */
+export function deliverableDistricts(): Array<{ id: SuwonDistrictId; label: string }> {
+  const ids: SuwonDistrictId[] = IS_UNIFIED_MAP ? ['ingye', 'haenggung', 'suwon_station', 'gwanggyo'] : [ACTIVE_DISTRICT_ID];
+  return ids.map((id) => ({ id, label: DISTRICT_SHORT_LABELS[id] }));
 }

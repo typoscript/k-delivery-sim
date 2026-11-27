@@ -370,7 +370,7 @@ export class OnboardingAndSettings {
           },
           {
             done: this.shiftStepBonusDone,
-            label: '③ 목표 달성 시 보너스 즉시 지급 (배달 3건 · 피크 2건)',
+            label: '③ 목표 달성 시 보너스 즉시 지급 (배달 3건 + 매일 바뀌는 목표 2개)',
           },
           {
             done: this.shiftStepClockOutDone,

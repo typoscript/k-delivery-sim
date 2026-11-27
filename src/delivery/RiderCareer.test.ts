@@ -61,7 +61,7 @@ describe('loadRiderCareer', () => {
   it('round-trips the current shift (day, clock, goals, ledger)', () => {
     const c = loadRiderCareer();
     const shift = emptyShift(4, 13 * 60 + 5);
-    shift.peakDeliveries = 2;
+    shift.counters = { peak: 2, 'district:gwanggyo': 1 };
     shift.claimed = ['deliveries', 'peak'];
     shift.ledger.completedCount = 5;
     shift.ledger.peakBonusTotal = 2000;
@@ -77,10 +77,15 @@ describe('loadRiderCareer', () => {
     const s = loadRiderCareer().shift!;
     expect(s.day).toBe(1);
     expect(s.clockMinute).toBe(60);
-    expect(s.claimed).toEqual(['peak']);
+    expect(s.claimed).toEqual(['peak', 'bogus']); // de-duplicated; unknown ids are harmless
     expect(s.ledger.tipTotal).toBe(0);
     expect(s.ledger.fineExpense).toBe(1000);
-    expect(s.peakDeliveries).toBe(0);
+    expect(s.counters).toEqual({});
+  });
+
+  it('migrates the old rush-hour count into the goal counters', () => {
+    writeRaw({ shift: { day: 3, clockMinute: 700, peakDeliveries: 2, claimed: [], ledger: {} } });
+    expect(loadRiderCareer().shift!.counters).toEqual({ peak: 2 });
   });
 });
 

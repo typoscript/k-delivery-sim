@@ -2,7 +2,7 @@ import { DeliveryLocation } from '../types';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
-import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { ACTIVE_MAP_DATA, deliverableDistricts, districtIdAt } from '../data/suwonDistricts';
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
 import {
   CustomerReview,
@@ -24,6 +24,7 @@ import {
   ShiftGoalStatus,
   ShiftLedger,
   emptyShift,
+  goalsForDay,
   goalsToAward,
   shiftGoalStatuses,
 } from './ShiftDay';
@@ -89,9 +90,11 @@ export class DeliveryManager {
   public shiftDay = 1;
   /** Game clock minute to resume at after a reload (kept up to date by the game loop) */
   public shiftClockMinute = SHIFT_START_MINUTE;
-  /** Deliveries of rush-hour calls today (goal: 피크타임 배달 2건) */
-  public peakDeliveries = 0;
+  /** Today's goal counters: peak, villa, rain, night, perfect, urgentOnTime, regular, far, district:<id> */
+  private goalCounters: Record<string, number> = {};
   private readonly claimedGoals = new Set<ShiftGoalId>();
+  /** Districts district goals can name (all four in the open world) */
+  private readonly goalDistricts = deliverableDistricts();
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
@@ -118,7 +121,7 @@ export class DeliveryManager {
     const shift = this.career.shift ?? emptyShift(1, SHIFT_START_MINUTE);
     this.shiftDay = shift.day;
     this.shiftClockMinute = shift.clockMinute;
-    this.peakDeliveries = shift.peakDeliveries;
+    this.goalCounters = { ...shift.counters };
     for (const id of shift.claimed) this.claimedGoals.add(id);
     this.restoreLedger(shift.ledger);
     this.refreshAvailableOrders();
@@ -137,7 +140,7 @@ export class DeliveryManager {
     this.career.shift = {
       day: this.shiftDay,
       clockMinute: Math.floor(this.shiftClockMinute),
-      peakDeliveries: this.peakDeliveries,
+      counters: { ...this.goalCounters },
       claimed: [...this.claimedGoals],
       ledger: this.ledgerSnapshot(),
     };
@@ -157,15 +160,29 @@ export class DeliveryManager {
   private goalState() {
     return {
       completedCount: this.completedCount,
-      peakDeliveries: this.peakDeliveries,
       pedestrianAccidentCount: this.pedestrianAccidentCount,
+      counters: this.goalCounters,
       claimed: this.claimedGoals,
     };
   }
 
-  /** Today's goals (배달 3건 · 피크타임 2건 · 무사고 퇴근) with progress */
+  /** Rush-hour deliveries today */
+  public get peakDeliveries(): number {
+    return this.goalCounters.peak ?? 0;
+  }
+
+  /** Today's goal specs: 배달 3건, two rotating goals for this day, 무사고 퇴근 */
+  public todaysGoals(): ShiftGoalSpec[] {
+    return goalsForDay(this.shiftDay, this.goalDistricts);
+  }
+
+  /** Today's goals with progress */
   public getShiftGoals(): ShiftGoalStatus[] {
-    return shiftGoalStatuses(this.goalState());
+    return shiftGoalStatuses(this.todaysGoals(), this.goalState());
+  }
+
+  private bumpGoalCounter(key: string): void {
+    this.goalCounters[key] = (this.goalCounters[key] ?? 0) + 1;
   }
 
   private awardGoals(goals: ShiftGoalSpec[]): number {
@@ -185,7 +202,7 @@ export class DeliveryManager {
    */
   public clockOut(): ClockOutResult | null {
     if (this.activeMissions.length > 0) return null;
-    const awardedAtClockOut = goalsToAward(this.goalState(), 'clock_out');
+    const awardedAtClockOut = goalsToAward(this.todaysGoals(), this.goalState(), 'clock_out');
     this.awardGoals(awardedAtClockOut);
     const day = this.shiftDay;
     const ledger = this.getDailyLedger();
@@ -193,7 +210,7 @@ export class DeliveryManager {
 
     this.shiftDay = day + 1;
     this.shiftClockMinute = SHIFT_START_MINUTE;
-    this.peakDeliveries = 0;
+    this.goalCounters = {};
     this.claimedGoals.clear();
     this.restoreLedger(emptyShift(this.shiftDay, SHIFT_START_MINUTE).ledger);
     this.persistCareer();
@@ -747,12 +764,21 @@ export class DeliveryManager {
     this.totalEarnings += earned;
     this.completedCount += 1;
     this.lifetimeCompleted += 1;
-    if (peakBonus > 0) this.peakDeliveries += 1;
+    // Counters for today's rotating goals
+    if (peakBonus > 0) this.bumpGoalCounter('peak');
+    if (m.order.customer.residenceKind === 'walkup_villa') this.bumpGoalCounter('villa');
+    if (rainBonus > 0) this.bumpGoalCounter('rain');
+    if (nightBonus > 0) this.bumpGoalCounter('night');
+    if (m.foodIntegrity >= 95) this.bumpGoalCounter('perfect');
+    if (m.order.special === 'urgent' && specialBonus > 0) this.bumpGoalCounter('urgentOnTime');
+    if (m.order.regularCustomer) this.bumpGoalCounter('regular');
+    if (m.order.distanceMeters > 1000) this.bumpGoalCounter('far');
+    this.bumpGoalCounter(`district:${districtIdAt(m.order.customer.x, m.order.customer.z)}`);
     const nextTier = this.getCurrentTier();
     const tierPromotedTo = nextTier.id !== prevTier.id ? nextTier : null;
 
-    // Daily goals (배달 3건 +₩5,000 · 피크타임 2건 +₩3,000) pay out the moment they are reached
-    const goalsCompleted = goalsToAward(this.goalState(), 'delivery');
+    // Daily goals (배달 3건 + today's two rotating goals) pay out the moment they are reached
+    const goalsCompleted = goalsToAward(this.todaysGoals(), this.goalState(), 'delivery');
     const missionBonusAwarded = this.awardGoals(goalsCompleted);
     const missionJustCompleted = goalsCompleted.length > 0;
 
