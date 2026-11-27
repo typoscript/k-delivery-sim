@@ -132,7 +132,9 @@ describe('DeliveryManager mission flow', () => {
     dm.placeFoodAtDoor();
     const r = dm.completePhotoSettlement()!;
     expect(r.tip).toBe(0); // < 70% integrity
-    expect(r.earned).toBeLessThan(a.order.baseFee + r.tierBonus + r.rainBonus + r.nightBonus + r.peakBonus + 500);
+    expect(r.earned).toBeLessThan(
+      a.order.baseFee + r.tierBonus + r.rainBonus + r.nightBonus + r.peakBonus + r.specialBonus + r.regularCustomerTip + 500
+    );
   });
 
   it('walk-up villas pay the stair bonus', () => {
