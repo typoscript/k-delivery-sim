@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStaticByMaterial } from './instancing';
 import {
   ConstructionZoneMarker,
   ObstacleBox,
@@ -557,6 +558,8 @@ export class RoadHazardManager {
       flash.position.set(-3.4, 5.55, 0.4);
 
       g.add(pole, arm, camBox, sign, led, flash);
+      // One mesh per material for this static prop (blinking / flash materials keep working)
+      mergeStaticByMaterial(g);
       this.root.add(g);
       this.registerStaticProp(g, mx, mz);
 
@@ -678,6 +681,8 @@ export class RoadHazardManager {
           g.add(hz);
         }
       }
+      // One mesh per material for this static prop (blinking / flash materials keep working)
+      mergeStaticByMaterial(g);
       this.root.add(g);
       this.registerStaticProp(g, mx, mz);
 
@@ -943,6 +948,8 @@ export class RoadHazardManager {
       const strobe = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.22, 10), strobeMat);
       strobe.position.set(0, 1.32, -3.5);
       g.add(board, strobe);
+      // One mesh per material for this static prop (blinking / flash materials keep working)
+      mergeStaticByMaterial(g);
       this.root.add(g);
       this.registerStaticProp(g, cx, cz);
 

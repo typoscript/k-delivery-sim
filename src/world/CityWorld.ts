@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
-import { buildInstanced, placeMatrix } from './instancing';
+import { buildInstanced, mergeStaticByMaterial, placeMatrix } from './instancing';
 import {
   createAsphaltTexture,
   createBuildingMaterials,
@@ -342,7 +342,15 @@ export class CityWorld {
   }
 
   /** Adds a static prop; in the unified city it is distance-culled with the chunk streaming window */
-  private addProp(obj: THREE.Object3D, x: number, z: number, radiusChunks?: number): void {
+  private addProp(
+    obj: THREE.Object3D,
+    x: number,
+    z: number,
+    radiusChunks?: number,
+    keep?: (o: THREE.Object3D) => boolean
+  ): void {
+    // One mesh per material inside the prop (moving / toggled parts listed in `keep` stay separate)
+    mergeStaticByMaterial(obj, keep);
     // Small street props are not worth re-drawing in the 256px side mirrors
     excludeFromMirrors(obj);
     this.root.add(obj);
@@ -1383,6 +1391,8 @@ export class CityWorld {
       g.add(roof, backGlass, bench, signBoard);
       const dispose = () => {
         for (const m of [roof, backGlass, bench, signBoard]) m.geometry.dispose();
+        // geometries created by the per-material merge
+        g.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose());
         signMat.map?.dispose();
         signMat.dispose();
       };
@@ -1392,6 +1402,7 @@ export class CityWorld {
         // 228 city-wide stops: build (and texture) each shelter only when the player gets close
         this.culler.registerLazy(this.root, bs.shelterX, bs.shelterZ, () => {
           const built = buildShelter();
+          mergeStaticByMaterial(built.object);
           excludeFromMirrors(built.object);
           freezeStatic(built.object);
           return built;
@@ -1495,7 +1506,7 @@ export class CityWorld {
 
         this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
         g.add(counter, awning, posStand, posScreen, tray, trayLed, trayBag);
-        this.addProp(g, loc.x, loc.z);
+        this.addProp(g, loc.x, loc.z, undefined, (o) => o === trayBag);
       } else {
         const isVilla = loc.residenceKind === 'walkup_villa';
         const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), darkMat);
@@ -1525,7 +1536,7 @@ export class CityWorld {
 
         this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: false });
         g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
-        this.addProp(g, loc.x, loc.z);
+        this.addProp(g, loc.x, loc.z, undefined, (o) => o === leftDoor || o === rightDoor);
       }
     }
   }

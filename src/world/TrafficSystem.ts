@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
-import { buildInstanced, mergeColoredParts, placeMatrix } from './instancing';
+import { buildInstanced, placeMatrix } from './instancing';
+import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
@@ -35,12 +36,10 @@ interface OsmAdjEdge {
 }
 
 interface AiVehicle {
-  mesh: THREE.Group;
-  wheels: THREE.Object3D[];
-  brakeMat: THREE.MeshStandardMaterial;
-  headlightMat: THREE.MeshStandardMaterial;
-  hazardMat?: THREE.MeshStandardMaterial;
-  taxiCapMat?: THREE.MeshStandardMaterial;
+  /** Index into the instanced fleet renderer (car or bus list) */
+  renderIndex: number;
+  wheelSpin: number;
+  hazardOn: boolean;
   isBus: boolean;
   isTaxi: boolean;
   driveState: VehicleDriveState;
@@ -122,10 +121,7 @@ export class TrafficSystem {
   private readonly tmpMax = new THREE.Vector3();
 
 
-  private readonly carWheelGeo: THREE.CylinderGeometry;
-  private readonly carRimGeo: THREE.CylinderGeometry;
-  private readonly carWheelMergedGeo: THREE.BufferGeometry;
-  private readonly carWheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.25 });
+  private fleet!: VehicleFleetRenderer;
 
   constructor(scene: THREE.Scene, busStops: BusStopPoint[]) {
     this.busStops = busStops;
@@ -143,15 +139,6 @@ export class TrafficSystem {
       }
     }
 
-    this.carWheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10);
-    this.carWheelGeo.rotateZ(Math.PI / 2);
-    this.carRimGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.24, 8);
-    this.carRimGeo.rotateZ(Math.PI / 2);
-    const identity = new THREE.Matrix4();
-    this.carWheelMergedGeo = mergeColoredParts([
-      { geometry: this.carWheelGeo, matrix: identity, color: 0x111827 },
-      { geometry: this.carRimGeo, matrix: identity, color: 0xcbd5e1 },
-    ]);
 
     this.nsRedMat = new THREE.MeshStandardMaterial({ color: 0x3b0a0a, emissive: 0xef4444, emissiveIntensity: 0 });
     this.nsYellowMat = new THREE.MeshStandardMaterial({ color: 0x3b2c0a, emissive: 0xfacc15, emissiveIntensity: 0 });
@@ -222,125 +209,6 @@ export class TrafficSystem {
     }
   }
 
-  private createVehicleMesh(
-    bodyHex: number,
-    isBus: boolean,
-    isTaxi: boolean
-  ): {
-    group: THREE.Group;
-    wheels: THREE.Object3D[];
-    brakeMat: THREE.MeshStandardMaterial;
-    headlightMat: THREE.MeshStandardMaterial;
-    hazardMat?: THREE.MeshStandardMaterial;
-    taxiCapMat?: THREE.MeshStandardMaterial;
-  } {
-    const group = new THREE.Group();
-    const wheels: THREE.Object3D[] = [];
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.15, metalness: 0.55 });
-    const brakeMat = new THREE.MeshStandardMaterial({
-      color: 0x991b1b,
-      emissive: 0xef4444,
-      emissiveIntensity: 0.4,
-    });
-    const headlightMat = new THREE.MeshStandardMaterial({
-      color: 0xfef9c3,
-      emissive: 0xfef08a,
-      emissiveIntensity: 1.0,
-    });
-
-    if (isBus) {
-      // Classic Gyeonggi/Suwon Green-Blue City Bus!
-      const busMat = new THREE.MeshStandardMaterial({ color: 0x059669, roughness: 0.42, metalness: 0.18 });
-      const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
-      const body = new THREE.Mesh(new THREE.BoxGeometry(2.48, 2.55, 8.6), busMat);
-      body.position.y = 1.62;
-      body.castShadow = true;
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.52, 0.34, 8.64), stripeMat);
-      stripe.position.y = 1.25;
-      const win = new THREE.Mesh(new THREE.BoxGeometry(2.51, 0.95, 7.6), glassMat);
-      win.position.y = 2.15;
-      const hl = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.24, 0.08), headlightMat);
-      hl.position.set(0, 0.85, 4.32);
-      const tl = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.28, 0.08), brakeMat);
-      tl.position.set(0, 0.95, -4.32);
-
-      const hazardMat = new THREE.MeshStandardMaterial({
-        color: 0xd97706,
-        emissive: 0xf59e0b,
-        emissiveIntensity: 0.1,
-      });
-      for (const sx of [-1.05, 1.05]) {
-        const hz = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.09), hazardMat);
-        hz.position.set(sx, 0.95, -4.33);
-        group.add(hz);
-      }
-
-      for (const [wx, wz] of [
-        [-1.18, 2.7],
-        [1.18, 2.7],
-        [-1.18, -2.6],
-        [1.18, -2.6],
-      ]) {
-        const wg = new THREE.Group();
-        wg.position.set(wx, 0.42, wz);
-        const w = new THREE.Mesh(this.carWheelGeo, tireMat);
-        w.scale.set(1.2, 1.2, 1.2);
-        wg.add(w);
-        group.add(wg);
-        wheels.push(wg);
-      }
-      group.add(body, stripe, win, hl, tl);
-      return { group, wheels, brakeMat, headlightMat, hazardMat };
-    }
-
-    const bodyMat = new THREE.MeshStandardMaterial({ color: bodyHex, roughness: 0.36, metalness: 0.28 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.68, 4.24), bodyMat);
-    body.position.y = 0.68;
-    body.castShadow = true;
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.58, 2.16), bodyMat);
-    cabin.position.set(0, 1.28, -0.14);
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.44, 1.98), glassMat);
-    glass.position.set(0, 1.28, -0.14);
-
-    const hlL = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, 0.06), headlightMat);
-    hlL.position.set(-0.62, 0.72, 2.13);
-    const hlR = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.16, 0.06), headlightMat);
-    hlR.position.set(0.62, 0.72, 2.13);
-
-    const tl = new THREE.Mesh(new THREE.BoxGeometry(1.64, 0.16, 0.06), brakeMat);
-    tl.position.set(0, 0.76, -2.13);
-
-    let taxiCapMat: THREE.MeshStandardMaterial | undefined;
-    if (isTaxi) {
-      taxiCapMat = new THREE.MeshStandardMaterial({
-        color: 0xfef08a,
-        emissive: 0xfacc15,
-        emissiveIntensity: 1.6,
-      });
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.2, 0.26), taxiCapMat);
-      cap.position.set(0, 1.66, -0.05);
-      group.add(cap);
-    }
-
-    for (const [wx, wz] of [
-      [-0.9, 1.28],
-      [0.9, 1.28],
-      [-0.9, -1.28],
-      [0.9, -1.28],
-    ]) {
-      const wg = new THREE.Group();
-      wg.position.set(wx, 0.34, wz);
-      // Tire + rim baked into one vertex-coloured mesh: 1 draw call per wheel instead of 2
-      wg.add(new THREE.Mesh(this.carWheelMergedGeo, this.carWheelMat));
-      group.add(wg);
-      wheels.push(wg);
-    }
-
-    group.add(body, cabin, glass, hlL, hlR, tl);
-    return { group, wheels, brakeMat, headlightMat, taxiCapMat };
-  }
-
   private computeVehicleWorldPose(
     fromId: number,
     toId: number,
@@ -390,12 +258,19 @@ export class TrafficSystem {
         .slice(0, 60);
     }
     const total = 24;
+    const busCount = 4;
+    const carColors: number[] = [];
+    const carTaxi: boolean[] = [];
+    for (let i = busCount; i < total; i++) {
+      const [hex, , isTaxi] = palette[i % palette.length];
+      carColors.push(hex);
+      carTaxi.push(isTaxi);
+    }
+    this.fleet = new VehicleFleetRenderer(this.root, carColors, carTaxi, busCount);
 
     for (let i = 0; i < total; i++) {
-      const isBus = i < 4;
-      const [hex, css, isTaxi] = isBus ? [0x059669, '#059669', false] : palette[i % palette.length];
-      const { group, wheels, brakeMat, headlightMat, hazardMat, taxiCapMat } =
-        this.createVehicleMesh(hex, isBus, isTaxi);
+      const isBus = i < busCount;
+      const [, css, isTaxi] = isBus ? [0x059669, '#059669', false] : palette[i % palette.length];
 
       const startNode = pool[Math.floor((i * 7) % pool.length)];
       const outs = this.adj[startNode];
@@ -405,17 +280,11 @@ export class TrafficSystem {
 
       const prog = Math.random() * chosen.dist * 0.7;
       const pose = this.computeVehicleWorldPose(startNode, chosen.to, prog, chosen.dist, chosen.width);
-      group.position.set(pose.x, 0, pose.z);
-      group.rotation.y = pose.heading;
-      this.root.add(group);
 
       this.vehicles.push({
-        mesh: group,
-        wheels,
-        brakeMat,
-        headlightMat,
-        hazardMat,
-        taxiCapMat,
+        renderIndex: isBus ? i : i - busCount,
+        wheelSpin: 0,
+        hazardOn: false,
         isBus,
         isTaxi,
         driveState: 'CRUISING',
@@ -619,6 +488,8 @@ export class TrafficSystem {
     this.prevPlayerX = playerX;
     this.prevPlayerZ = playerZ;
 
+    this.fleet.setNight(isNight);
+
     // 3. Step all 24 AI vehicles along the real Suwon OSM road graph
     const nodes = ACTIVE_MAP_DATA.nodes;
     const blinkOn = Math.floor(elapsedTime * 3.2) % 2 === 0;
@@ -673,9 +544,9 @@ export class TrafficSystem {
         v.busStopWaitTimer = Math.max(0, v.busStopWaitTimer - clampedDt);
         v.speed = Math.max(0, v.speed - 14 * clampedDt);
         v.braking = true;
-        if (v.hazardMat) v.hazardMat.emissiveIntensity = blinkOn ? 2.8 : 0.1;
+        v.hazardOn = blinkOn;
       } else {
-        if (v.hazardMat) v.hazardMat.emissiveIntensity = 0.08;
+        v.hazardOn = false;
 
         if (v.isBus && v.busStopCooldown <= 0) {
           for (const bs of this.busStops) {
@@ -848,17 +719,11 @@ export class TrafficSystem {
       const dHead = wrapAngle(pose.heading - v.heading);
       v.heading = wrapAngle(v.heading + dHead * Math.min(1, clampedDt * 8));
 
-      v.mesh.position.set(v.x, 0, v.z);
-      v.mesh.rotation.y = v.heading;
-      v.brakeMat.emissiveIntensity = v.braking ? 3.2 : isNight ? 1.1 : 0.3;
-      v.headlightMat.emissiveIntensity = isNight ? 3.2 : 0.75;
-      if (v.taxiCapMat) v.taxiCapMat.emissiveIntensity = isNight ? 2.6 : 0.8;
-
-      const wheelStep = (v.speed * clampedDt) / 0.34;
-      for (const w of v.wheels) {
-        w.rotation.x += wheelStep;
-      }
+      v.wheelSpin += (v.speed * clampedDt) / 0.34;
+      if (v.isBus) this.fleet.setBus(v.renderIndex, v);
+      else this.fleet.setCar(v.renderIndex, v);
     }
+    this.fleet.commit();
 
     if (this.recycleTimer > 2.5) this.recycleTimer = 0;
   }

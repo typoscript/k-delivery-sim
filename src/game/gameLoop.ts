@@ -518,7 +518,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     perf.endFrame();
 
     currentTargetFps = targetFps({
-      enabled: onboardingSettings.settings.powerSaving && !perf.isBenchmarking,
+      enabled: onboardingSettings.settings.powerSaving && !perf.isMeasuring,
       photoMode: modalUi.activeModal === 'camera',
       menuOpen: movementBlocked,
       phoneZoomed: hud.phoneMap.isZoomed,

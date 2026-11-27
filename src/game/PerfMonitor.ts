@@ -176,6 +176,11 @@ export class PerfMonitor {
     return this.benchmarking;
   }
 
+  /** True while any benchmark is measuring (power saving must not throttle the frame rate) */
+  public get isMeasuring(): boolean {
+    return this.benchmarking || this.collecting;
+  }
+
   public get enabled(): boolean {
     return this.active || this.benchmarking || this.collecting;
   }
