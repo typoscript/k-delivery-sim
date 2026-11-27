@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ScooterPhysics behaviour > rides the same way every run 1`] = `
+{
+  "bumps": [
+    72,
+  ],
+  "crashes": [
+    "-1:21:rain_manhole",
+    "1:17:rain_corner",
+  ],
+  "damage": 2,
+  "fuel": 0,
+  "hash": 1273689995,
+  "outOfFuel": true,
+}
+`;

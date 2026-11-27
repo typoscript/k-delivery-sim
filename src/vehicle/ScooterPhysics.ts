@@ -1,7 +1,10 @@
-import { ObstacleBox, SlipSurfaceType, clamp, collidesWithWorld, wrapAngle } from '../types';
+import { ObstacleBox, SlipSurfaceType, clamp } from '../types';
+import { stepCrashedSlide, stepParked } from './physics/fallenAndParked';
+import { stepDrive } from './physics/driveControl';
+import { stepLeanTraction } from './physics/leanTraction';
+import { integrateMotion } from './physics/motionIntegration';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
-  SCOOTER_MODELS,
   ScooterModelId,
   ScooterPaintId,
   loadBikeGarage,
@@ -76,42 +79,44 @@ export interface ScooterState {
   braking: boolean;
 }
 
-/** Walking pace (m/s) at which the rider can push a scooter that ran out of fuel */
-export const OUT_OF_FUEL_PUSH_SPEED = 1.5;
-
-export const SCOOTER_SPECS = {
-  wheelbase: 1.38,
-  wheelRadius: 0.28,
-  maxSteerAngle: (36 * Math.PI) / 180,
-  maxForwardSpeed: 22.5, // ~81 km/h
-  maxReverseSpeed: 1.8, // ~6.5 km/h (foot-push reverse)
-  radius: 0.72,
-  dryGripLeanLimit: (44 * Math.PI) / 180, // ~44 deg max safe lean before lowside
-  brakingLeanLimit: (32 * Math.PI) / 180, // hard braking while leaned reduces grip!
-};
+export { OUT_OF_FUEL_PUSH_SPEED, SCOOTER_SPECS } from './scooterSpecs';
 
 export class ScooterPhysics {
   public state: ScooterState;
-  private prevSpeed = 0;
-  private reverseHoldTimer = 0;
-  private overLeanTimer = 0;
-  private blinkerTurnAccum = 0;
-  private bumpCooldown = 0;
-  private wasOnSpeedBump = false;
+  /** @internal vehicle/physics/* */
+  prevSpeed = 0;
+  /** @internal vehicle/physics/* */
+  reverseHoldTimer = 0;
+  /** @internal vehicle/physics/* */
+  overLeanTimer = 0;
+  /** @internal vehicle/physics/* */
+  blinkerTurnAccum = 0;
+  /** @internal vehicle/physics/* */
+  bumpCooldown = 0;
+  /** @internal vehicle/physics/* */
+  wasOnSpeedBump = false;
   private onCrashCallback:
     | ((crashSide: number, impactSpeed: number, cause: CrashCause) => void)
     | null = null;
-  private onSpeedBumpCallback: ((speedKmh: number, label: string) => void) | null = null;
+  /** @internal vehicle/physics/* */
+  onSpeedBumpCallback: ((speedKmh: number, label: string) => void) | null = null;
 
+  /** Simulated seconds (wobble phase) — not wall-clock time, so the physics is reproducible */
+  /** @internal vehicle/physics/* */
+  simTime = 0;
   private readonly spawnX = ACTIVE_MAP_DATA.meta.scooterSpawn.x;
   private readonly spawnZ = ACTIVE_MAP_DATA.meta.scooterSpawn.z;
   private readonly spawnHeading = ACTIVE_MAP_DATA.meta.scooterSpawn.heading;
 
   // Performance upgrade multipliers from 번개 오토바이 센터 (saved in localStorage)
-  private upgradeAccelMul = 1.0;
-  private upgradeSpeedMul = 1.0;
-  private upgradeFuelBurnMul = 1.0;
-  private upgradeGripMul = 1.0;
+  /** @internal vehicle/physics/* */
+  upgradeAccelMul = 1.0;
+  /** @internal vehicle/physics/* */
+  upgradeSpeedMul = 1.0;
+  /** @internal vehicle/physics/* */
+  upgradeFuelBurnMul = 1.0;
+  /** @internal vehicle/physics/* */
+  upgradeGripMul = 1.0;
 
   constructor() {
     this.state = this.createInitialState();
@@ -287,7 +292,8 @@ export class ScooterPhysics {
     this.triggerLowside(side, cause);
   }
 
-  private triggerLowside(side: number, cause: CrashCause = 'corner'): void {
+  /** @internal vehicle/physics/* */
+  triggerLowside(side: number, cause: CrashCause = 'corner'): void {
     const s = this.state;
     const impactSpeed = Math.abs(s.speed);
     s.crashed = true;
@@ -342,392 +348,22 @@ export class ScooterPhysics {
     road: RoadCondition
   ): void {
     const s = this.state;
+    this.simTime += dt;
     s.activeSlipSurface = road.surface;
 
-    // --- 0. Crashed / Fallen Scooter Asphalt Slide Physics ---
+    // 0. Crashed: slide on its side / 1. Parked or unmounted
     if (s.crashed) {
-      const slideSpeed = Math.hypot(s.slideVx, s.slideVz);
-      if (slideSpeed > 0.08) {
-        const friction = road.isRaining ? 5.1 : 7.8; // slick wet asphalt slides much further!
-        const newSpeed = Math.max(0, slideSpeed - friction * dt);
-        const ratio = newSpeed / slideSpeed;
-        s.slideVx *= ratio;
-        s.slideVz *= ratio;
-
-        const nx = s.x + s.slideVx * dt;
-        const nz = s.z + s.slideVz * dt;
-        if (!collidesWithWorld(nx, nz, SCOOTER_SPECS.radius, obstacles)) {
-          s.x = nx;
-          s.z = nz;
-        } else {
-          s.slideVx *= -0.2;
-          s.slideVz *= -0.2;
-        }
-        // Slight spin as scooter slides on its side
-        s.heading = wrapAngle(s.heading + s.crashSide * slideSpeed * 0.12 * dt);
-      } else {
-        s.slideVx = 0;
-        s.slideVz = 0;
-      }
-
-      // Drop flat onto the crashed side (~81 deg)
-      const fallenLean = s.crashSide * 1.42;
-      s.leanAngle += (fallenLean - s.leanAngle) * Math.min(1, dt * 14);
-      s.pitchAngle += (0 - s.pitchAngle) * Math.min(1, dt * 8);
-      s.leanRisk = 0;
-      s.slipWarning = false;
+      stepCrashedSlide(s, dt, road, obstacles);
       return;
     }
-
-    // --- 1. Parked / Unmounted State ---
     if (!s.mounted || !input) {
-      if (Math.abs(s.speed) > 0.05) {
-        s.speed -= Math.sign(s.speed) * 6.5 * dt;
-        if (Math.abs(s.speed) < 0.08) s.speed = 0;
-      } else {
-        s.speed = 0;
-      }
-
-      if (s.speed !== 0) {
-        const nx = s.x + s.speed * Math.sin(s.heading) * dt;
-        const nz = s.z + s.speed * Math.cos(s.heading) * dt;
-        if (!collidesWithWorld(nx, nz, SCOOTER_SPECS.radius, obstacles)) {
-          s.x = nx;
-          s.z = nz;
-        } else {
-          s.speed = 0;
-        }
-        s.wheelSpin += (s.speed * dt) / SCOOTER_SPECS.wheelRadius;
-      }
-
-      s.steerAngle += (0.28 - s.steerAngle) * Math.min(1, dt * 5);
-      s.leanAngle += (-0.17 - s.leanAngle) * Math.min(1, dt * 6);
-      s.leanVel = 0;
-      s.leanRisk = 0;
-      s.slipWarning = false;
-      s.pitchAngle += (0 - s.pitchAngle) * Math.min(1, dt * 8);
-      s.rpmNorm = 0;
-      s.throttleAmount = 0;
-      s.braking = false;
+      stepParked(s, dt, obstacles);
       return;
     }
-
-    // --- 2. Mounted Riding Physics (Tuned per Scooter Model + Permanent Upgrades!) ---
-    const bikeSpec = SCOOTER_MODELS[s.modelId];
-    const effectiveMaxSpeed = bikeSpec.maxForwardSpeed * this.upgradeSpeedMul;
-    const absSpeed = Math.abs(s.speed);
-    const speedRatio = clamp(absSpeed / effectiveMaxSpeed, 0, 1);
-
-    // Progressive steering limit: enough authority at 50-75 km/h to over-lean if you push too hard!
-    const maxSteer =
-      (SCOOTER_SPECS.maxSteerAngle * Math.min(1.12, bikeSpec.steerAgilityMul)) /
-      (1 + Math.pow(absSpeed / 10.5, 1.2));
-    const steerRate = (2.6 - 1.05 * speedRatio) * bikeSpec.steerAgilityMul;
-    const returnRate = 3.8 + 2.4 * speedRatio;
-
-    let steerDir = 0;
-    if (input.steerLeft) steerDir += 1;
-    if (input.steerRight) steerDir -= 1;
-
-    if (steerDir !== 0) {
-      s.steerAngle = clamp(s.steerAngle + steerDir * steerRate * dt, -maxSteer, maxSteer);
-    } else {
-      const delta = returnRate * dt;
-      if (Math.abs(s.steerAngle) <= delta) s.steerAngle = 0;
-      else s.steerAngle -= Math.sign(s.steerAngle) * delta;
-    }
-
-    // Longitudinal acceleration / braking (affected by bike model, ECU upgrade, damageLevel -10%/stage, rain grip, & out-of-fuel!)
-    const damageAccelMul = this.getAccelMultiplier();
-    const maxAccel = 7.6 * bikeSpec.accelMul * this.upgradeAccelMul * (1 - 0.58 * speedRatio) * damageAccelMul;
-    let brakeGripMul = road.isRaining ? 0.86 : 1.0;
-    if (road.isRaining && road.surface === 'manhole') brakeGripMul = 0.55;
-    else if (road.isRaining && road.surface === 'crosswalk_paint') brakeGripMul = 0.68;
-    const brakeDecel = (input.handbrake ? 14.5 : 11.5) * brakeGripMul;
-    const rollingDrag = 0.55;
-    const aeroDrag = 0.0044 * s.speed * absSpeed;
-
-    let accel = 0;
-    let isBraking = false;
-    let throttleAmt = 0;
-
-    s.outOfFuel = s.fuel <= 0.01;
-    s.lowFuelWarning = s.fuel <= 10;
-    s.engineOn = s.mounted && !s.outOfFuel;
-
-    if (input.handbrake) {
-      isBraking = absSpeed > 0.05;
-      if (absSpeed > 0.05) accel = -Math.sign(s.speed) * brakeDecel;
-      else s.speed = 0;
-      this.reverseHoldTimer = 0;
-    } else if (input.throttle) {
-      this.reverseHoldTimer = 0;
-      if (s.speed < -0.1) {
-        accel = brakeDecel;
-        isBraking = true;
-      } else if (!s.outOfFuel) {
-        accel = maxAccel;
-        throttleAmt = 1;
-      } else if (s.speed < OUT_OF_FUEL_PUSH_SPEED) {
-        // Out of fuel: the rider pushes the scooter along at walking pace (to the nearest gas station)
-        accel = Math.min(1.6, (OUT_OF_FUEL_PUSH_SPEED - s.speed) / Math.max(dt, 1e-3));
-      }
-    } else if (input.brake) {
-      if (s.speed > 0.15) {
-        accel = -brakeDecel;
-        isBraking = true;
-        this.reverseHoldTimer = 0;
-      } else {
-        this.reverseHoldTimer += dt;
-        if (this.reverseHoldTimer > 0.16) {
-          accel = -2.4;
-        } else {
-          s.speed = 0;
-          isBraking = true;
-        }
-      }
-    } else {
-      this.reverseHoldTimer = 0;
-    }
-
-    // Real-time fuel / EV battery burn while engine is running (scaled by bike model & Eco Tank upgrade!)
-    if (s.engineOn) {
-      const idleBurn = bikeSpec.isElectric ? 0.004 : 0.025;
-      const burnRate =
-        (idleBurn + throttleAmt * (0.28 + speedRatio * 0.44)) *
-        bikeSpec.fuelBurnMul *
-        this.upgradeFuelBurnMul;
-      s.fuel = Math.max(0, s.fuel - burnRate * dt);
-      s.lowFuelWarning = s.fuel <= 10;
-      if (s.fuel <= 0.01) {
-        s.fuel = 0;
-        s.outOfFuel = true;
-        s.engineOn = false;
-        throttleAmt = 0;
-        if (accel > 0) accel = 0;
-      }
-    }
-
-    if (absSpeed > 0.02) {
-      accel += -Math.sign(s.speed) * rollingDrag - aeroDrag;
-    }
-
-    const nextSpeed = s.speed + accel * dt;
-    if (isBraking && s.speed !== 0 && Math.sign(nextSpeed) !== Math.sign(s.speed)) {
-      s.speed = 0;
-    } else {
-      s.speed = clamp(nextSpeed, -SCOOTER_SPECS.maxReverseSpeed, effectiveMaxSpeed);
-    }
-
-    if (!input.throttle && !input.brake && Math.abs(s.speed) < 0.06) {
-      s.speed = 0;
-    }
-
-    s.braking = isBraking;
-    s.throttleAmount = throttleAmt;
-
-    // Bicycle model turning
-    const omega = (s.speed / SCOOTER_SPECS.wheelbase) * Math.tan(s.steerAngle);
-    const lateralAccel = s.speed * omega; // m/s^2 (positive when turning left while moving forward)
-
-    // Auto-cancel turn signal cleanly after completing a turn (> 52 deg) and straightening handlebars
-    if (!s.hazard && (s.leftBlinker || s.rightBlinker)) {
-      const expectedSign = s.leftBlinker ? 1 : -1;
-      if (omega * expectedSign > 0.15) {
-        this.blinkerTurnAccum += Math.abs(omega * dt);
-      }
-      if (this.blinkerTurnAccum > 0.92 && Math.abs(s.steerAngle) < 0.08) {
-        s.leftBlinker = false;
-        s.rightBlinker = false;
-        this.blinkerTurnAccum = 0;
-      }
-    } else {
-      this.blinkerTurnAccum = 0;
-    }
-
-    // --- 3. Realistic Motorcycle Cornering Lean Dynamics & Traction Circle ---
-    // Equilibrium lean angle to counter centrifugal force: tan(theta) = a_lat / g
-    // Facing +Z: leaning LEFT (+X) is NEGATIVE rotation around +Z.
-    const gravity = 9.81;
-    let targetLean = -Math.atan2(lateralAccel * 0.68, gravity);
-    // Add direct rider body-lean input feel at speed
-    if (absSpeed > 3.5 && steerDir !== 0) {
-      targetLean += -steerDir * 0.1 * speedRatio;
-    }
-    targetLean = clamp(targetLean, -1.15, 1.15);
-
-    // 2nd-order roll spring-damper for weighty bike lean momentum
-    const rollStiffness = 22.0;
-    const rollDamping = 6.2;
-    const leanAcc = (targetLean - s.leanAngle) * rollStiffness - s.leanVel * rollDamping;
-    s.leanVel += leanAcc * dt;
-    s.leanAngle += s.leanVel * dt;
-
-    // Tire traction limit (wet road & slick metal manhole / white crosswalk paint dramatically cut grip!)
-    let activeGripLimit =
-      (isBraking || input.handbrake ? SCOOTER_SPECS.brakingLeanLimit : SCOOTER_SPECS.dryGripLeanLimit) *
-      bikeSpec.gripMul *
-      this.upgradeGripMul;
-
-    if (road.isRaining) {
-      activeGripLimit *= isBraking || input.handbrake ? 0.78 : 0.84;
-      if (road.surface === 'manhole') {
-        activeGripLimit *= 0.34; // slick iron manhole cover!
-      } else if (road.surface === 'crosswalk_paint') {
-        activeGripLimit *= 0.48; // slick white thermoplastic crosswalk paint!
-      }
-    }
-
-    // Wet manhole / crosswalk paint slip risk from braking OR sharp turning!
-    const onWetHazard = road.isRaining && road.surface !== 'none';
-    const hardBrakeOnWetHazard =
-      onWetHazard &&
-      (isBraking || input.handbrake) &&
-      absSpeed > (road.surface === 'manhole' ? 4.8 : 6.0);
-    const sharpTurnOnWetHazard =
-      onWetHazard &&
-      (Math.abs(s.steerAngle) > 0.12 || Math.abs(s.leanAngle) > 0.17) &&
-      absSpeed > (road.surface === 'manhole' ? 4.4 : 5.4);
-
-    // Lean risk 0..1+ (lower speed threshold when slipping on wet manhole/paint!)
-    const riskSpeedFloor = onWetHazard ? 3.5 : 5.5;
-    const speedRiskGate = clamp((absSpeed - riskSpeedFloor) / 3.8, 0, 1);
-    let rawRisk = (Math.abs(s.leanAngle) / activeGripLimit) * speedRiskGate;
-
-    // Even straight hard braking on a wet manhole or crosswalk paint breaks tire traction!
-    if (hardBrakeOnWetHazard) {
-      const brakeSlipBoost =
-        (road.surface === 'manhole' ? 1.15 : 0.92) *
-        (input.handbrake ? 1.25 : 1.0) *
-        clamp(absSpeed / 8.5, 0.55, 1.35);
-      rawRisk = Math.max(rawRisk, brakeSlipBoost);
-    }
-    if (sharpTurnOnWetHazard) {
-      const turnSlipBoost =
-        (road.surface === 'manhole' ? 1.12 : 0.96) * clamp(absSpeed / 8.0, 0.6, 1.3);
-      rawRisk = Math.max(rawRisk, turnSlipBoost);
-    }
-
-    s.leanRisk = clamp(rawRisk, 0, 1.25);
-    s.slipWarning =
-      (rawRisk >= 0.7 && absSpeed > (onWetHazard ? 4.5 : 7.0)) ||
-      (onWetHazard && absSpeed > 5.0 && (isBraking || Math.abs(s.steerAngle) > 0.08));
-
-    if (onWetHazard && (s.slipWarning || absSpeed > 5.5)) {
-      s.wetSlipWarning = road.surface === 'manhole' ? 'manhole' : 'crosswalk_paint';
-    } else if (s.slipWarning) {
-      s.wetSlipWarning = 'corner';
-    } else {
-      s.wetSlipWarning = 'none';
-    }
-
-    // Rear tire drift wobble & sudden traction kick when slipping on wet manhole/paint
-    let effectiveOmega = omega;
-    if (s.slipWarning) {
-      const slipExtra = Math.max(0.18, rawRisk - 0.68) * (onWetHazard ? 1.9 : 1.1);
-      const kickSign = omega !== 0 ? Math.sign(omega) : s.leanAngle !== 0 ? -Math.sign(s.leanAngle) : 1;
-      effectiveOmega += kickSign * slipExtra * Math.sin(performance.now() * 0.042);
-      if (onWetHazard && rawRisk >= 0.95) {
-        s.leanVel += -kickSign * 3.8 * dt;
-      }
-    }
-
-    // Trigger Lowside Crash if over traction limit!
-    const crashSpeedMin = onWetHazard ? 4.5 : 7.5;
-    const slipTriggerTime =
-      onWetHazard && road.surface === 'manhole'
-        ? 0.085
-        : onWetHazard && road.surface === 'crosswalk_paint'
-          ? 0.115
-          : 0.16;
-
-    if (rawRisk >= 1.0 && absSpeed > crashSpeedMin) {
-      this.overLeanTimer += dt;
-      if (this.overLeanTimer >= slipTriggerTime) {
-        const fallSide =
-          Math.abs(s.leanAngle) > 0.06
-            ? Math.sign(s.leanAngle)
-            : steerDir !== 0
-              ? -steerDir
-              : Math.random() < 0.5
-                ? -1
-                : 1;
-        const cause: CrashCause =
-          road.isRaining && road.surface === 'manhole'
-            ? 'rain_manhole'
-            : road.isRaining && road.surface === 'crosswalk_paint'
-              ? 'rain_paint'
-              : road.isRaining
-                ? 'rain_corner'
-                : 'corner';
-        this.triggerLowside(fallSide, cause);
-        return;
-      }
-    } else {
-      this.overLeanTimer = Math.max(0, this.overLeanTimer - dt * 2.5);
-    }
-
-    // --- 4. World Integration & Building Collisions ---
-    const nextHeading = wrapAngle(s.heading + effectiveOmega * dt);
-    const midHeading = s.heading + effectiveOmega * dt * 0.5;
-    const nextX = s.x + s.speed * Math.sin(midHeading) * dt;
-    const nextZ = s.z + s.speed * Math.cos(midHeading) * dt;
-
-    const hitBoth = collidesWithWorld(nextX, nextZ, SCOOTER_SPECS.radius, obstacles);
-    if (!hitBoth) {
-      s.x = nextX;
-      s.z = nextZ;
-      s.heading = nextHeading;
-    } else {
-      // High-speed head-on impact into a wall also knocks you off!
-      if (absSpeed > 13.5) {
-        this.triggerLowside(s.leanAngle >= 0 ? 1 : -1, 'collision');
-        return;
-      }
-      const hitXOnly = collidesWithWorld(nextX, s.z, SCOOTER_SPECS.radius, obstacles);
-      const hitZOnly = collidesWithWorld(s.x, nextZ, SCOOTER_SPECS.radius, obstacles);
-      if (!hitXOnly) {
-        s.x = nextX;
-        s.speed *= 0.68;
-      } else if (!hitZOnly) {
-        s.z = nextZ;
-        s.speed *= 0.68;
-      } else {
-        s.speed = -s.speed * 0.2;
-        if (Math.abs(s.speed) < 0.4) s.speed = 0;
-      }
-    }
-
-    s.wheelSpin += (s.speed * dt) / SCOOTER_SPECS.wheelRadius;
-
-    // Pitch on accel/brake + speed bump suspension shock!
-    const longAccel = (s.speed - this.prevSpeed) / Math.max(dt, 0.0001);
-    this.prevSpeed = s.speed;
-    s.lastLongAccel = longAccel;
-
-    if (this.bumpCooldown > 0) {
-      this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
-    }
-    const onBump = Boolean(road.onSpeedBump);
-    if (onBump && !this.wasOnSpeedBump && this.bumpCooldown <= 0 && absSpeed > 1.8) {
-      const speedKmh = absSpeed * 3.6;
-      const shock = clamp((speedKmh - 10) / 36, 0.16, 1.0);
-      s.bumpJolt = Math.max(s.bumpJolt, shock);
-      // Upward nose kick when hitting the speed bump!
-      s.pitchAngle = clamp(s.pitchAngle - shock * 0.12, -0.16, 0.12);
-      this.bumpCooldown = 0.65;
-      if (this.onSpeedBumpCallback) {
-        this.onSpeedBumpCallback(speedKmh, road.speedBumpLabel ?? '과속방지턱');
-      }
-    }
-    this.wasOnSpeedBump = onBump;
-    s.bumpJolt = Math.max(0, s.bumpJolt - dt * 2.8);
-
-    const targetPitch = clamp(-longAccel * 0.011, -0.09, 0.09);
-    s.pitchAngle += (targetPitch - s.pitchAngle) * Math.min(1, dt * 11);
-
-    // CVT RPM
-    const targetRpm = clamp(0.12 + speedRatio * 0.72 + throttleAmt * 0.22, 0.08, 1);
-    s.rpmNorm += (targetRpm - s.rpmNorm) * Math.min(1, dt * 8);
+    // 2. Rider controls -> 3. lean & traction (may crash) -> 4. move through the world
+    const drive = stepDrive(this, s, dt, input, road);
+    const effectiveOmega = stepLeanTraction(this, s, dt, input, road, drive);
+    if (effectiveOmega === null) return;
+    integrateMotion(this, s, dt, obstacles, road, drive, effectiveOmega);
   }
 }
