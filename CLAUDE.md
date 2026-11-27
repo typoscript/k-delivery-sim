@@ -20,18 +20,13 @@
 - **저장소:** https://github.com/typoscript/k-delivery-sim
 - **기술 스택:** TypeScript, Three.js, Vite, Web Audio API (별도 백엔드 없음 — 정적 웹 배포)
 
-### 핵심 아키텍처
-- `src/main.ts` — 게임 루프, 키 입력, 야외↔복도 오클루전 씬 전환 및 시스템 통합
-- `src/world/CityWorld.ts` — 5×5(25개) 확장 도시 블록(보도블록 인도·연석·점자블록, 상가 야외 픽업대 9곳, 아파트/빌라 공동현관 12곳, 버스정류장 8곳, 고층 타워·병원·백화점), 외부 렌더링 토글(`setOutdoorVisible`)
-- `src/world/CorridorRoom.ts` — 지하 독립 좌표(`y = -500`) 모듈형 아파트 실내 복도 프리팹(호수 팻말, 발매트 음식 배치, 엘리베이터 복귀)
-- `src/world/TrafficSystem.ts` — 36개 교차로 3색 신호등 주기, AI 시내버스(정류장 정차·비상등 포함) 및 승용차·택시·밴 주행·회전·충돌·신호 위반 판정
-- `src/player/PlayerController.ts` & `PlayerMesh.ts` — 1인칭 도보 이동, 점프, GTA식 `[F]` 승하차(음식 휴대 시 운전 차단), 전도 기상 회복
-- `src/player/HandheldPhone3D.ts` & `HandheldFoodBag3D.ts` — 1인칭 3D 오른손 스마트폰 & 왼손 음식 포장 봉투 메시
-- `src/vehicle/ScooterPhysics.ts` & `ScooterMesh.ts` — 배달 스쿠터 물리, 코너링 2차 기울기(Lean) & 전도, 실시간 좌/우 사이드미러, 배달통(탑박스) 뚜껑 애니메이션
-- `src/camera/CameraController.ts` — 항상 1인칭 시점 (도보 눈높이, 라이딩 핸들바 시점 + 코너 호라이즌 롤, 전도 연출)
-- `src/delivery/DeliveryManager.ts` — 7단계 배달 상태 머신(주문번호/호수/공동현관 PIN 생성, 음식 상태, 수익 정산)
-- `src/ui/PhoneMap.ts`, `Hud.ts`, `ModalUi.ts` — 3D/확대 스마트폰 GPS 지도, POS/공동현관 키패드, 카메라 뷰파인더, 정산 팝업, 2초 엘리베이터 페이드 전환
-- `src/audio/GameAudio.ts` — Web Audio API 프로시저럴 사운드 (엔진, 스키드, 충돌, 경적, 키패드, 배달통, 엘리베이터, 셔터음)
+### 핵심 아키텍처 (파일 안내 — 기능 상세는 README.md 참고)
+- `src/main.ts` — 게임 루프, 키 입력, 시스템 초기화·통합 (초기화 순서 주의: `const` 선언 전 참조 시 TDZ 오류)
+- `src/data/` — 수원 4개 구역 실측 OSM 도로 그래프·건물 데이터, 활성 구역 선택(`ACTIVE_MAP_DATA`)
+- `src/world/` — 도시(`CityWorld`), 실내 복도(`CorridorRoom`, `y = -500`), 교통 AI(`TrafficSystem`), 교통 공통 규칙(`TrafficRules`), 단속·순찰·경쟁 라이더(`RoadHazardManager`), 보행자, 날씨
+- `src/player/`, `src/vehicle/`, `src/camera/` — 1인칭 도보·승하차, 스쿠터 물리·메시, 1인칭 카메라
+- `src/delivery/` — 배달 상태 머신(`DeliveryManager`), 배차, 커리어 저장(`RiderCareer`, localStorage)
+- `src/ui/`, `src/audio/` — HUD·스마트폰 지도·모달, Web Audio 프로시저럴 사운드·음성 안내
 
 ---
 
@@ -45,3 +40,6 @@
 3. **WSL 개발 환경 주의:** `vite.config.ts`의 `server.watch.usePolling: true` 설정을 유지하여 `/mnt/c` 경로에서도 HMR이 정상 작동하도록 합니다.
 4. **빌드 검증 필수:** 코드 변경 후 반드시 `npm run build` (`tsc && vite build`)가 오류 없이 통과하는지 확인합니다.
 5. **GitHub Pages 호환성:** `vite.config.ts`의 `base: './'` 상대 경로를 유지하고, 외부 CDN 의존성 없이 정적 빌드(`dist/`)만으로 완전히 동작해야 합니다.
+6. **교통 신호 규칙 단일화:** 신호 판정은 반드시 `TrafficRules`의 `getSignalAxis(nodeId, dirX, dirZ)`와 `signalSpeedCap()`을 사용합니다. 월드 축 기준(`Math.abs(fz) >= Math.abs(fx)`)으로 NS/EW를 직접 판정하지 않습니다(비스듬한 실측 교차로에서 동시 녹색 발생). 과속 단속 카메라는 도로 중간에 있으므로 과속만 단속합니다.
+7. **구매 시 잔액 확인:** 정비소·차고 등 유료 구매 콜백은 결제 전에 `rejectIfInsufficientFunds(cost)`(`main.ts`)로 지갑 잔액을 확인합니다.
+8. **모달 입력 규칙:** `ModalUi.handleKeyDown`은 키 자동 반복(`e.repeat`)을 무시합니다. 구역 선택(`P`)·설정(`O`) 메뉴가 열려 있을 때는 `O`/`P`/`Esc`/`M` 외 게임 키를 막고, 모달 뒤에서 주행 중이면 `null` 대신 중립 입력으로 물리를 진행합니다.
