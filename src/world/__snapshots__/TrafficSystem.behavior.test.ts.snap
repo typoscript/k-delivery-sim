@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TrafficSystem behaviour > drives the same way every run 1`] = `
+{
+  "collisions": 7,
+  "hash": -308517023,
+  "redLights": 0,
+  "signal": "red/green",
+}
+`;
