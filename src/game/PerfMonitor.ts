@@ -177,7 +177,19 @@ export class PerfMonitor {
   }
 
   public get enabled(): boolean {
-    return this.active || this.benchmarking;
+    return this.active || this.benchmarking || this.collecting;
+  }
+
+  private collecting = false;
+  /** Status line shown in the overlay while an external suite runs */
+  public statusLine = '';
+  /** Last benchmark-suite result table (shown in the overlay) */
+  public lastSuite: Array<Record<string, string | number | null>> | null = null;
+
+  /** Collect stats without the overlay (benchmark suite) */
+  public setCollecting(on: boolean): void {
+    this.collecting = on;
+    if (on) this.resetStats();
   }
 
   public toggleOverlay(force?: boolean): void {
@@ -295,6 +307,15 @@ export class PerfMonitor {
       .map(([k, v]) => `${k} ${v}`)
       .join(' · ');
     if (extraStr) lines.push(extraStr);
+    if (this.statusLine) lines.push(`▶ ${this.statusLine}`);
+    if (this.lastSuite) {
+      lines.push('── 최악 조건 벤치마크 (fps · p95 · cpu · gpu · draws) ──');
+      for (const r of this.lastSuite) {
+        lines.push(
+          `${String(r.scenario).padEnd(16)} ${r.fps} · ${r.frameP95}ms · ${r.cpuMs} · ${r.gpuMs ?? '-'} · ${r.drawCalls}`
+        );
+      }
+    }
     if (this.lastBenchmark) {
       lines.push('── 마지막 A/B 벤치마크 ──');
       for (const r of this.lastBenchmark) {
@@ -415,6 +436,7 @@ export class PerfMonitor {
       fps: this.frameInterval.avg > 0 ? Math.round(1000 / this.frameInterval.avg) : 0,
       frameMs: +this.frameInterval.avg.toFixed(2),
       frameP95: +this.frameInterval.percentile(0.95).toFixed(2),
+      frameWorst: +this.frameInterval.max.toFixed(1),
       cpuMs: +this.cpuTotal.avg.toFixed(3),
       cpuWorst: +this.cpuTotal.max.toFixed(2),
       gpuAvailable: this.gpu.available,

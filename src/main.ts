@@ -39,11 +39,24 @@ import { GameContext } from './game/GameContext';
 import { installKeyboardInput } from './game/keyboardInput';
 import { startGameLoop } from './game/gameLoop';
 import { GraphicsRuntime } from './game/GraphicsRuntime';
+import { runBenchmarkSuite } from './game/BenchmarkSuite';
+import { PerfMonitor } from './game/PerfMonitor';
 
 const app = document.getElementById('app')!;
 
+/**
+ * MSAA (hardware anti-aliasing): on by default, `?aa=off` disables it (WebGL context attribute, fixed
+ * at startup). Measured with the benchmark suite on an Apple-GPU retina laptop: MSAA off saved only
+ * ~1% GPU time across all 8 worst-case scenarios (4.91 vs 4.98ms), so quality wins by default; the
+ * switch stays for weaker GPUs where multisampling at 2x pixel density costs more.
+ */
+function resolveAntialias(): boolean {
+  return new URLSearchParams(window.location.search).get('aa') !== 'off';
+}
+const ANTIALIAS = resolveAntialias();
+
 // Renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: ANTIALIAS });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -1200,6 +1213,53 @@ startGameLoop(gameCtx, {
   isNpcHoldingFoodBag: () => npcTookFoodBag,
   graphics,
 });
+
+// Worst-case benchmark suite: `?bench=suite` (or `__benchSuite()`) - results in the F9 overlay & console
+const runSuite = async () => {
+  const perf = (window as unknown as { __perf: PerfMonitor }).__perf;
+  perf.toggleOverlay(true);
+  const rows = await runBenchmarkSuite(
+    {
+      perf,
+      teleport: (id) => teleportToDistrict(id),
+      isRiding: () => playerCtrl.state.mode === 'riding',
+      toggleMount: () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }));
+        window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' }));
+      },
+      setNight: (on) => {
+        if (world.isNight !== on) delivery.setNightMode(world.toggleDayNight());
+      },
+      setWeather: (mode) => {
+        weather.setMode(mode);
+        world.setWeather(mode);
+        delivery.setWeatherRaining(mode === 'rain');
+      },
+      turnView: (dy) => {
+        camController.onFootYaw += dy;
+      },
+      pathTo: (x, z) => roadNavigator.findShortestPath(scooterPhysics.state.x, scooterPhysics.state.z, x, z).points,
+      placeScooter: (x, z, heading) => {
+        const st = scooterPhysics.state;
+        st.x = x;
+        st.z = z;
+        st.heading = heading;
+        st.speed = 0;
+      },
+      districtSpawn: (id) => SUWON_OPEN_WORLD.legacyDistricts.find((d) => d.id === id)?.playerSpawn ?? { x: 0, z: 0 },
+      graphicsInfo: () => ({ pixelRatio: graphics.pixelRatio, antialias: ANTIALIAS }),
+    },
+    (msg) => (perf.statusLine = msg)
+  );
+  perf.lastSuite = rows as unknown as Array<Record<string, string | number | null>>;
+  perf.statusLine = `벤치마크 완료 · MSAA ${ANTIALIAS ? 'ON' : 'OFF'} · DPR ${window.devicePixelRatio}`;
+  (window as unknown as { __benchResult: unknown }).__benchResult = { antialias: ANTIALIAS, dpr: window.devicePixelRatio, rows };
+  return rows;
+};
+(window as unknown as { __benchSuite: unknown }).__benchSuite = runSuite;
+if (IS_UNIFIED_MAP && new URLSearchParams(window.location.search).get('bench') === 'suite') {
+  window.setTimeout(() => void runSuite(), 5000);
+}
 
 // Dev-only handle for automated playtests (stripped from production builds)
 if (import.meta.env.DEV) {
