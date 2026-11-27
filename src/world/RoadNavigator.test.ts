@@ -48,9 +48,13 @@ describe('RoadNavigator roadworks', () => {
       if (closed.roadworks) {
         // Kept going through: only when the way around costs more than the penalty
         expect(closed.distance).toBeLessThanOrEqual(open.distance + ROADWORK_DETOUR_METERS + 1);
+        expect(closed.roadworkPoints).toHaveLength(closed.roadworks);
+        expect(closed.avoidedRoadworks).toBeUndefined();
         continue;
       }
       expect(distToPolyline(closed.points, mid.x, mid.z)).toBeGreaterThan(2);
+      // ...and it knows it detoured
+      expect(closed.avoidedRoadworks).toBe(1);
       detoured++;
     }
     expect(detoured).toBeGreaterThan(3);
@@ -65,7 +69,19 @@ describe('RoadNavigator roadworks', () => {
     // Both ends on the closed segment itself
     const res = nav.findShortestPath(a.x + (b.x - a.x) * 0.2, a.z + (b.z - a.z) * 0.2, a.x + (b.x - a.x) * 0.8, a.z + (b.z - a.z) * 0.8);
     expect(res.roadworks).toBe(1);
+    expect(res.roadworkPoints).toEqual([{ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }]);
     nav.setRoadworks([]);
     expect(nav.isRoadwork(e.a, e.b)).toBe(false);
+  });
+
+  it('a route with no construction near it reports no detour', () => {
+    const nav = new RoadNavigator();
+    const e = edges.find((x) => x.dist >= 80)!;
+    nav.setRoadworks([{ edgeA: e.a, edgeB: e.b }]);
+    const far = nodes.reduce((best, n) => (Math.hypot(n.x - nodes[e.a].x, n.z - nodes[e.a].z) > Math.hypot(best.x - nodes[e.a].x, best.z - nodes[e.a].z) ? n : best));
+    const near = nodes.find((n) => Math.hypot(n.x - far.x, n.z - far.z) > 150 && Math.hypot(n.x - far.x, n.z - far.z) < 400)!;
+    const res = nav.findShortestPath(far.x, far.z, near.x, near.z);
+    expect(res.roadworks).toBeUndefined();
+    expect(res.avoidedRoadworks).toBeUndefined();
   });
 });

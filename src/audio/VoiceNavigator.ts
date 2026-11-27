@@ -1,3 +1,4 @@
+import type { RouteRoadworks } from '../delivery/deliveryTypes';
 import { TurnGuidance } from '../world/RoadNavigator';
 import { UpcomingCameraAlert } from '../types';
 
@@ -5,7 +6,13 @@ import { UpcomingCameraAlert } from '../types';
  * Korean Turn-by-Turn & Enforcement Voice Navigator using native browser Web Speech API (`ko-KR`).
  * Zero audio asset footprint (0 KB), non-blocking, with smart anti-spam deduplication & priority cues.
  */
+/** Distance from a construction zone on the route at which the slow-down warning is spoken */
+export const ROADWORK_WARN_DIST_M = 90;
+
 export class VoiceNavigator {
+  private roadworkTargetKey: string | null = null;
+  private roadworkDetourAnnounced = false;
+  private readonly roadworkWarned = new Set<string>();
   public enabled = true;
   public muted = false;
   public volume = 0.85;
@@ -173,5 +180,41 @@ export class VoiceNavigator {
       this.lastCameraOverSpeedAt = now;
       this.speak('제한 속도를 초과했습니다. 감속하세요.', 'high');
     }
+  }
+
+  /**
+   * Construction on the route: once per destination announce a detour around a construction zone, and warn
+   * ~80m before a construction zone the route has to pass through. Returns what was announced (for a banner).
+   */
+  public updateRoadworks(
+    roadworks: RouteRoadworks,
+    targetKey: string | null,
+    riderX: number,
+    riderZ: number,
+    isRiding: boolean,
+    inCorridor: boolean
+  ): 'detour' | 'approach' | null {
+    if (!isRiding || inCorridor || !targetKey) return null;
+    if (targetKey !== this.roadworkTargetKey) {
+      this.roadworkTargetKey = targetKey;
+      this.roadworkDetourAnnounced = false;
+      this.roadworkWarned.clear();
+    }
+    if (roadworks.avoided > 0 && !this.roadworkDetourAnnounced) {
+      this.roadworkDetourAnnounced = true;
+      this.speak('전방 공사 구간을 피해 우회 경로로 안내합니다.');
+      return 'detour';
+    }
+    for (const p of roadworks.points) {
+      const key = `${Math.round(p.x)},${Math.round(p.z)}`;
+      if (this.roadworkWarned.has(key)) continue;
+      const d = Math.hypot(p.x - riderX, p.z - riderZ);
+      if (d <= ROADWORK_WARN_DIST_M) {
+        this.roadworkWarned.add(key);
+        this.speak(`전방 ${Math.max(20, Math.round(d / 10) * 10)}미터 공사 구간입니다. 서행하세요.`, 'high');
+        return 'approach';
+      }
+    }
+    return null;
   }
 }

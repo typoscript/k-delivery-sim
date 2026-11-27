@@ -1,6 +1,6 @@
 import { DeliveryLocation } from '../types';
 import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
-import { ActiveMission, NavigationPlan, RecommendedStop } from './deliveryTypes';
+import { ActiveMission, NO_ROADWORKS, NavigationPlan, RecommendedStop, RouteRoadworks } from './deliveryTypes';
 
 /** What the route planner needs from DeliveryManager */
 export interface RouteMissionSource {
@@ -57,6 +57,7 @@ export class MissionRoutePlanner {
         guidance: null,
         recommendedStops: [],
         totalBundleDistance: 0,
+        roadworks: NO_ROADWORKS,
       };
     }
 
@@ -105,6 +106,7 @@ export class MissionRoutePlanner {
 
     let route: RoutePoint[] = [];
     let guidance: TurnGuidance | null = null;
+    let roadworks: RouteRoadworks = NO_ROADWORKS;
 
     if (targetPos) {
       if (isCargoBoxTarget) {
@@ -124,6 +126,14 @@ export class MissionRoutePlanner {
         route = pathRes.points;
         guidance = navigator.computeTurnGuidance(route, pathRes.distance, playerHeading);
         if (pathRes.roadworks) guidance.instructionText += ' · 🚧 공사 구간 서행';
+        else if (pathRes.avoidedRoadworks) guidance.instructionText += ' · 🚧 공사 우회 중';
+        if (pathRes.roadworks || pathRes.avoidedRoadworks) {
+          roadworks = {
+            through: pathRes.roadworks ?? 0,
+            points: pathRes.roadworkPoints ?? [],
+            avoided: pathRes.avoidedRoadworks ?? 0,
+          };
+        }
       }
     }
 
@@ -140,6 +150,7 @@ export class MissionRoutePlanner {
       guidance,
       recommendedStops: stops,
       totalBundleDistance,
+      roadworks,
     };
 
     this.cachedPlan = plan;

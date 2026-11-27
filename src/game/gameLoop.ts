@@ -505,6 +505,16 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       : null;
     voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
     voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
+    const roadworkNotice = voiceNav.updateRoadworks(
+      navPlan.roadworks,
+      navFocusKey,
+      scooterPhysics.state.x,
+      scooterPhysics.state.z,
+      isRiding,
+      inCorridor
+    );
+    if (roadworkNotice === 'detour') hud.showToast('🚧 공사 구간을 피해 우회 경로로 안내합니다', 3200);
+    else if (roadworkNotice === 'approach') hud.showToast('🚧 전방 공사 구간 · 1차선 통제, 서행하세요', 3200);
 
     perf.lap('weather/audio');
     // Step smartphone battery drain & handlebar-mount wireless charging (2x faster with fast_charger upgrade!)

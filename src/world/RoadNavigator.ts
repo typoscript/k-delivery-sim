@@ -10,6 +10,10 @@ export interface AStarPathResult {
   distance: number;
   /** Construction-zone road segments the path still runs through (0 when it could detour) */
   roadworks?: number;
+  /** Middle of each construction segment on the path (for the approach warning) */
+  roadworkPoints?: RoutePoint[];
+  /** Construction segments the unpenalized shortest route would use but this one detours around */
+  avoidedRoadworks?: number;
 }
 
 /** A road segment narrowed by construction (graph node ids of its ends) */
@@ -161,7 +165,12 @@ export class RoadNavigator {
         { x: goalProj.x, z: goalProj.z },
         { x: toX, z: toZ },
       ]);
-      if (this.isRoadwork(startProj.a, startProj.b)) direct.roadworks = 1;
+      if (this.isRoadwork(startProj.a, startProj.b)) {
+        const na = this.baseNodes[startProj.a];
+        const nb = this.baseNodes[startProj.b];
+        direct.roadworks = 1;
+        direct.roadworkPoints = [{ x: (na.x + nb.x) / 2, z: (na.z + nb.z) / 2 }];
+      }
       return direct;
     }
 
@@ -194,107 +203,121 @@ export class RoadNavigator {
     connectProjection(START_ID, startProj);
     connectProjection(GOAL_ID, goalProj);
 
-    // --- Standard A* Search (Euclidean admissible heuristic for arbitrary OSM angles) ---
-    const gScore = new Float64Array(totalNodes).fill(Infinity);
-    const fScore = new Float64Array(totalNodes).fill(Infinity);
-    const cameFrom = new Int32Array(totalNodes).fill(-1);
-    const closed = new Uint8Array(totalNodes);
-    const inOpen = new Uint8Array(totalNodes);
+    /** A* over the road graph; `penalty` adds the construction detour cost (off: what the route would be without it) */
+    const search = (penalty: boolean) => {
+      let touchedRoadwork = false;
+      // --- Standard A* Search (Euclidean admissible heuristic for arbitrary OSM angles) ---
+      const gScore = new Float64Array(totalNodes).fill(Infinity);
+      const fScore = new Float64Array(totalNodes).fill(Infinity);
+      const cameFrom = new Int32Array(totalNodes).fill(-1);
+      const closed = new Uint8Array(totalNodes);
+      const inOpen = new Uint8Array(totalNodes);
 
-    const heuristic = (id: number) => {
-      const n = nodes[id];
-      return Math.hypot(n.x - goalProj.x, n.z - goalProj.z) * 0.92;
-    };
-
-    gScore[START_ID] = 0;
-    fScore[START_ID] = heuristic(START_ID);
-    const openList: number[] = [START_ID];
-    inOpen[START_ID] = 1;
-
-    while (openList.length > 0) {
-      let bestIdx = 0;
-      let bestF = fScore[openList[0]];
-      for (let i = 1; i < openList.length; i++) {
-        const f = fScore[openList[i]];
-        if (f < bestF) {
-          bestF = f;
-          bestIdx = i;
-        }
-      }
-      const current = openList[bestIdx];
-      openList[bestIdx] = openList[openList.length - 1];
-      openList.pop();
-      inOpen[current] = 0;
-
-      if (current === GOAL_ID) break;
-      closed[current] = 1;
-
-      const prev = cameFrom[current];
-      const curNode = nodes[current];
-
-      const checkNeighbor = (to: number, edgeCost: number) => {
-        if (closed[to]) return;
-
-        let turnPenalty = 0;
-        if (prev !== -1) {
-          const prevNode = nodes[prev];
-          const nextNode = nodes[to];
-          const dx1 = curNode.x - prevNode.x;
-          const dz1 = curNode.z - prevNode.z;
-          const dx2 = nextNode.x - curNode.x;
-          const dz2 = nextNode.z - curNode.z;
-          const l1 = Math.hypot(dx1, dz1);
-          const l2 = Math.hypot(dx2, dz2);
-          if (l1 > 0.5 && l2 > 0.5) {
-            const dot = (dx1 * dx2 + dz1 * dz2) / (l1 * l2);
-            if (dot < 0.72) {
-              turnPenalty = TURN_PENALTY_METERS;
-            }
-          }
-        }
-
-        const roadwork =
-          this.roadworkKeys.size > 0 && current < baseCount && to < baseCount && this.roadworkKeys.has(edgeKey(current, to))
-            ? ROADWORK_DETOUR_METERS
-            : 0;
-        const tentativeG = gScore[current] + edgeCost + turnPenalty + roadwork;
-        if (tentativeG < gScore[to]) {
-          cameFrom[to] = current;
-          gScore[to] = tentativeG;
-          fScore[to] = tentativeG + heuristic(to);
-          if (!inOpen[to]) {
-            openList.push(to);
-            inOpen[to] = 1;
-          }
-        }
+      const heuristic = (id: number) => {
+        const n = nodes[id];
+        return Math.hypot(n.x - goalProj.x, n.z - goalProj.z) * 0.92;
       };
 
-      if (current < baseCount) {
-        for (const e of this.baseAdj[current]) {
-          checkNeighbor(e.to, e.cost);
-        }
-      }
-      const extras = extraAdj.get(current);
-      if (extras) {
-        for (const e of extras) {
-          checkNeighbor(e.to, e.cost);
-        }
-      }
-    }
+      gScore[START_ID] = 0;
+      fScore[START_ID] = heuristic(START_ID);
+      const openList: number[] = [START_ID];
+      inOpen[START_ID] = 1;
 
-    const roadNodes: RoutePoint[] = [];
-    let roadworks = 0;
-    let curr = GOAL_ID;
-    let safety = 0;
-    while (curr !== -1 && safety <= totalNodes) {
-      roadNodes.push({ x: nodes[curr].x, z: nodes[curr].z });
-      const from = cameFrom[curr];
-      if (from !== -1 && curr < baseCount && from < baseCount && this.isRoadwork(curr, from)) roadworks++;
-      if (curr === START_ID) break;
-      curr = cameFrom[curr];
-      safety++;
-    }
-    roadNodes.reverse();
+      while (openList.length > 0) {
+        let bestIdx = 0;
+        let bestF = fScore[openList[0]];
+        for (let i = 1; i < openList.length; i++) {
+          const f = fScore[openList[i]];
+          if (f < bestF) {
+            bestF = f;
+            bestIdx = i;
+          }
+        }
+        const current = openList[bestIdx];
+        openList[bestIdx] = openList[openList.length - 1];
+        openList.pop();
+        inOpen[current] = 0;
+
+        if (current === GOAL_ID) break;
+        closed[current] = 1;
+
+        const prev = cameFrom[current];
+        const curNode = nodes[current];
+
+        const checkNeighbor = (to: number, edgeCost: number) => {
+          if (closed[to]) return;
+
+          let turnPenalty = 0;
+          if (prev !== -1) {
+            const prevNode = nodes[prev];
+            const nextNode = nodes[to];
+            const dx1 = curNode.x - prevNode.x;
+            const dz1 = curNode.z - prevNode.z;
+            const dx2 = nextNode.x - curNode.x;
+            const dz2 = nextNode.z - curNode.z;
+            const l1 = Math.hypot(dx1, dz1);
+            const l2 = Math.hypot(dx2, dz2);
+            if (l1 > 0.5 && l2 > 0.5) {
+              const dot = (dx1 * dx2 + dz1 * dz2) / (l1 * l2);
+              if (dot < 0.72) {
+                turnPenalty = TURN_PENALTY_METERS;
+              }
+            }
+          }
+
+          const isRoadwork =
+            this.roadworkKeys.size > 0 && current < baseCount && to < baseCount && this.roadworkKeys.has(edgeKey(current, to));
+          if (isRoadwork) touchedRoadwork = true;
+          const roadwork = isRoadwork && penalty ? ROADWORK_DETOUR_METERS : 0;
+          const tentativeG = gScore[current] + edgeCost + turnPenalty + roadwork;
+          if (tentativeG < gScore[to]) {
+            cameFrom[to] = current;
+            gScore[to] = tentativeG;
+            fScore[to] = tentativeG + heuristic(to);
+            if (!inOpen[to]) {
+              openList.push(to);
+              inOpen[to] = 1;
+            }
+          }
+        };
+
+        if (current < baseCount) {
+          for (const e of this.baseAdj[current]) {
+            checkNeighbor(e.to, e.cost);
+          }
+        }
+        const extras = extraAdj.get(current);
+        if (extras) {
+          for (const e of extras) {
+            checkNeighbor(e.to, e.cost);
+          }
+        }
+      }
+
+      const roadNodes: RoutePoint[] = [];
+      let roadworks = 0;
+      const roadworkPoints: RoutePoint[] = [];
+      let curr = GOAL_ID;
+      let safety = 0;
+      while (curr !== -1 && safety <= totalNodes) {
+        roadNodes.push({ x: nodes[curr].x, z: nodes[curr].z });
+        const from = cameFrom[curr];
+        if (from !== -1 && curr < baseCount && from < baseCount && this.isRoadwork(curr, from)) {
+          roadworks++;
+          roadworkPoints.push({ x: (nodes[curr].x + nodes[from].x) / 2, z: (nodes[curr].z + nodes[from].z) / 2 });
+        }
+        if (curr === START_ID) break;
+        curr = cameFrom[curr];
+        safety++;
+      }
+      roadNodes.reverse();
+      return { roadNodes, roadworks, roadworkPoints, touchedRoadwork };
+    };
+
+    const found = search(true);
+    const { roadNodes, roadworks, roadworkPoints } = found;
+    // The search ran into construction but the route avoids it: was that a detour? (the unpenalized route uses it)
+    const avoided = found.touchedRoadwork && roadworks === 0 ? search(false).roadworks : 0;
 
     if (roadNodes.length < 2) {
       return this.finalizePath([
@@ -304,7 +327,11 @@ export class RoadNavigator {
     }
 
     const result = this.finalizePath([{ x: fromX, z: fromZ }, ...roadNodes, { x: toX, z: toZ }]);
-    if (roadworks > 0) result.roadworks = roadworks;
+    if (roadworks > 0) {
+      result.roadworks = roadworks;
+      result.roadworkPoints = roadworkPoints;
+    }
+    if (avoided > 0) result.avoidedRoadworks = avoided;
     return result;
   }
 

@@ -404,7 +404,17 @@ export interface NavigationPlan {
   guidance: TurnGuidance | null;
   recommendedStops: RecommendedStop[];
   totalBundleDistance: number;
+  /** Construction on the route: segments passed through (with their positions) and segments detoured around */
+  roadworks: RouteRoadworks;
 }
+
+export interface RouteRoadworks {
+  through: number;
+  points: RoutePoint[];
+  avoided: number;
+}
+
+export const NO_ROADWORKS: RouteRoadworks = { through: 0, points: [], avoided: 0 };
 
 export type { RoutePoint };
 
