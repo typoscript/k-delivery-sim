@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { SideMirrors } from './scooter/sideMirrors';
-import { buildCargoBox, buildModelTrims, createScooterWheel } from './scooter/scooterParts';
 import { drawDashboardCluster } from './scooter/dashboardCluster';
-import { SCOOTER_SPECS, ScooterState } from './ScooterPhysics';
+import { ScooterState } from './ScooterPhysics';
 import {
   SCOOTER_PAINTS,
   ScooterModelId,
@@ -10,55 +9,94 @@ import {
 } from './ScooterModels';
 
 
+import { ScooterBuildMats, buildFrontLights, buildRearBody, buildSteeringAssembly } from './scooter/scooterBody';
+
+import {
+  sync as syncFn,
+} from './scooter/scooterSync';
+
 export class ScooterMesh {
   public readonly root = new THREE.Group();
-  private readonly bodyTiltGroup = new THREE.Group();
-  private readonly handlebarGroup = new THREE.Group();
-  private readonly frontWheel: THREE.Object3D;
-  private readonly rearWheel: THREE.Object3D;
-  private readonly kickstandGroup = new THREE.Group();
-  private readonly cargoLidPivot = new THREE.Group();
-  private readonly cargoSlotLedMats: THREE.MeshStandardMaterial[] = [];
-  private readonly cargoSlotBags: THREE.Mesh[] = [];
-  private cargoSlotOccupied: [boolean, boolean, boolean] = [false, false, false];
-  private cargoLidTimer = 0;
-  private readonly mountedPhone3D = new THREE.Group();
+  /** @internal scooter/* */
+  readonly bodyTiltGroup = new THREE.Group();
+  /** @internal scooter/* */
+  readonly handlebarGroup = new THREE.Group();
+  /** @internal scooter/* */
+  readonly frontWheel: THREE.Object3D;
+  /** @internal scooter/* */
+  readonly rearWheel: THREE.Object3D;
+  /** @internal scooter/* */
+  readonly kickstandGroup = new THREE.Group();
+  /** @internal scooter/* */
+  readonly cargoLidPivot = new THREE.Group();
+  /** @internal scooter/* */
+  readonly cargoSlotLedMats: THREE.MeshStandardMaterial[] = [];
+  /** @internal scooter/* */
+  readonly cargoSlotBags: THREE.Mesh[] = [];
+  /** @internal scooter/* */
+  cargoSlotOccupied: [boolean, boolean, boolean] = [false, false, false];
+  /** @internal scooter/* */
+  cargoLidTimer = 0;
+  /** @internal scooter/* */
+  readonly mountedPhone3D = new THREE.Group();
   public readonly mountedPhoneHitMesh: THREE.Mesh;
   public readonly riderMountPoint = new THREE.Group();
 
   /** Live rear-view side mirrors (render targets, cameras, mirror heads) */
-  private readonly mirrors = new SideMirrors();
+  /** @internal scooter/* */
+  readonly mirrors = new SideMirrors();
 
   // 3D Handlebar Instrument Cluster (Fuel Gauge & Low-Fuel Warning LED)
   private readonly dashCanvas: HTMLCanvasElement;
   private readonly dashCtx: CanvasRenderingContext2D;
-  private readonly dashTex: THREE.CanvasTexture;
-  private readonly dashFuelWarnLedMat: THREE.MeshStandardMaterial;
-  private lastDashDrawTime = -1;
+  /** @internal scooter/* */
+  readonly dashTex: THREE.CanvasTexture;
+  /** @internal scooter/* */
+  readonly dashFuelWarnLedMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  lastDashDrawTime = -1;
 
-  private readonly headlightSpot: THREE.SpotLight;
-  private readonly headlightFill: THREE.PointLight;
-  private readonly headlightConeMesh: THREE.Mesh;
-  private readonly headlightConeMat: THREE.MeshBasicMaterial;
-  private readonly brakeGlowLight: THREE.PointLight;
-  private readonly headlightMat: THREE.MeshStandardMaterial;
-  private readonly brakeLightMat: THREE.MeshStandardMaterial;
-  private readonly leftBlinkerMat: THREE.MeshStandardMaterial;
-  private readonly rightBlinkerMat: THREE.MeshStandardMaterial;
-  private readonly dashLeftLedMat: THREE.MeshStandardMaterial;
-  private readonly dashRightLedMat: THREE.MeshStandardMaterial;
-  private readonly leftBlinkerGlow: THREE.PointLight;
-  private readonly rightBlinkerGlow: THREE.PointLight;
+  /** @internal scooter/* */
+  readonly headlightSpot: THREE.SpotLight;
+  /** @internal scooter/* */
+  readonly headlightFill: THREE.PointLight;
+  /** @internal scooter/* */
+  readonly headlightConeMesh: THREE.Mesh;
+  /** @internal scooter/* */
+  readonly headlightConeMat: THREE.MeshBasicMaterial;
+  /** @internal scooter/* */
+  readonly brakeGlowLight: THREE.PointLight;
+  /** @internal scooter/* */
+  readonly headlightMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly brakeLightMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly leftBlinkerMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly rightBlinkerMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly dashLeftLedMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly dashRightLedMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly leftBlinkerGlow: THREE.PointLight;
+  /** @internal scooter/* */
+  readonly rightBlinkerGlow: THREE.PointLight;
 
   // Dynamic bike model & custom paint materials / trim groups (PCX / Super Cub / Electric EV-PRO)
   private readonly bodyPaintMat: THREE.MeshStandardMaterial;
   private readonly accentPaintMat: THREE.MeshStandardMaterial;
-  private readonly seatMat: THREE.MeshStandardMaterial;
+  /** @internal scooter/* */
+  readonly seatMat: THREE.MeshStandardMaterial;
   private readonly boxMat: THREE.MeshStandardMaterial;
-  private readonly exhaustMesh: THREE.Mesh;
-  private readonly pcxTrimGroup = new THREE.Group();
-  private readonly cubTrimGroup = new THREE.Group();
-  private readonly evTrimGroup = new THREE.Group();
+  /** @internal scooter/* */
+  readonly exhaustMesh: THREE.Mesh;
+  /** @internal scooter/* */
+  readonly pcxTrimGroup = new THREE.Group();
+  /** @internal scooter/* */
+  readonly cubTrimGroup = new THREE.Group();
+  /** @internal scooter/* */
+  readonly evTrimGroup = new THREE.Group();
 
   constructor(scene: THREE.Scene, phoneScreenTexture: THREE.CanvasTexture) {
     this.headlightMat = new THREE.MeshStandardMaterial({
@@ -150,267 +188,22 @@ export class ScooterMesh {
       metalness: 0.1,
     });
     const boxMat = this.boxMat;
+    const mats: ScooterBuildMats = { bodyPaint, accentPaint, darkMat, chromeMat, boxMat };
 
-    // --- Rear Wheel (at z = 0) ---
-    this.rearWheel = createScooterWheel();
-    this.rearWheel.position.set(0, SCOOTER_SPECS.wheelRadius, 0);
-    this.bodyTiltGroup.add(this.rearWheel);
-
-    // --- Main Scooter Frame & Floorboard ---
-    const floorboard = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.12, 1.05), darkMat);
-    floorboard.position.set(0, 0.34, 0.65);
-    floorboard.castShadow = true;
-    this.bodyTiltGroup.add(floorboard);
-
-    const rearBody = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.36, 0.86), bodyPaint);
-    rearBody.position.set(0, 0.58, 0.12);
-    rearBody.castShadow = true;
-    this.bodyTiltGroup.add(rearBody);
-
-    const sideTrim = new THREE.Mesh(new THREE.BoxGeometry(0.49, 0.1, 0.76), accentPaint);
-    sideTrim.position.set(0, 0.58, 0.14);
-    this.bodyTiltGroup.add(sideTrim);
-
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.76), this.seatMat);
-    seat.position.set(0, 0.82, 0.22);
-    seat.castShadow = true;
-    this.bodyTiltGroup.add(seat);
-
-    this.exhaustMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.62, 10), chromeMat);
-    this.exhaustMesh.rotation.x = Math.PI / 2 - 0.16;
-    this.exhaustMesh.position.set(-0.27, 0.36, 0.08);
-    this.bodyTiltGroup.add(this.exhaustMesh);
-
-    // --- Model-Specific 3D Trim Kits (Visible in both 3D & 1st-Person Handlebar View!) ---
-    buildModelTrims(this.pcxTrimGroup, this.cubTrimGroup, this.evTrimGroup, {
-      accent: accentPaint,
-      chrome: chromeMat,
-      dark: darkMat,
-      headlight: this.headlightMat,
-    });
-    this.cubTrimGroup.visible = false;
-    this.evTrimGroup.visible = false;
-    this.bodyTiltGroup.add(this.pcxTrimGroup, this.cubTrimGroup, this.evTrimGroup);
-
-    // --- Rear Delivery Thermal Box (hinged lid, 3 slot LEDs, food bag indicators) ---
-    buildCargoBox(this.bodyTiltGroup, this.cargoLidPivot, this.cargoSlotLedMats, this.cargoSlotBags, { box: boxMat, dark: darkMat });
-
-    const reflectMat = new THREE.MeshStandardMaterial({
-      color: 0xfef08a,
-      emissive: 0xfacc15,
-      emissiveIntensity: 0.4,
-    });
-    const reflectStrip = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.02), reflectMat);
-    reflectStrip.position.set(0, 1.15, -0.63);
-    this.bodyTiltGroup.add(reflectStrip);
-
-    // Rear tail/brake light & blinkers
-    const tailLight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.06), this.brakeLightMat);
-    tailLight.position.set(0, 0.64, -0.33);
-    this.bodyTiltGroup.add(tailLight);
-
-    const rearLeftBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.leftBlinkerMat);
-    rearLeftBlink.position.set(0.19, 0.64, -0.33);
-    this.bodyTiltGroup.add(rearLeftBlink);
-
-    const rearRightBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.rightBlinkerMat);
-    rearRightBlink.position.set(-0.19, 0.64, -0.33);
-    this.bodyTiltGroup.add(rearRightBlink);
-
-    // --- Front Fairing & Leg Shield ---
-    const frontShield = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.72, 0.34), bodyPaint);
-    frontShield.position.set(0, 0.74, 1.18);
-    frontShield.rotation.x = -0.22;
-    frontShield.castShadow = true;
-    this.bodyTiltGroup.add(frontShield);
-
-    const noseAccent = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.12), accentPaint);
-    noseAccent.position.set(0, 0.8, 1.33);
-    noseAccent.rotation.x = -0.22;
-    this.bodyTiltGroup.add(noseAccent);
-
-    // Headlight & front blinkers
-    const headlight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.13, 0.08), this.headlightMat);
-    headlight.position.set(0, 0.78, 1.38);
-    this.bodyTiltGroup.add(headlight);
-
-    const frontLeftBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.leftBlinkerMat);
-    frontLeftBlink.position.set(0.21, 0.76, 1.36);
-    this.bodyTiltGroup.add(frontLeftBlink);
-
-    const frontRightBlink = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.06), this.rightBlinkerMat);
-    frontRightBlink.position.set(-0.21, 0.76, 1.36);
-    this.bodyTiltGroup.add(frontRightBlink);
-
-    // Rear brake tail-light red glow (reflects onto dark/wet asphalt in side mirrors when braking!)
-    this.brakeGlowLight = new THREE.PointLight(0xef4444, 0, 11, 1.5);
-    this.brakeGlowLight.position.set(0, 0.66, -0.58);
-    this.bodyTiltGroup.add(this.brakeGlowLight);
-
-    // High-power steering-aware 3D Headlight SpotLight + Close Road Fill + Volumetric Beam Cone!
-    this.headlightSpot = new THREE.SpotLight(0xfff7e0, 0, 82, Math.PI / 3.4, 0.62, 1.05);
-    this.headlightSpot.position.set(0, 0.88, 1.44);
-    const spotTarget = new THREE.Object3D();
-    spotTarget.position.set(0, -0.75, 22);
-    this.bodyTiltGroup.add(spotTarget);
-    this.headlightSpot.target = spotTarget;
-    this.bodyTiltGroup.add(this.headlightSpot);
-
-    this.headlightFill = new THREE.PointLight(0xfff7e0, 0, 16, 1.4);
-    this.headlightFill.position.set(0, 0.9, 3.2);
-    this.bodyTiltGroup.add(this.headlightFill);
-
-    this.headlightConeMat = new THREE.MeshBasicMaterial({
-      color: 0xfff8dc,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-    });
-    const coneGeo = new THREE.ConeGeometry(3.4, 15.5, 18, 1, true);
-    coneGeo.translate(0, -7.75, 0);
-    coneGeo.rotateX(Math.PI / 2 + 0.06);
-    this.headlightConeMesh = new THREE.Mesh(coneGeo, this.headlightConeMat);
-    this.headlightConeMesh.position.set(0, 0.82, 1.42);
-    this.headlightConeMesh.visible = false;
-    this.bodyTiltGroup.add(this.headlightConeMesh);
-
-    // --- Steerable Front Fork + Handlebars + Live Side Mirrors + Dashboard Blinker LEDs ---
-    this.handlebarGroup.position.set(0, 0, SCOOTER_SPECS.wheelbase);
-    this.bodyTiltGroup.add(this.handlebarGroup);
-
-    this.frontWheel = createScooterWheel();
-    this.frontWheel.position.set(0, SCOOTER_SPECS.wheelRadius, 0);
-    this.handlebarGroup.add(this.frontWheel);
-
-    for (const side of [-1, 1]) {
-      const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.78, 8), chromeMat);
-      fork.position.set(side * 0.11, 0.62, -0.08);
-      fork.rotation.x = -0.22;
-      this.handlebarGroup.add(fork);
-    }
-
-    const fender = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.42), bodyPaint);
-    fender.position.set(0, 0.6, 0.02);
-    this.handlebarGroup.add(fender);
-
-    // Instrument dash pod (visible directly in 1st-person!)
-    const barCenter = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11, 0.18), darkMat);
-    barCenter.position.set(0, 1.12, -0.21);
-    this.handlebarGroup.add(barCenter);
-
-    // 1st-Person Dashboard Blinker Indicator LEDs (◀ Left / ▶ Right) + Digital Fuel Gauge LCD + Low-Fuel LED!
-    const ledGeo = new THREE.BoxGeometry(0.055, 0.024, 0.014);
-    const leftDashLed = new THREE.Mesh(ledGeo, this.dashLeftLedMat);
-    leftDashLed.position.set(0.115, 1.168, -0.295);
-    leftDashLed.rotation.x = -0.35;
-    const rightDashLed = new THREE.Mesh(ledGeo, this.dashRightLedMat);
-    rightDashLed.position.set(-0.115, 1.168, -0.295);
-    rightDashLed.rotation.x = -0.35;
-
-    const dashScreen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.205, 0.076),
-      new THREE.MeshBasicMaterial({ map: this.dashTex, toneMapped: false })
-    );
-    dashScreen.position.set(0, 1.165, -0.299);
-    dashScreen.rotation.y = Math.PI;
-    dashScreen.rotation.x = 0.35;
-
-    const fuelWarnLed = new THREE.Mesh(
-      new THREE.BoxGeometry(0.032, 0.018, 0.014),
-      this.dashFuelWarnLedMat
-    );
-    fuelWarnLed.position.set(0, 1.19, -0.29);
-    fuelWarnLed.rotation.x = -0.35;
-
-    this.handlebarGroup.add(leftDashLed, rightDashLed, dashScreen, fuelWarnLed);
-
-    const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.78, 8), chromeMat);
-    handleBar.rotation.z = Math.PI / 2;
-    handleBar.position.set(0, 1.12, -0.22);
-    this.handlebarGroup.add(handleBar);
-
-    // Subtle amber glow lights for left & right turn signals
-    this.leftBlinkerGlow = new THREE.PointLight(0xf59e0b, 0, 5.5);
-    this.leftBlinkerGlow.position.set(0.42, 1.12, -0.15);
-    this.rightBlinkerGlow = new THREE.PointLight(0xf59e0b, 0, 5.5);
-    this.rightBlinkerGlow.position.set(-0.42, 1.12, -0.15);
-    this.handlebarGroup.add(this.leftBlinkerGlow, this.rightBlinkerGlow);
-
-    for (const side of [-1, 1]) {
-      const isLeft = side === 1;
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.16, 8), darkMat);
-      grip.rotation.z = Math.PI / 2;
-      grip.position.set(side * 0.35, 1.12, -0.22);
-      this.handlebarGroup.add(grip);
-
-      // Bar-end amber turn signal pod visible in 1st-person periphery!
-      const barEndLamp = new THREE.Mesh(
-        new THREE.SphereGeometry(0.032, 10, 8),
-        isLeft ? this.leftBlinkerMat : this.rightBlinkerMat
-      );
-      barEndLamp.position.set(side * 0.44, 1.12, -0.22);
-      this.handlebarGroup.add(barEndLamp);
-
-      // --- Real-Time Working Side Mirrors (positioned clearly in 1st-person view!) ---
-      const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.25, 8), darkMat);
-      stalk.position.set(side * 0.31, 1.24, -0.21);
-      stalk.rotation.z = -side * 0.42;
-      this.handlebarGroup.add(stalk);
-
-      this.handlebarGroup.add(this.mirrors.createHead(side, darkMat, chromeMat));
-    }
-
-    // Clear mini windshield
-    const screenMat = new THREE.MeshStandardMaterial({
-      color: 0xbae6fd,
-      roughness: 0.1,
-      metalness: 0.2,
-      transparent: true,
-      opacity: 0.32,
-    });
-    const windscreen = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.32, 0.03), screenMat);
-    windscreen.position.set(0, 1.31, -0.08);
-    windscreen.rotation.x = -0.32;
-    this.handlebarGroup.add(windscreen);
-
-    // Handlebar Smartphone Mount Cradle
-    const mountClampMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7 });
-    const cradleStem = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.1, 6), mountClampMat);
-    cradleStem.position.set(0, 1.2, -0.19);
-    const cradleBack = new THREE.Mesh(new THREE.BoxGeometry(0.165, 0.25, 0.02), mountClampMat);
-    cradleBack.position.set(0, 1.3, -0.175);
-    cradleBack.rotation.x = -0.34;
-    for (const side of [-1, 1]) {
-      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.065, 0.036), mountClampMat);
-      claw.position.set(side * 0.088, 1.3, -0.182);
-      claw.rotation.x = -0.34;
-      this.handlebarGroup.add(claw);
-    }
-    this.handlebarGroup.add(cradleStem, cradleBack);
-
-    // 3D Smartphone placed inside handlebar cradle with LIVE GPS map texture!
-    this.mountedPhone3D.position.set(0, 1.305, -0.192);
-    this.mountedPhone3D.rotation.x = -0.34;
-    const phoneBody = new THREE.Mesh(
-      new THREE.BoxGeometry(0.156, 0.272, 0.015),
-      new THREE.MeshStandardMaterial({ color: 0x1e2530, roughness: 0.3, metalness: 0.55 })
-    );
-    const phoneScreen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.144, 0.258),
-      new THREE.MeshBasicMaterial({
-        map: phoneScreenTexture,
-        toneMapped: false,
-      })
-    );
-    phoneScreen.position.z = -0.0085;
-    phoneScreen.rotation.y = Math.PI;
-    this.mountedPhoneHitMesh = phoneScreen;
-    this.mountedPhone3D.add(phoneBody, phoneScreen);
-    this.mountedPhone3D.visible = false;
-    this.handlebarGroup.add(this.mountedPhone3D);
-
+    const rear = buildRearBody(this, mats);
+    this.rearWheel = rear.rearWheel;
+    this.exhaustMesh = rear.exhaustMesh;
+    const front = buildFrontLights(this, mats);
+    this.brakeGlowLight = front.brakeGlowLight;
+    this.headlightSpot = front.headlightSpot;
+    this.headlightFill = front.headlightFill;
+    this.headlightConeMat = front.headlightConeMat;
+    this.headlightConeMesh = front.headlightConeMesh;
+    const steer = buildSteeringAssembly(this, mats, phoneScreenTexture);
+    this.frontWheel = steer.frontWheel;
+    this.leftBlinkerGlow = steer.leftBlinkerGlow;
+    this.rightBlinkerGlow = steer.rightBlinkerGlow;
+    this.mountedPhoneHitMesh = steer.mountedPhoneHitMesh;
     // Kickstand
     this.kickstandGroup.position.set(0.2, 0.28, 0.45);
     const standLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.34, 6), darkMat);
@@ -453,89 +246,7 @@ export class ScooterMesh {
     isNight = false,
     rainIntensity = 0
   ): void {
-    if (this.cargoLidTimer > 0) {
-      this.cargoLidTimer = Math.max(0, this.cargoLidTimer - dt);
-    }
-    const targetLidRot = this.cargoLidTimer > 0 ? 1.15 : 0;
-    this.cargoLidPivot.rotation.x += (targetLidRot - this.cargoLidPivot.rotation.x) * Math.min(1, dt * 10);
-    const lidVisibleOpen = this.cargoLidPivot.rotation.x > 0.12;
-    for (let i = 0; i < 3; i++) {
-      this.cargoSlotBags[i].visible = lidVisibleOpen && this.cargoSlotOccupied[i];
-    }
-    const fallenOffset = state.crashed ? 0.24 : 0;
-    this.root.position.set(state.x, fallenOffset, state.z);
-    this.root.rotation.y = state.heading;
-
-    this.bodyTiltGroup.rotation.z = state.leanAngle;
-    this.bodyTiltGroup.rotation.x = state.pitchAngle;
-
-    this.handlebarGroup.rotation.y = state.steerAngle;
-    this.frontWheel.rotation.x = state.wheelSpin;
-    this.rearWheel.rotation.x = state.wheelSpin;
-
-    this.kickstandGroup.rotation.x = state.mounted || state.crashed ? 1.25 : 0;
-
-    // Real Road-Illuminating 3D Headlight Beam (sweeps into turns!) & Brake Tail-Light Glow
-    const beamOn = state.headlights && !state.crashed;
-    const beamHex =
-      state.modelId === 'electric' ? 0xd8f3ff : state.modelId === 'cub' ? 0xffe8b6 : 0xfff8e2;
-    this.headlightSpot.color.setHex(beamHex);
-    this.headlightFill.color.setHex(beamHex);
-    this.headlightConeMat.color.setHex(beamHex);
-
-    // Aim headlight beam smoothly in the steering direction so dark corners light up!
-    const steerSweepX = Math.sin(state.steerAngle) * 9.5;
-    this.headlightSpot.target.position.set(steerSweepX, -0.75, 22);
-    this.headlightSpot.intensity = beamOn ? (isNight ? 155 : 48) : 0;
-    this.headlightFill.intensity = beamOn && isNight ? 14 : 0;
-
-    const showCone = beamOn && (isNight || rainIntensity > 0.25);
-    this.headlightConeMesh.visible = showCone;
-    if (showCone) {
-      this.headlightConeMesh.rotation.y = state.steerAngle * 0.55;
-      this.headlightConeMat.opacity = isNight ? 0.085 + rainIntensity * 0.065 : rainIntensity * 0.045;
-    }
-
-    this.headlightMat.emissiveIntensity = state.headlights ? 3.0 : state.mounted ? 0.5 : 0.1;
-    this.brakeLightMat.emissiveIntensity = state.braking ? 3.6 : state.headlights ? 0.95 : 0.15;
-    this.brakeGlowLight.intensity = !state.crashed && isNight ? (state.braking ? 13 : state.headlights ? 2.4 : 0) : 0;
-
-    const blinkOn = Math.floor(elapsedTime * 2.5) % 2 === 0;
-    const leftActive = (state.leftBlinker || state.hazard) && blinkOn;
-    const rightActive = (state.rightBlinker || state.hazard) && blinkOn;
-
-    this.leftBlinkerMat.emissiveIntensity = leftActive ? 3.2 : 0;
-    this.rightBlinkerMat.emissiveIntensity = rightActive ? 3.2 : 0;
-    this.dashLeftLedMat.emissiveIntensity = leftActive ? 3.4 : 0.06;
-    this.dashRightLedMat.emissiveIntensity = rightActive ? 3.4 : 0.06;
-    this.leftBlinkerGlow.intensity = leftActive ? 2.2 : 0;
-    this.rightBlinkerGlow.intensity = rightActive ? 2.2 : 0;
-
-    // Low-fuel flashing red warning LED on 3D dashboard (<= 10% fuel)
-    const fuelWarnBlink = state.lowFuelWarning && Math.floor(elapsedTime * 4.0) % 2 === 0;
-    this.dashFuelWarnLedMat.emissiveIntensity = fuelWarnBlink ? 3.8 : state.lowFuelWarning ? 0.6 : 0.04;
-
-    // Exterior crash damage visual: crooked & vibrating side mirrors!
-    const speedVib = 0.35 + Math.min(Math.abs(state.speed) / 14, 1) * 0.9;
-    for (const mh of this.mirrors.heads) {
-      if (state.damageLevel > 0) {
-        const rattle = Math.sin(elapsedTime * (22 + mh.side * 5)) * 0.045 * state.damageLevel * speedVib;
-        const crook = mh.side * 0.065 * state.damageLevel;
-        mh.group.rotation.y = mh.side * 0.22 + crook + rattle * 0.65;
-        mh.group.rotation.x = 0.12 - 0.04 * state.damageLevel + rattle;
-        mh.group.rotation.z = mh.side * 0.08 * state.damageLevel + rattle * 0.5;
-      } else {
-        mh.group.rotation.y = mh.side * 0.22;
-        mh.group.rotation.x = 0.12;
-        mh.group.rotation.z = 0;
-      }
-    }
-
-    // Update 3D Digital Dashboard Fuel Gauge LCD (~12Hz throttle)
-    if (elapsedTime - this.lastDashDrawTime >= 0.08 || this.lastDashDrawTime < 0) {
-      this.lastDashDrawTime = elapsedTime;
-      this.renderDashboardCluster(state, elapsedTime);
-    }
+    syncFn(this, state, elapsedTime, dt, isNight, rainIntensity);
   }
 
   public applyCustomization(modelId: ScooterModelId, paintId: ScooterPaintId): void {
@@ -553,7 +264,8 @@ export class ScooterMesh {
     this.evTrimGroup.visible = modelId === 'electric';
   }
 
-  private renderDashboardCluster(state: ScooterState, elapsedTime: number): void {
+  /** @internal scooter/* */
+  renderDashboardCluster(state: ScooterState, elapsedTime: number): void {
     drawDashboardCluster(this.dashCtx, this.dashCanvas.width, this.dashCanvas.height, state, elapsedTime);
     this.dashTex.needsUpdate = true;
   }
