@@ -348,6 +348,18 @@ const handleCargoSlotAction = (slotIndex: number) => {
   }
 };
 
+/** Blocks garage purchases the wallet can't cover; returns true when the purchase was rejected */
+function rejectIfInsufficientFunds(cost: number): boolean {
+  if (delivery.totalEarnings >= cost) return false;
+  audio.playKeypadBeep(false);
+  const short = cost - delivery.totalEarnings;
+  hud.showToast(
+    `💰 지갑 잔액이 부족합니다! (필요 ₩${cost.toLocaleString()} · ₩${short.toLocaleString()} 더 필요)`,
+    3400
+  );
+  return true;
+}
+
 const modalUi = new ModalUi({
   onPosSuccess: (missionId) => {
     const res = delivery.completePosPickup(missionId);
@@ -425,6 +437,7 @@ const modalUi = new ModalUi({
   },
   onSelectBikeModel: (modelId, cost) => {
     if (bikeGarage.modelId === modelId) return;
+    if (cost > 0 && rejectIfInsufficientFunds(cost)) return;
     if (cost > 0) {
       delivery.recordRepairExpense(cost);
     }
@@ -450,6 +463,7 @@ const modalUi = new ModalUi({
   },
   onSelectBikePaint: (paintId, cost) => {
     if (bikeGarage.paintId === paintId) return;
+    if (cost > 0 && rejectIfInsufficientFunds(cost)) return;
     if (cost > 0) {
       delivery.recordRepairExpense(cost);
     }
@@ -479,15 +493,7 @@ const modalUi = new ModalUi({
       hud.showToast(`${spec.icon} ${spec.name} 장비는 이미 장착되어 있습니다!`, 2400);
       return;
     }
-    if (delivery.totalEarnings < cost) {
-      audio.playKeypadBeep(false);
-      const short = cost - delivery.totalEarnings;
-      hud.showToast(
-        `💰 지갑 잔액이 부족합니다! (필요 ₩${cost.toLocaleString()} · ₩${short.toLocaleString()} 더 필요)`,
-        3400
-      );
-      return;
-    }
+    if (rejectIfInsufficientFunds(cost)) return;
     if (delivery.buyUpgrade(upgradeId, cost)) {
       syncScooterUpgrades();
       audio.playRepairSound();
@@ -1136,6 +1142,17 @@ window.addEventListener('keydown', (e) => {
   pressed.add(code);
   if (!firstPress) return;
 
+  // District (P) / Settings (O) menus are modal: only their own toggles, Escape and mute pass through
+  if (
+    (districtUi.isOpen || onboardingSettings.isSettingsOpen) &&
+    code !== 'KeyO' &&
+    code !== 'KeyP' &&
+    code !== 'Escape' &&
+    code !== 'KeyM'
+  ) {
+    return;
+  }
+
   switch (code) {
     case 'KeyF': {
       const res = playerCtrl.tryToggleMount(
@@ -1256,7 +1273,7 @@ window.addEventListener('keydown', (e) => {
     }
     case 'Backspace': {
       if (playerCtrl.state.inCorridor) {
-        const sp = corridorRoom.getSpawnPoint();
+        const sp = corridorRoom.getRescuePoint();
         playerCtrl.teleportTo(sp.x, sp.y, sp.z, sp.heading, true);
         camController.onFootYaw = sp.heading;
       } else {
@@ -1319,13 +1336,21 @@ hud.showToast(
   5200
 );
 
+const NEUTRAL_SCOOTER_INPUT: ScooterInput = {
+  throttle: false,
+  brake: false,
+  steerLeft: false,
+  steerRight: false,
+  handbrake: false,
+};
+
 let lastTime = performance.now();
 let elapsed = 0;
 
 function animate(now: number): void {
   requestAnimationFrame(animate);
 
-  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
   lastTime = now;
   elapsed += dt;
 
@@ -1499,7 +1524,8 @@ function animate(now: number): void {
     );
   } else {
     if (!inCorridor) {
-      scooterPhysics.step(dt, null, allObstacles, roadCondition);
+      // Rider still mounted behind a modal -> coast with neutral controls instead of the parked/kickstand branch
+      scooterPhysics.step(dt, isRiding ? NEUTRAL_SCOOTER_INPUT : null, allObstacles, roadCondition);
     }
 
     if (playerCtrl.state.mode === 'on_foot' && !movementBlocked) {

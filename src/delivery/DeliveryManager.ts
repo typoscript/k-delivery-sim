@@ -12,6 +12,7 @@ import {
   getRiderTier,
   getUpgradeEffects,
   loadRiderCareer,
+  localDateKey,
   saveRiderCareer,
 } from './RiderCareer';
 
@@ -355,6 +356,9 @@ export class DeliveryManager {
   public tipTotal = 0;
   public missionBonusTotal = 0;
   public dailyMissionClaimed = false;
+  /** Deliveries counted toward today's mission (persisted per local date, survives reloads & district switches) */
+  private dailyMissionProgress = 0;
+  private dailyMissionDate = localDateKey();
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
@@ -383,6 +387,11 @@ export class DeliveryManager {
     this.totalEarnings = this.career.walletBalance;
     this.lifetimeCompleted = this.career.lifetimeCompleted;
     this.riderRating = this.career.riderRating;
+    const dm = this.career.dailyMission;
+    if (dm && dm.date === this.dailyMissionDate) {
+      this.dailyMissionProgress = dm.progress;
+      this.dailyMissionClaimed = dm.claimed;
+    }
     this.refreshAvailableOrders();
   }
 
@@ -390,6 +399,11 @@ export class DeliveryManager {
     this.career.walletBalance = Math.round(this.totalEarnings);
     this.career.lifetimeCompleted = this.lifetimeCompleted;
     this.career.riderRating = Math.round(this.riderRating * 10) / 10;
+    this.career.dailyMission = {
+      date: this.dailyMissionDate,
+      progress: this.dailyMissionProgress,
+      claimed: this.dailyMissionClaimed,
+    };
     saveRiderCareer(this.career);
   }
 
@@ -1008,13 +1022,21 @@ export class DeliveryManager {
     this.totalEarnings += earned;
     this.completedCount += 1;
     this.lifetimeCompleted += 1;
+    const today = localDateKey();
+    if (today !== this.dailyMissionDate) {
+      // Crossed midnight mid-shift -> start a fresh daily mission
+      this.dailyMissionDate = today;
+      this.dailyMissionProgress = 0;
+      this.dailyMissionClaimed = false;
+    }
+    this.dailyMissionProgress += 1;
     const nextTier = this.getCurrentTier();
     const tierPromotedTo = nextTier.id !== prevTier.id ? nextTier : null;
 
     // Check daily 3-delivery mission completion (+₩5,000 instant wallet bonus!)
     let missionJustCompleted = false;
     let missionBonusAwarded = 0;
-    if (!this.dailyMissionClaimed && this.completedCount >= DAILY_MISSION_TARGET) {
+    if (!this.dailyMissionClaimed && this.dailyMissionProgress >= DAILY_MISSION_TARGET) {
       this.dailyMissionClaimed = true;
       this.missionBonusTotal += DAILY_MISSION_BONUS;
       this.totalEarnings += DAILY_MISSION_BONUS;
@@ -1425,7 +1447,7 @@ export class DeliveryManager {
   }
 
   public getDailyMissionStatus(): DailyMissionStatus {
-    const current = Math.min(this.completedCount, DAILY_MISSION_TARGET);
+    const current = Math.min(this.dailyMissionProgress, DAILY_MISSION_TARGET);
     return {
       title: `오늘 ${DAILY_MISSION_TARGET}건 배달 완료하기`,
       current,

@@ -82,6 +82,13 @@ export interface RiderCareerSave {
   reviews: CustomerReview[];
   shopPickupCounts: Record<string, number>;
   shopNames: Record<string, string>;
+  /** Daily 3-delivery mission progress, keyed by local date so a page reload can't re-claim the bonus */
+  dailyMission?: { date: string; progress: number; claimed: boolean };
+}
+
+/** Local calendar date key (YYYY-MM-DD) for daily mission persistence */
+export function localDateKey(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
@@ -352,9 +359,15 @@ export function loadRiderCareer(): RiderCareerSave {
               typeof r === 'object' &&
               typeof r.comment === 'string' &&
               typeof r.stars === 'number' &&
+              Number.isFinite(r.stars) &&
               typeof r.shopName === 'string'
           )
           .slice(0, MAX_STORED_REVIEWS)
+          .map((r) => ({
+            ...r,
+            stars: Math.max(1, Math.min(5, Math.round(r.stars))),
+            tags: Array.isArray(r.tags) ? r.tags.filter((t): t is string => typeof t === 'string') : [],
+          }))
       : [];
     const shopPickupCounts: Record<string, number> = {};
     if (parsed.shopPickupCounts && typeof parsed.shopPickupCounts === 'object') {
@@ -372,7 +385,27 @@ export function loadRiderCareer(): RiderCareerSave {
         }
       }
     }
-    return { walletBalance, lifetimeCompleted, riderRating, upgrades, reviews, shopPickupCounts, shopNames };
+    let dailyMission: RiderCareerSave['dailyMission'];
+    const dm = parsed.dailyMission;
+    if (
+      dm &&
+      typeof dm === 'object' &&
+      typeof dm.date === 'string' &&
+      typeof dm.progress === 'number' &&
+      Number.isFinite(dm.progress)
+    ) {
+      dailyMission = { date: dm.date, progress: Math.max(0, Math.floor(dm.progress)), claimed: dm.claimed === true };
+    }
+    return {
+      walletBalance,
+      lifetimeCompleted,
+      riderRating,
+      upgrades,
+      reviews,
+      shopPickupCounts,
+      shopNames,
+      dailyMission,
+    };
   } catch {
     return fallback;
   }

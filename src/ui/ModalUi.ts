@@ -941,6 +941,12 @@ export class ModalUi {
   public handleKeyDown(e: KeyboardEvent): boolean {
     if (this.activeModal === 'none') return false;
 
+    // Swallow OS key auto-repeat: holding Space/E/Enter must not chain shutter -> settlement close, or E open -> close
+    if (e.repeat) {
+      e.preventDefault();
+      return true;
+    }
+
     if (this.activeModal === 'transition') {
       e.preventDefault();
       return true;

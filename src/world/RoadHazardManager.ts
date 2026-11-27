@@ -877,16 +877,16 @@ export class RoadHazardManager {
 
       const inZone = dist <= 8.5;
       if (inZone && !cam.wasInZone && cam.cooldown <= 0 && scooter.isRiding && !scooter.crashed) {
-        const axisSignal = cam.axis === 'ns' ? signalState.ns : signalState.ew;
+        // Speed cameras sit mid-block on major edges (never at a stop line), so they only enforce speed.
+        // Red-light violations are judged at the intersection itself by TrafficSystem.
         const isSpeeding = speedKmh > cam.limitKmh + SPEED_CAMERA_GRACE_KMH;
-        const isRedLight = axisSignal === 'red' && speedKmh > 18;
-        if (isSpeeding || isRedLight) {
+        if (isSpeeding) {
           cam.cooldown = 14.0;
           cam.flashTimer = 0.28;
           onSpeedCameraTriggered?.({
             cameraId: cam.id,
             label: cam.label,
-            kind: isSpeeding ? 'speeding' : 'red_light',
+            kind: 'speeding',
             measuredKmh: Math.round(speedKmh),
             limitKmh: cam.limitKmh,
             fine: SPEED_CAMERA_FINE,

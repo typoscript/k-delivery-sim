@@ -298,7 +298,8 @@ export class ScooterPhysics {
     const leftX = Math.cos(s.heading);
     const leftZ = -Math.sin(s.heading);
     // Leaning left (side < 0) means turning left -> centrifugal outward slide is right (-left)
-    const outward = -s.crashSide * Math.min(impactSpeed * 0.25, 3.5);
+    // leftVec points to +left, so the outward (right) slide for a left lean (crashSide = -1) needs a negative scale
+    const outward = s.crashSide * Math.min(impactSpeed * 0.25, 3.5);
     s.slideVx = fwdX * s.speed * 0.85 + leftX * outward;
     s.slideVz = fwdZ * s.speed * 0.85 + leftZ * outward;
     s.speed = 0;

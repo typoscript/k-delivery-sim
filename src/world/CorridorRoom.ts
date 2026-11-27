@@ -942,6 +942,17 @@ export class CorridorRoom {
     return this.isVillaMode ? this.villaSpawn : this.elevatorSpawn;
   }
 
+  /**
+   * [Backspace] rescue point. After arriving on the target floor the elevator doors auto-close
+   * behind the player, so respawning inside the cabin would trap them -> drop them in the corridor instead.
+   */
+  public getRescuePoint(): { x: number; y: number; z: number; heading: number } {
+    if (!this.isVillaMode && this.elevatorPhase === 'arrived_floor') {
+      return { x: 0, y: CORRIDOR_ORIGIN_Y, z: -4.6, heading: 0 };
+    }
+    return this.getSpawnPoint();
+  }
+
   /** Returns continuous world Y floor elevation inside the corridor, moving elevator cabin, or walk-up villa stairwell */
   public getFloorYAt(_x: number, z: number): number {
     if (!this.isVillaMode) {
