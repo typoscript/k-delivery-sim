@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { installCanvasStub } from '../test/sceneFingerprint';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
   HAZARD_RECYCLE_DISTANCE,
@@ -11,21 +12,6 @@ import { SignalStateSnapshot } from './TrafficSystem';
 import { SIDEWALK_TICKET_FINE } from '../game/trafficViolations';
 import { ScooterProximityInfo } from './PedestrianManager';
 
-/** Minimal `document.createElement('canvas')` stub so canvas-texture builders run under Vitest's node env */
-function installCanvasStub(): void {
-  const g = globalThis as unknown as { document?: unknown };
-  if (g.document) return;
-  const ctx = new Proxy(
-    {},
-    {
-      get: () => () => undefined,
-      set: () => true,
-    }
-  );
-  g.document = {
-    createElement: () => ({ width: 0, height: 0, getContext: () => ctx }),
-  };
-}
 
 installCanvasStub();
 

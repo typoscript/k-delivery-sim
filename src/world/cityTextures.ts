@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { seededRandom } from '../seededRandom';
 
 /**
  * Shared procedural city textures & building materials.
@@ -13,10 +14,12 @@ export function createAsphaltTexture(): THREE.CanvasTexture {
   const ctx = c.getContext('2d')!;
   ctx.fillStyle = '#2d343e';
   ctx.fillRect(0, 0, 256, 256);
+  // Fixed seed: the road surface looks the same on every load
+  const rand = seededRandom(0xa5f1);
   for (let i = 0; i < 1600; i++) {
-    const v = 36 + Math.floor(Math.random() * 22);
+    const v = 36 + Math.floor(rand() * 22);
     ctx.fillStyle = `rgb(${v},${v + 3},${v + 6})`;
-    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+    ctx.fillRect(rand() * 256, rand() * 256, 2, 2);
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;

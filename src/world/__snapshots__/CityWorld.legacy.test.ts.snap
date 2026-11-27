@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CityWorld build (legacy district map) > builds the same scene every time 1`] = `
+{
+  "hash": 13178588,
+  "instances": 977,
+  "meshes": 1314,
+  "vertices": 30225,
+}
+`;

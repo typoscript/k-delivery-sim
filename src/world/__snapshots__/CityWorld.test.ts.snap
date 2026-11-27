@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CityWorld build (open world) > builds the same scene every time 1`] = `
+{
+  "hash": -1414178923,
+  "instances": 14995,
+  "meshes": 907,
+  "vertices": 57308,
+}
+`;

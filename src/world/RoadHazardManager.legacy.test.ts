@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { installCanvasStub } from '../test/sceneFingerprint';
 
 // Run this file against a legacy ~0.8km district map (the `?map=legacy` mode)
 vi.mock('../data/suwonDistricts', async (importOriginal) => {
@@ -10,21 +11,6 @@ vi.mock('../data/suwonDistricts', async (importOriginal) => {
 const { RoadHazardManager } = await import('./RoadHazardManager');
 const { PedestrianManager } = await import('./PedestrianManager');
 
-/** Minimal `document.createElement('canvas')` stub so canvas-texture builders run under Vitest's node env */
-function installCanvasStub(): void {
-  const g = globalThis as unknown as { document?: unknown };
-  if (g.document) return;
-  const ctx = new Proxy(
-    {},
-    {
-      get: () => () => undefined,
-      set: () => true,
-    }
-  );
-  g.document = {
-    createElement: () => ({ width: 0, height: 0, getContext: () => ctx }),
-  };
-}
 
 installCanvasStub();
 
