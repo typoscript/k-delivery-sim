@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
-import { buildInstanced, mergeStaticByMaterial, placeMatrix } from './instancing';
+import { mergeStaticByMaterial } from './instancing';
 import {
-  createAsphaltTexture,
   createBuildingMaterials,
-  createPuddleRoughnessTexture,
   createSidewalkTexture,
+  createSignTexture,
 } from './cityTextures';
 import {
   BusStopPoint,
@@ -26,15 +25,20 @@ import {
   UpcomingCameraAlert,
   WeatherMode,
 } from '../types';
-import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
-import { OsmParkData, OsmPlazaData, SuwonDistrictId } from '../data/suwonTypes';
+import { OsmParkData, OsmPlazaData } from '../data/suwonTypes';
 import { ChunkStreamer, ChunkStreamerStats } from './openworld/ChunkStreamer';
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 import { ServiceStations, WorldPropHost } from './serviceStations';
 import { DeliveryLocationProps } from './deliveryProps';
+import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
+import { buildSpeedBumps } from './speedBumps';
+import { buildParksAndTrees } from './parksAndTrees';
+import { buildSuwonOsmBuildings, buildSuwonStationLandmark } from './cityBuildings';
+import { buildBusStops, buildStreetLamps } from './streetFurniture';
 import { WorldSky } from './worldSky';
 
 
@@ -76,12 +80,6 @@ export interface CityMapInfo {
   areaPlazas?: OsmPlazaData[];
 }
 
-interface SignalHazardZone {
-  x: number;
-  z: number;
-  manholes: Array<[number, number]>;
-  crosswalkRadius: number;
-}
 
 /**
  * Real OpenStreetMap 3D City World for Suwon-si Paldal-gu Ingye-dong (Suwon City Hall Station area).
@@ -102,32 +100,39 @@ export class CityWorld {
   public readonly speedBumps: SpeedBumpInfo[] = [];
   public readonly landmarks: LandmarkMarker[] = [];
   public readonly mapInfo: CityMapInfo;
-  private readonly landmarkBuilders: SuwonLandmarksBuilder[] = [];
+  /** @internal world builders */
+  readonly landmarkBuilders: SuwonLandmarksBuilder[] = [];
 
   // Unified open world: chunk streaming for buildings/roads/parks + distance culling for static props
-  private readonly unified = ACTIVE_MAP_DATA.meta.unified === true;
+  /** @internal world builders */
+  readonly unified = ACTIVE_MAP_DATA.meta.unified === true;
   /** addProp / sign textures for the world sub-builders (service stations, delivery props) */
   private readonly propHost: WorldPropHost = {
     addProp: (obj, x, z, radiusChunks, keep) => this.addProp(obj, x, z, radiusChunks, keep),
-    createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
+    createSignTexture: (title, bg, fg) => createSignTexture(title, bg, fg),
   };
   /** Gas station / repair shop / convenience store sets (serviceStations.ts) */
   private readonly stations: ServiceStations;
   private streamer?: ChunkStreamer;
-  private readonly culler?: ProximityCuller;
+  /** @internal world builders */
+  readonly culler?: ProximityCuller;
   private streamerVersionSeen = -1;
   private collisionCache: ObstacleBox[] = [];
   private collisionStreamedRef: ObstacleBox[] | null = null;
-  private plazaMat?: THREE.MeshStandardMaterial;
+  /** @internal world builders */
+  plazaMat?: THREE.MeshStandardMaterial;
   private readonly tmpSunTarget = new THREE.Vector3();
 
   private readonly scene: THREE.Scene;
   private readonly dirLight: THREE.DirectionalLight;
   private readonly hemiLight: THREE.HemisphereLight;
-  private readonly lampGlowMat: THREE.MeshStandardMaterial;
+  /** @internal world builders */
+  readonly lampGlowMat: THREE.MeshStandardMaterial;
   private readonly windowGlowMat: THREE.MeshStandardMaterial;
-  private readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
-  private readonly streetLampPoolGroup = new THREE.Group();
+  /** @internal world builders */
+  readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
+  /** @internal world builders */
+  readonly streetLampPoolGroup = new THREE.Group();
   /** Pickup counters & lobby portals with their animated doors / food trays (deliveryProps.ts) */
   private deliveryProps!: DeliveryLocationProps;
 
@@ -141,14 +146,19 @@ export class CityWorld {
   public weatherMode: WeatherMode = 'clear';
 
   // Wet-road shader & slip-surface materials
-  private asphaltMat!: THREE.MeshStandardMaterial;
-  private crosswalkPaintMat!: THREE.MeshStandardMaterial;
-  private manholeMat!: THREE.MeshStandardMaterial;
-  private readonly roadShaderUniforms = {
+  /** @internal world builders */
+  asphaltMat!: THREE.MeshStandardMaterial;
+  /** @internal world builders */
+  crosswalkPaintMat!: THREE.MeshStandardMaterial;
+  /** @internal world builders */
+  manholeMat!: THREE.MeshStandardMaterial;
+  /** @internal world builders */
+  readonly roadShaderUniforms = {
     uRainWetness: { value: 0 },
     uTime: { value: 0 },
   };
-  private readonly signalHazardZones: SignalHazardZone[] = [];
+  /** @internal world builders */
+  readonly signalHazardZones: SignalHazardZone[] = [];
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -215,19 +225,19 @@ export class CityWorld {
     };
 
     this.buildBaseGround();
-    this.buildSuwonOsmRoads();
-    this.buildSpeedBumps();
-    this.buildParksAndTrees();
-    this.buildSuwonOsmBuildings();
+    buildSuwonOsmRoads(this);
+    buildSpeedBumps(this);
+    buildParksAndTrees(this);
+    buildSuwonOsmBuildings(this);
     this.initOpenWorldStreaming();
-    this.buildSuwonStationLandmark();
+    buildSuwonStationLandmark(this);
     this.stations = new ServiceStations(this.propHost, this.serviceStations, this.obstacles, this.unified);
     this.stations.build();
-    this.buildBusStops();
+    buildBusStops(this);
     this.initDeliveryLocations();
     this.deliveryProps = new DeliveryLocationProps(this.propHost, this.root, this.culler, this.locations);
     this.deliveryProps.build();
-    this.buildStreetLamps();
+    buildStreetLamps(this);
 
     this.sky = new WorldSky({
       scene: this.scene,
@@ -245,108 +255,6 @@ export class CityWorld {
 
 
 
-  private createSignTexture(title: string, bg: string, fg = '#ffffff'): THREE.CanvasTexture {
-    const c = document.createElement('canvas');
-    c.width = 512;
-    c.height = 128;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, 512, 128);
-    ctx.strokeStyle = 'rgba(255,255,255,0.38)';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(6, 6, 500, 116);
-    ctx.fillStyle = fg;
-    ctx.font = 'bold 46px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(title, 256, 66);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-
-  private createManholeTexture(): THREE.CanvasTexture {
-    const c = document.createElement('canvas');
-    c.width = 128;
-    c.height = 128;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#3b424c';
-    ctx.fillRect(0, 0, 128, 128);
-    ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.arc(64, 64, 58, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = '#1f2937';
-    ctx.lineWidth = 3;
-    for (const r of [46, 30, 14]) {
-      ctx.beginPath();
-      ctx.arc(64, 64, r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  private createSpeedBumpTexture(): THREE.CanvasTexture {
-    const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 64;
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, 256, 64);
-    ctx.fillStyle = '#facc15';
-    for (let x = -64; x < 320; x += 36) {
-      ctx.beginPath();
-      ctx.moveTo(x, 64);
-      ctx.lineTo(x + 18, 64);
-      ctx.lineTo(x + 36, 0);
-      ctx.lineTo(x + 18, 0);
-      ctx.closePath();
-      ctx.fill();
-    }
-    const tex = new THREE.CanvasTexture(c);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 4);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  private enhanceWetAsphaltMaterial(mat: THREE.MeshStandardMaterial): void {
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.uRainWetness = this.roadShaderUniforms.uRainWetness;
-      shader.uniforms.uTime = this.roadShaderUniforms.uTime;
-
-      shader.fragmentShader =
-        'uniform float uRainWetness;\nuniform float uTime;\n' +
-        shader.fragmentShader
-          .replace(
-            '#include <roughnessmap_fragment>',
-            `#include <roughnessmap_fragment>
-          float puddleMask = 1.0 - smoothstep(0.08, 0.55, roughnessFactor);
-          roughnessFactor = mix(0.90, mix(0.32, 0.055, puddleMask), uRainWetness);`
-          )
-          .replace(
-            '#include <dithering_fragment>',
-            `if (uRainWetness > 0.02) {
-            float pMask = 1.0 - smoothstep(0.10, 0.55, roughnessFactor);
-            #ifdef USE_ROUGHNESSMAP
-            float ripple = sin((vRoughnessMapUv.x * 90.0 + vRoughnessMapUv.y * 90.0) + uTime * 8.5) * 0.5 + 0.5;
-            #else
-            float ripple = 0.5;
-            #endif
-            float fresnelSheen = (0.055 + 0.14 * pMask) * uRainWetness;
-            vec3 skyReflect = vec3(0.56, 0.72, 0.88) * fresnelSheen * (0.85 + 0.15 * ripple);
-            gl_FragColor.rgb += skyReflect;
-          }
-          #include <dithering_fragment>`
-          );
-    };
-  }
 
   /** Unified city uses denser fog so chunks streaming in ~400-500m away fade in instead of popping */
   private fogDensity(legacyDensity: number): number {
@@ -362,7 +270,8 @@ export class CityWorld {
   }
 
   /** Adds a static prop; in the unified city it is distance-culled with the chunk streaming window */
-  private addProp(
+  /** @internal world builders */
+  addProp(
     obj: THREE.Object3D,
     x: number,
     z: number,
@@ -530,267 +439,6 @@ export class CityWorld {
     }
   }
 
-  /** Renders all 218 real Suwon Ingye-dong OSM roads, 나혜석거리 pedestrian plaza, crosswalks & manholes */
-  private buildSuwonOsmRoads(): void {
-    this.asphaltMat = new THREE.MeshStandardMaterial({
-      map: createAsphaltTexture(),
-      roughnessMap: createPuddleRoughnessTexture(),
-      roughness: 0.9,
-      metalness: 0.04,
-    });
-    this.enhanceWetAsphaltMaterial(this.asphaltMat);
-
-    this.crosswalkPaintMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      roughness: 0.78,
-      metalness: 0.05,
-    });
-    this.manholeMat = new THREE.MeshStandardMaterial({
-      map: this.createManholeTexture(),
-      color: 0x6b7280,
-      roughness: 0.55,
-      metalness: 0.78,
-    });
-
-    const yellowLineMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-    const whiteEdgeMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
-    const plazaMat = new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 });
-
-    const nodes = ACTIVE_MAP_DATA.nodes;
-    const edges = ACTIVE_MAP_DATA.edges;
-    this.plazaMat = plazaMat;
-
-    // Track max width incident to each node for smooth circular asphalt junction caps
-    const nodeMaxW = new Float32Array(nodes.length);
-
-    // Unified open world: road surfaces stream in per chunk (merged meshes); only junction props are built here
-    for (const e of this.unified ? [] : edges) {
-      const na = nodes[e.a];
-      const nb = nodes[e.b];
-      const dx = nb.x - na.x;
-      const dz = nb.z - na.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.5) continue;
-
-      nodeMaxW[e.a] = Math.max(nodeMaxW[e.a], e.width);
-      nodeMaxW[e.b] = Math.max(nodeMaxW[e.b], e.width);
-
-      const mx = (na.x + nb.x) * 0.5;
-      const mz = (na.z + nb.z) * 0.5;
-      const heading = Math.atan2(dx, dz); // 0 = +Z
-
-      const yLevel = e.isMajor ? 0.042 : 0.032;
-      const roadMesh = new THREE.Mesh(new THREE.PlaneGeometry(e.width, len), this.asphaltMat);
-      roadMesh.rotation.order = 'YXZ';
-      roadMesh.rotation.y = heading;
-      roadMesh.rotation.x = -Math.PI / 2;
-      roadMesh.position.set(mx, yLevel, mz);
-      roadMesh.receiveShadow = true;
-      this.root.add(roadMesh);
-
-      // Center yellow dashed line on major Suwon boulevards (효원로, 권광로, 경수대로, 권선로)
-      if (e.isMajor && len >= 10) {
-        const dashStep = 9.0;
-        const count = Math.floor((len - 4) / dashStep);
-        for (let i = 0; i < count; i++) {
-          const frac = (i + 0.5) / count;
-          const px = na.x + dx * frac;
-          const pz = na.z + dz * frac;
-          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 4.0), yellowLineMat);
-          dash.rotation.order = 'YXZ';
-          dash.rotation.y = heading;
-          dash.rotation.x = -Math.PI / 2;
-          dash.position.set(px, yLevel + 0.012, pz);
-          this.root.add(dash);
-        }
-      } else if (!e.isMajor && len >= 14) {
-        // Subtle white side shoulder lines on residential streets
-        const edgeLine = new THREE.Mesh(new THREE.PlaneGeometry(0.14, len - 4), whiteEdgeMat);
-        edgeLine.rotation.order = 'YXZ';
-        edgeLine.rotation.y = heading;
-        edgeLine.rotation.x = -Math.PI / 2;
-        edgeLine.position.set(mx, yLevel + 0.01, mz);
-        edgeLine.visible = false; // keep alleyways clean
-      }
-    }
-
-    // Smooth circular asphalt discs at road nodes so arbitrary-angle junctions connect seamlessly!
-    const discGeo = new THREE.CircleGeometry(1, 14);
-    discGeo.rotateX(-Math.PI / 2);
-    const activeNodes = this.unified ? [] : nodes.filter((n) => nodeMaxW[n.id] > 0);
-    const discInst = new THREE.InstancedMesh(discGeo, this.asphaltMat, activeNodes.length);
-    discInst.receiveShadow = true;
-    const dummy = new THREE.Object3D();
-    activeNodes.forEach((n, idx) => {
-      const r = nodeMaxW[n.id] * 0.51;
-      dummy.position.set(n.x, nodeMaxW[n.id] >= 11 ? 0.043 : 0.033, n.z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(r, 1, r);
-      dummy.updateMatrix();
-      discInst.setMatrixAt(idx, dummy.matrix);
-    });
-    this.root.add(discInst);
-
-    // Pedestrian Plazas (나혜석거리 / 행리단길 / 수원역 로데오!)
-    for (const pl of ACTIVE_MAP_DATA.pedestrianPlazas) {
-      for (let i = 0; i < pl.pts.length - 1; i++) {
-        const [ax, az] = pl.pts[i];
-        const [bx, bz] = pl.pts[i + 1];
-        const len = Math.hypot(bx - ax, bz - az);
-        if (len < 1) continue;
-        const heading = Math.atan2(bx - ax, bz - az);
-        const strip = new THREE.Mesh(new THREE.PlaneGeometry(pl.width, len + 1.5), plazaMat);
-        strip.rotation.order = 'YXZ';
-        strip.rotation.y = heading;
-        strip.rotation.x = -Math.PI / 2;
-        strip.position.set((ax + bx) * 0.5, 0.055, (az + bz) * 0.5);
-        strip.receiveShadow = true;
-        this.root.add(strip);
-      }
-    }
-
-    // Crosswalks & Wet Metallic Manhole Covers at Signalized Suwon Intersections!
-    const manholeGeo = new THREE.CylinderGeometry(0.74, 0.78, 0.032, 14);
-    const manholePositions: Array<[number, number]> = [];
-    const stripeGeo = new THREE.PlaneGeometry(0.65, 2.3);
-    stripeGeo.rotateX(-Math.PI / 2);
-
-    const signalNodes = nodes.filter((n) => n.isSignal);
-    // Incident edges per node (avoids scanning every edge for every signal on the 8,000-edge city graph)
-    const incident = new Map<number, typeof edges>();
-    for (const e of edges) {
-      for (const id of [e.a, e.b]) {
-        const list = incident.get(id);
-        if (list) list.push(e);
-        else incident.set(id, [e]);
-      }
-    }
-    const crosswalkMatrices: THREE.Matrix4[] = [];
-    for (const sn of signalNodes) {
-      const localManholes: Array<[number, number]> = [
-        [sn.x + 2.8, sn.z + 2.8],
-        [sn.x - 2.8, sn.z - 2.6],
-      ];
-      manholePositions.push(...localManholes);
-      this.signalHazardZones.push({
-        x: sn.x,
-        z: sn.z,
-        manholes: localManholes,
-        crosswalkRadius: 11.0,
-      });
-
-      // Place crosswalk zebra bars on each incident road edge (~7.8m out from junction center)
-      for (const e of incident.get(sn.id) ?? []) {
-        if (e.dist < 16) continue;
-        const other = nodes[e.a === sn.id ? e.b : e.a];
-        const dx = other.x - sn.x;
-        const dz = other.z - sn.z;
-        const len = Math.hypot(dx, dz) || 1;
-        const ux = dx / len;
-        const uz = dz / len;
-        const rx = -uz;
-        const rz = ux;
-        const heading = Math.atan2(dx, dz);
-
-        const cwCenterX = sn.x + ux * 7.8;
-        const cwCenterZ = sn.z + uz * 7.8;
-        const halfW = e.width * 0.42;
-        for (let off = -halfW; off <= halfW; off += 1.65) {
-          crosswalkMatrices.push(placeMatrix(cwCenterX + rx * off, 0.054, cwCenterZ + rz * off, heading));
-        }
-      }
-    }
-    // Every zebra stripe in the city is one instance of a single InstancedMesh (1 draw call)
-    if (crosswalkMatrices.length > 0) {
-      const stripes = buildInstanced(stripeGeo, this.crosswalkPaintMat, crosswalkMatrices);
-      stripes.receiveShadow = true;
-      excludeFromMirrors(stripes);
-      this.root.add(stripes);
-      freezeStatic(stripes);
-    }
-
-    if (manholePositions.length > 0) {
-      const mInst = new THREE.InstancedMesh(manholeGeo, this.manholeMat, manholePositions.length);
-      mInst.receiveShadow = true;
-      manholePositions.forEach(([mx, mz], i) => {
-        dummy.position.set(mx, 0.048, mz);
-        dummy.rotation.set(0, 0, 0);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        mInst.setMatrixAt(i, dummy.matrix);
-      });
-      this.root.add(mInst);
-    }
-  }
-
-  /** Builds 14 Korean yellow/black striped rounded speed bumps on real Suwon residential/alley roads */
-  private buildSpeedBumps(): void {
-    const nodes = ACTIVE_MAP_DATA.nodes;
-    const bumpMat = new THREE.MeshStandardMaterial({
-      map: this.createSpeedBumpTexture(),
-      roughness: 0.72,
-      metalness: 0.08,
-    });
-    const signPoleMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.5, roughness: 0.5 });
-    const signFaceMat = new THREE.MeshBasicMaterial({
-      map: this.createSignTexture('⚠️ 과속방지턱', '#facc15', '#0f172a'),
-    });
-
-    // Pick up to 14 well-spaced residential / alley / secondary road segments!
-    const candidates = ACTIVE_MAP_DATA.edges
-      .filter((e) => !e.isMajor && e.dist >= 28 && e.width >= 7.0)
-      .sort((a, b) => b.dist - a.dist);
-
-    // Legacy district: 14 bumps; unified city: same density (~1 per 0.05 km^2 of road network) up to 160
-    const maxBumps = this.unified ? 160 : 14;
-    for (const e of candidates) {
-      if (this.speedBumps.length >= maxBumps) break;
-      const na = nodes[e.a];
-      const nb = nodes[e.b];
-      const mx = (na.x + nb.x) * 0.5;
-      const mz = (na.z + nb.z) * 0.5;
-      if (this.speedBumps.some((b) => Math.hypot(b.x - mx, b.z - mz) < 62)) continue;
-
-      const angle = Math.atan2(nb.x - na.x, nb.z - na.z); // travel direction heading (0 = +Z)
-      const humpLength = e.width * 0.92;
-
-      const humpGeo = new THREE.CylinderGeometry(0.15, 0.15, humpLength, 10, 1, false, 0, Math.PI);
-      humpGeo.rotateZ(Math.PI / 2); // arch bulges +Y, length along X, travel depth along Z
-      humpGeo.scale(1, 1, 6.8);
-
-      const hump = new THREE.Mesh(humpGeo, bumpMat);
-      hump.position.set(mx, 0.036, mz);
-      hump.rotation.y = angle;
-      hump.receiveShadow = true;
-      hump.castShadow = true;
-      this.addProp(hump, mx, mz);
-
-      // Curbside warning signpost
-      const rx = -Math.cos(angle);
-      const rz = Math.sin(angle);
-      const sx = mx + rx * (e.width * 0.5 + 0.9);
-      const sz = mz + rz * (e.width * 0.5 + 0.9);
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.0, 6), signPoleMat);
-      pole.position.set(sx, 1.0, sz);
-      const board = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 0.05), signFaceMat);
-      board.position.set(sx, 1.85, sz);
-      board.rotation.y = angle;
-      this.addProp(pole, sx, sz);
-      this.addProp(board, sx, sz);
-
-      this.speedBumps.push({
-        id: `bump-${this.speedBumps.length + 1}`,
-        x: mx,
-        z: mz,
-        axis: Math.abs(Math.sin(angle)) > 0.7 ? 'ew' : 'ns',
-        angle,
-        halfLength: humpLength * 0.5,
-        halfWidth: 1.25,
-        label: e.name ? `${e.name} 과속방지턱` : '인계동 이면도로 과속방지턱',
-      });
-    }
-  }
-
   /** Checks if position (x, z) is currently crossing any rotated speed bump */
   public getSpeedBumpAt(x: number, z: number): SpeedBumpInfo | null {
     for (const b of this.speedBumps) {
@@ -835,274 +483,7 @@ export class CityWorld {
     return 'none';
   }
 
-  /** Builds real Suwon Ingye-dong parks (효원공원 etc.) and InstancedMesh urban street trees */
-  private buildParksAndTrees(): void {
-    const parkMat = new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 });
-    const treeCoords: Array<[number, number, number]> = [];
-
-    for (const park of ACTIVE_MAP_DATA.parks) {
-      if (park.pts.length < 3) continue;
-      const shape = new THREE.Shape();
-      shape.moveTo(park.pts[0][0], -park.pts[0][1]);
-      for (let i = 1; i < park.pts.length; i++) {
-        shape.lineTo(park.pts[i][0], -park.pts[i][1]);
-      }
-      shape.closePath();
-
-      const geo = new THREE.ShapeGeometry(shape);
-      geo.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, parkMat);
-      mesh.position.y = 0.06;
-      mesh.receiveShadow = true;
-      this.root.add(mesh);
-
-      // Scatter park trees neatly around park interior
-      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-      let cx = 0, cz = 0;
-      for (const [px, pz] of park.pts) {
-        cx += px;
-        cz += pz;
-        if (px < minX) minX = px;
-        if (px > maxX) maxX = px;
-        if (pz < minZ) minZ = pz;
-        if (pz > maxZ) maxZ = pz;
-      }
-      cx /= park.pts.length;
-      cz /= park.pts.length;
-
-      // Put trees along inset perimeter + center cluster
-      for (let i = 0; i < park.pts.length; i++) {
-        const [px, pz] = park.pts[i];
-        const tx = cx + (px - cx) * 0.72;
-        const tz = cz + (pz - cz) * 0.72;
-        if (treeCoords.length < 180) {
-          treeCoords.push([tx, tz, 0.9 + (i % 3) * 0.14]);
-        }
-      }
-      if (park.name.includes('효원공원')) {
-        // Landmark park sign for 효원공원!
-        const sign = new THREE.Mesh(
-          new THREE.BoxGeometry(6.8, 1.8, 0.3),
-          new THREE.MeshBasicMaterial({ map: this.createSignTexture('🌳 효원공원 (인계동)', '#14532d', '#dcfce7') })
-        );
-        sign.position.set(cx, 3.2, cz);
-        this.root.add(sign);
-        this.zones.push({ name: '효원공원', x: cx, z: cz, type: 'residential' });
-      }
-    }
-
-    // Real OSM Water Bodies (광교 호수공원 원천호수 등)
-    if (ACTIVE_MAP_DATA.waters && ACTIVE_MAP_DATA.waters.length > 0) {
-      const lakeMat = new THREE.MeshStandardMaterial({
-        color: 0x0284c7,
-        emissive: 0x0369a1,
-        emissiveIntensity: 0.18,
-        roughness: 0.14,
-        metalness: 0.38,
-      });
-      for (const water of ACTIVE_MAP_DATA.waters) {
-        if (water.pts.length < 3) continue;
-        const wShape = new THREE.Shape();
-        wShape.moveTo(water.pts[0][0], -water.pts[0][1]);
-        for (let i = 1; i < water.pts.length; i++) {
-          wShape.lineTo(water.pts[i][0], -water.pts[i][1]);
-        }
-        wShape.closePath();
-        const wGeo = new THREE.ShapeGeometry(wShape);
-        wGeo.rotateX(-Math.PI / 2);
-        const wMesh = new THREE.Mesh(wGeo, lakeMat);
-        wMesh.position.y = 0.068;
-        wMesh.receiveShadow = true;
-        this.root.add(wMesh);
-      }
-    }
-
-    // Perimeter greenbelt trees
-    const lim = CITY_WORLD_LIMIT;
-    for (let p = -(lim - 30); p <= lim - 30; p += 38) {
-      treeCoords.push([p, -(lim - 8), 1.15], [p, lim - 8, 1.15], [-(lim - 8), p, 1.15], [lim - 8, p, 1.15]);
-    }
-
-    if (treeCoords.length > 0) {
-      const trunkGeo = new THREE.CylinderGeometry(0.22, 0.32, 2.5, 6);
-      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4f35, roughness: 0.9 });
-      const crownGeo = new THREE.SphereGeometry(1.95, 8, 6);
-      const crownMat = new THREE.MeshStandardMaterial({ color: 0x2f7a42, roughness: 0.85 });
-
-      const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCoords.length);
-      const crowns = new THREE.InstancedMesh(crownGeo, crownMat, treeCoords.length);
-      const dummy = new THREE.Object3D();
-      treeCoords.forEach(([x, z, s], i) => {
-        dummy.position.set(x, 1.25 * s, z);
-        dummy.scale.set(s, s, s);
-        dummy.updateMatrix();
-        trunks.setMatrixAt(i, dummy.matrix);
-
-        dummy.position.set(x, 3.7 * s, z);
-        dummy.scale.set(s, s, s);
-        dummy.updateMatrix();
-        crowns.setMatrixAt(i, dummy.matrix);
-      });
-      this.root.add(trunks, crowns);
-    }
-  }
-
   /** Generates a realistic Korean night lit-window emissive texture (warm amber + cool white office/apt lights) */
-
-  private createLampPoolTexture(): THREE.CanvasTexture {
-    const c = document.createElement('canvas');
-    c.width = 128;
-    c.height = 128;
-    const ctx = c.getContext('2d')!;
-    const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
-    grad.addColorStop(0, 'rgba(255, 224, 150, 0.42)');
-    grad.addColorStop(0.45, 'rgba(251, 191, 36, 0.16)');
-    grad.addColorStop(1, 'rgba(251, 191, 36, 0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 128, 128);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-
-  /** Extrudes all 322 real OpenStreetMap Suwon Ingye-dong building polygons with Korean facades */
-  private buildSuwonOsmBuildings(): void {
-    const { shopWallMat, aptWallMat, villaWallMat, publicWallMat, roofMat } = createBuildingMaterials();
-    this.buildingNightMats.push(shopWallMat, aptWallMat, villaWallMat, publicWallMat);
-
-    for (const b of ACTIVE_MAP_DATA.buildings) {
-      if (b.pts.length < 3) continue;
-
-      const shape = new THREE.Shape();
-      shape.moveTo(b.pts[0][0], -b.pts[0][1]);
-      for (let i = 1; i < b.pts.length; i++) {
-        shape.lineTo(b.pts[i][0], -b.pts[i][1]);
-      }
-      shape.closePath();
-
-      const geo = new THREE.ExtrudeGeometry(shape, {
-        depth: b.height,
-        bevelEnabled: false,
-      });
-      // Rotate so extruded +Z becomes +Y upward, and shape -Z becomes world +Z!
-      geo.rotateX(-Math.PI / 2);
-
-      const sideMat =
-        b.kind === 'shop'
-          ? shopWallMat
-          : b.kind === 'residential'
-            ? b.height <= 16
-              ? villaWallMat
-              : aptWallMat
-            : publicWallMat;
-
-      const mesh = new THREE.Mesh(geo, [roofMat, sideMat]);
-      mesh.castShadow = b.height >= 18;
-      mesh.receiveShadow = true;
-      this.root.add(mesh);
-
-      // Exact rotated/L-shaped 2D polygon collider (with AABB broadphase!) so diagonal Suwon roads stay 100% clear!
-      this.obstacles.push({
-        minX: b.minX,
-        maxX: b.maxX,
-        minZ: b.minZ,
-        maxZ: b.maxZ,
-        pts: b.pts,
-      });
-
-      this.buildings.push({
-        x: b.cx,
-        z: b.cz,
-        w: b.w,
-        d: b.d,
-        pts: b.pts,
-        label: b.name ? b.name.slice(0, 12) : undefined,
-        kind: b.kind,
-      });
-
-      // Add high-visibility Korean rooftop/landmark billboard on famous named Suwon buildings!
-      if (
-        b.name &&
-        (b.name.includes('롯데시네마') ||
-          b.name.includes('뉴코아') ||
-          b.name.includes('CGV') ||
-          b.name.includes('Homeplus') ||
-          b.name.includes('한화꿈에그린') ||
-          b.name.includes('한라비발디') ||
-          b.name.includes('수원프라자') ||
-          b.name.includes('삼성화재') ||
-          b.name.includes('국민연금') ||
-          b.name.includes('신풍루') ||
-          b.name.includes('봉수당') ||
-          b.name.includes('수원화성박물관') ||
-          b.name.includes('아이파크미술관') ||
-          b.name.includes('팔달구청') ||
-          b.name.includes('타임빌라스') ||
-          b.name.includes('롯데백화점') ||
-          b.name.includes('AK') ||
-          b.name.includes('노보텔') ||
-          b.name.includes('수원역') ||
-          b.name.includes('갤러리아') ||
-          b.name.includes('코트야드') ||
-          b.name.includes('경기도서관') ||
-          b.name.includes('광교엘포트'))
-      ) {
-        const bgHex =
-          b.kind === 'residential' ? '#1e3a8a' : b.name.includes('CGV') ? '#b91c1c' : '#0f172a';
-        const sign = new THREE.Mesh(
-          new THREE.BoxGeometry(Math.min(12, Math.max(5.5, b.w * 0.6)), 2.2, 0.35),
-          new THREE.MeshBasicMaterial({ map: this.createSignTexture(b.name.slice(0, 14), bgHex, '#f8fafc') })
-        );
-        sign.position.set(b.cx, b.height + 1.3, b.cz);
-        this.root.add(sign);
-        this.zones.push({
-          name: b.name.slice(0, 14),
-          x: b.cx,
-          z: b.cz,
-          type: b.kind === 'residential' ? 'residential' : 'shop',
-        });
-      }
-    }
-  }
-
-  /** Builds the iconic district 3D signature landmarks (팔달문·화성행궁·통닭거리 / 수원시청역·나혜석거리·효원공원 / 수원역·로데오거리) */
-  private buildSuwonStationLandmark(): void {
-    if (!this.unified) {
-      this.landmarkBuilders.push(
-        new SuwonLandmarksBuilder({
-          root: this.root,
-          districtId: ACTIVE_DISTRICT.id,
-          mapData: ACTIVE_MAP_DATA,
-          zones: this.zones,
-          landmarks: this.landmarks,
-          createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
-        })
-      );
-      return;
-    }
-    // Unified city: every district's hand-built landmarks, authored in that district's local coordinates,
-    // placed under a group offset to the district origin (and culled when the player is far away)
-    for (const d of SUWON_OPEN_WORLD.legacyDistricts) {
-      const group = new THREE.Group();
-      group.position.set(d.origin.x, 0, d.origin.z);
-      const zones: CityZoneMarker[] = [];
-      const landmarks: LandmarkMarker[] = [];
-      this.landmarkBuilders.push(
-        new SuwonLandmarksBuilder({
-          root: group,
-          districtId: d.id as SuwonDistrictId,
-          mapData: { meta: { station: d.localStation }, buildings: d.namedBuildings },
-          zones,
-          landmarks,
-          createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
-        })
-      );
-      for (const z of zones) this.zones.push({ ...z, x: z.x + d.origin.x, z: z.z + d.origin.z });
-      for (const l of landmarks) this.landmarks.push({ ...l, x: l.x + d.origin.x, z: l.z + d.origin.z });
-      // Landmarks span the whole 820m district: keep them visible within ~5 chunks (1km) of its centre
-      this.addProp(group, d.origin.x, d.origin.z, 5);
-    }
-  }
 
   public isPlayerNearConvenienceStore(px: number, pz: number): boolean {
     return this.stations.isPlayerNearConvenienceStore(px, pz);
@@ -1127,70 +508,6 @@ export class CityWorld {
 
   public isPlayerNearRepairShop(px: number, pz: number): boolean {
     return this.stations.isPlayerNearRepairShop(px, pz);
-  }
-
-  /** Builds 8 real Suwon City Hall Station / NewCore / Ingye bus stops from OSM */
-  private buildBusStops(): void {
-    const steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.65, roughness: 0.35 });
-    const glassMat = new THREE.MeshStandardMaterial({
-      color: 0xbae6fd,
-      transparent: true,
-      opacity: 0.42,
-      roughness: 0.15,
-    });
-    const benchMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.65 });
-
-    for (const bs of ACTIVE_MAP_DATA.busStops) {
-      this.busStops.push({
-        name: bs.name,
-        x: bs.x,
-        z: bs.z,
-        shelterX: bs.shelterX,
-        shelterZ: bs.shelterZ,
-        facingHeading: bs.facingHeading,
-        edgeIndex: bs.edgeIndex,
-      });
-
-      const buildShelter = () => {
-      const g = new THREE.Group();
-      g.position.set(bs.shelterX, 0.05, bs.shelterZ);
-      g.rotation.y = bs.facingHeading;
-
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.14, 1.6), steelMat);
-      roof.position.set(0, 2.55, 0);
-      const backGlass = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.0, 0.08), glassMat);
-      backGlass.position.set(0, 1.35, -0.65);
-      const bench = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.12, 0.48), benchMat);
-      bench.position.set(0, 0.5, -0.3);
-
-      const signMat = new THREE.MeshBasicMaterial({
-        map: this.createSignTexture(`🚌 ${bs.name.slice(0, 12)}`, '#1d4ed8', '#ffffff'),
-      });
-      const signBoard = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.55, 0.12), signMat);
-      signBoard.position.set(0, 2.95, 0.65);
-      g.add(roof, backGlass, bench, signBoard);
-      const dispose = () => {
-        for (const m of [roof, backGlass, bench, signBoard]) m.geometry.dispose();
-        // geometries created by the per-material merge
-        g.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose());
-        signMat.map?.dispose();
-        signMat.dispose();
-      };
-      return { object: g, dispose };
-      };
-      if (this.culler) {
-        // 228 city-wide stops: build (and texture) each shelter only when the player gets close
-        this.culler.registerLazy(this.root, bs.shelterX, bs.shelterZ, () => {
-          const built = buildShelter();
-          mergeStaticByMaterial(built.object);
-          excludeFromMirrors(built.object);
-          freezeStatic(built.object);
-          return built;
-        });
-      } else {
-        this.root.add(buildShelter().object);
-      }
-    }
   }
 
   private initDeliveryLocations(): void {
@@ -1218,43 +535,6 @@ export class CityWorld {
         facingHeading: r.facingHeading,
       });
     }
-  }
-
-  private buildStreetLamps(): void {
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4 });
-    const poleGeo = new THREE.CylinderGeometry(0.08, 0.11, 6.2, 6);
-    const lampGeo = new THREE.BoxGeometry(0.52, 0.14, 0.26);
-
-    const lampPositions: Array<[number, number]> = [];
-    for (const n of ACTIVE_MAP_DATA.nodes) {
-      if (!n.isSignal) continue;
-      lampPositions.push([n.x + 8.0, n.z + 8.0], [n.x - 8.0, n.z - 8.0]);
-    }
-    const poolMat = new THREE.MeshBasicMaterial({
-      map: this.createLampPoolTexture(),
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const poolGeo = new THREE.PlaneGeometry(14, 14);
-    poolGeo.rotateX(-Math.PI / 2);
-
-    // All lamp poles / heads / night light pools city-wide: 3 InstancedMeshes (was 3 meshes per lamp)
-    const poles = buildInstanced(poleGeo, poleMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 3.15, lz)));
-    const heads = buildInstanced(lampGeo, this.lampGlowMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 6.25, lz)));
-    // Warm golden streetlamp light pools projected onto asphalt at night (zero PointLight cost!)
-    const pools = buildInstanced(poolGeo, poolMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 0.072, lz)));
-    poles.castShadow = true;
-    for (const m of [poles, heads]) {
-      excludeFromMirrors(m);
-      this.root.add(m);
-      freezeStatic(m);
-    }
-    excludeFromMirrors(pools);
-    this.streetLampPoolGroup.add(pools);
-    freezeStatic(pools);
-    this.streetLampPoolGroup.visible = false;
-    this.root.add(this.streetLampPoolGroup);
   }
 
   public setLobbyDoorOpen(locationId: string | null): void {

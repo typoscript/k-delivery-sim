@@ -207,3 +207,89 @@ export function buildingWallCategory(kind: 'shop' | 'residential' | 'public', he
   if (kind === 'residential') return height <= 16 ? 'villa' : 'apt';
   return 'public';
 }
+
+export function createSignTexture(title: string, bg: string, fg = '#ffffff'): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 500, 116);
+  ctx.fillStyle = fg;
+  ctx.font = 'bold 46px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(title, 256, 66);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export function createManholeTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#3b424c';
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(64, 64, 58, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = '#1f2937';
+  ctx.lineWidth = 3;
+  for (const r of [46, 30, 14]) {
+    ctx.beginPath();
+    ctx.arc(64, 64, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createSpeedBumpTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = '#facc15';
+  for (let x = -64; x < 320; x += 36) {
+    ctx.beginPath();
+    ctx.moveTo(x, 64);
+    ctx.lineTo(x + 18, 64);
+    ctx.lineTo(x + 36, 0);
+    ctx.lineTo(x + 18, 0);
+    ctx.closePath();
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 4);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createLampPoolTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(255, 224, 150, 0.42)');
+  grad.addColorStop(0.45, 'rgba(251, 191, 36, 0.16)');
+  grad.addColorStop(1, 'rgba(251, 191, 36, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
