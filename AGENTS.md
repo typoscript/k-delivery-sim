@@ -29,6 +29,8 @@
 - `src/delivery/` — 배달 상태 머신(`DeliveryManager`), 배차, 커리어 저장(`RiderCareer`, localStorage)
 - `src/ui/`, `src/audio/` — HUD·모달, 스마트폰(`PhoneMap` 조율 + `ui/phone/` 지도·화면·탭 모듈), Web Audio 프로시저럴 사운드·음성 안내
 - `tools/osm/` → `public/map/suwon/` — 수원 통합 오픈월드 맵 생성 파이프라인(OSM 다운로드·변환·200m 청크 분할), 상세는 `tools/osm/README.md`
+- `src/world/openworld/` — 오픈월드 청크 스트리밍(`ChunkStreamer`: 주변 청크 로드·해제, `ChunkMeshBuilder`: 청크별 메시 병합·충돌체, `ChunkGrid`: 청크 범위 계산), 미리보기 `openworld.html`
+- `src/world/cityTextures.ts` — 건물 외벽·도로·인도 텍스처와 건물 재질(기존 맵·오픈월드 공용)
 
 ---
 
@@ -46,3 +48,4 @@
 7. **구매 시 잔액 확인:** 정비소·차고 등 유료 구매 콜백은 결제 전에 `rejectIfInsufficientFunds(cost)`(`main.ts`)로 지갑 잔액을 확인합니다.
 8. **모달 입력 규칙:** `ModalUi.handleKeyDown`은 키 자동 반복(`e.repeat`)을 무시합니다. 구역 선택(`P`)·설정(`O`) 메뉴가 열려 있을 때는 `O`/`P`/`Esc`/`M` 외 게임 키를 막고, 모달 뒤에서 주행 중이면 `null` 대신 중립 입력으로 물리를 진행합니다.
 9. **생성 맵 데이터는 직접 수정 금지:** `public/map/`은 `npm run map:build` 출력물입니다. 변환 규칙은 `tools/osm/build-suwon-map.mjs`를 고친 뒤 다시 생성하고, 좌표 규약(`+X` = 서쪽)과 OSM 출처 표기(© OpenStreetMap contributors)를 유지합니다.
+10. **청크 리소스 관리:** 청크 단위로 만든 지오메트리는 청크 해제 시 반드시 `dispose()`하고, 재질·텍스처는 공용으로 만들어 청크마다 새로 만들지 않습니다. 청크 하나를 그리는 드로우콜은 재질별 병합으로 10개 안팎을 유지합니다.

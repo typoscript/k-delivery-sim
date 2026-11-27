@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>K-Delivery Sim — 수원 오픈월드 스트리밍 미리보기</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #93c5fd;
+        font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      #ow-panel {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        max-width: min(360px, calc(100vw - 24px));
+        background: rgba(15, 23, 42, 0.82);
+        color: #e2e8f0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      #ow-panel h1 {
+        font-size: 13px;
+        margin: 0 0 6px;
+      }
+      #ow-stats {
+        font-family: ui-monospace, Menlo, monospace;
+        white-space: pre;
+        font-size: 11px;
+      }
+      #ow-panel button {
+        margin: 4px 4px 0 0;
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid #475569;
+        border-radius: 6px;
+        padding: 3px 8px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      #ow-attrib {
+        position: fixed;
+        right: 8px;
+        bottom: 6px;
+        font-size: 11px;
+        color: #0f172a;
+        background: rgba(255, 255, 255, 0.7);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="ow-panel">
+      <h1>🗺️ 수원 오픈월드 청크 스트리밍 미리보기</h1>
+      <div>WASD 이동 · Shift 빠르게 · Q/E 높이 · 마우스 드래그 시점</div>
+      <div id="ow-buttons"></div>
+      <div id="ow-stats">loading world.json…</div>
+    </div>
+    <div id="ow-attrib">지도 데이터 © OpenStreetMap contributors</div>
+    <script type="module" src="/src/openworld/preview.ts"></script>
+  </body>
+</html>
