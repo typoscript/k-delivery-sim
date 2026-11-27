@@ -1,0 +1,54 @@
+import * as THREE from 'three';
+import { CityWorld } from '../world/CityWorld';
+import { TrafficSystem } from '../world/TrafficSystem';
+import { CorridorRoom } from '../world/CorridorRoom';
+import { RoadNavigator } from '../world/RoadNavigator';
+import { WeatherManager } from '../world/WeatherManager';
+import { PedestrianManager } from '../world/PedestrianManager';
+import { RoadHazardManager } from '../world/RoadHazardManager';
+import { ScooterPhysics } from '../vehicle/ScooterPhysics';
+import { ScooterMesh } from '../vehicle/ScooterMesh';
+import { PlayerController } from '../player/PlayerController';
+import { PlayerMesh } from '../player/PlayerMesh';
+import { HandheldPhone3D } from '../player/HandheldPhone3D';
+import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
+import { CameraController } from '../camera/CameraController';
+import { GameAudio } from '../audio/GameAudio';
+import { VoiceNavigator } from '../audio/VoiceNavigator';
+import { DeliveryManager } from '../delivery/DeliveryManager';
+import { OrderDispatchManager } from '../delivery/OrderDispatchManager';
+import { Hud } from '../ui/Hud';
+import { ModalUi } from '../ui/ModalUi';
+import { VisorRainOverlay } from '../ui/VisorRainOverlay';
+import { OnboardingAndSettings } from '../ui/OnboardingAndSettings';
+import { DistrictSelectorUi } from '../ui/DistrictSelectorUi';
+
+/** Shared game systems created once in main.ts and handed to the input handler and game loop */
+export interface GameContext {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  world: CityWorld;
+  traffic: TrafficSystem;
+  corridorRoom: CorridorRoom;
+  roadNavigator: RoadNavigator;
+  pedestrians: PedestrianManager;
+  roadHazards: RoadHazardManager;
+  weather: WeatherManager;
+  visorRain: VisorRainOverlay;
+  voiceNav: VoiceNavigator;
+  delivery: DeliveryManager;
+  dispatch: OrderDispatchManager;
+  scooterPhysics: ScooterPhysics;
+  scooterMesh: ScooterMesh;
+  playerCtrl: PlayerController;
+  playerMesh: PlayerMesh;
+  camController: CameraController;
+  audio: GameAudio;
+  hud: Hud;
+  modalUi: ModalUi;
+  districtUi: DistrictSelectorUi;
+  onboardingSettings: OnboardingAndSettings;
+  handheldPhone3D: HandheldPhone3D;
+  handheldFoodBag3D: HandheldFoodBag3D;
+}

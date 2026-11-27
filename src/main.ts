@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import './style.css';
 import { CityWorld } from './world/CityWorld';
 import { TrafficSystem } from './world/TrafficSystem';
-import { CORRIDOR_ORIGIN_Y, CorridorRoom } from './world/CorridorRoom';
+import { CorridorRoom } from './world/CorridorRoom';
 import { RoadNavigator } from './world/RoadNavigator';
 import { WeatherManager } from './world/WeatherManager';
-import { PedestrianCollisionEvent, PedestrianManager } from './world/PedestrianManager';
+import { PedestrianManager } from './world/PedestrianManager';
 import { RoadHazardManager } from './world/RoadHazardManager';
-import { ScooterInput, ScooterPhysics } from './vehicle/ScooterPhysics';
+import { ScooterPhysics } from './vehicle/ScooterPhysics';
 import { ScooterMesh } from './vehicle/ScooterMesh';
 import {
   SCOOTER_MODELS,
@@ -15,7 +15,7 @@ import {
   loadBikeGarage,
   saveBikeGarage,
 } from './vehicle/ScooterModels';
-import { OnFootInput, PlayerController } from './player/PlayerController';
+import { PlayerController } from './player/PlayerController';
 import { PlayerMesh } from './player/PlayerMesh';
 import { HandheldPhone3D } from './player/HandheldPhone3D';
 import { HandheldFoodBag3D } from './player/HandheldFoodBag3D';
@@ -23,11 +23,7 @@ import { CameraController } from './camera/CameraController';
 import { validateDeliveryPhotoFrame } from './camera/PhotoProofValidator';
 import { GameAudio } from './audio/GameAudio';
 import { VoiceNavigator } from './audio/VoiceNavigator';
-import {
-  DeliveryManager,
-  MAX_CONCURRENT_ORDERS,
-  getInstructionMeta,
-} from './delivery/DeliveryManager';
+import { DeliveryManager, MAX_CONCURRENT_ORDERS, getInstructionMeta } from './delivery/DeliveryManager';
 import { RIDER_UPGRADES, getUpgradeEffects } from './delivery/RiderCareer';
 import { OrderDispatchManager } from './delivery/OrderDispatchManager';
 import { Hud } from './ui/Hud';
@@ -36,7 +32,10 @@ import { VisorRainOverlay } from './ui/VisorRainOverlay';
 import { OnboardingAndSettings } from './ui/OnboardingAndSettings';
 import { DistrictSelectorUi } from './ui/DistrictSelectorUi';
 import { GameSettings, collidesWithWorld } from './types';
-import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from './data/suwonDistricts';
+import { ACTIVE_DISTRICT } from './data/suwonDistricts';
+import { GameContext } from './game/GameContext';
+import { installKeyboardInput } from './game/keyboardInput';
+import { startGameLoop } from './game/gameLoop';
 
 const app = document.getElementById('app')!;
 
@@ -1112,217 +1111,40 @@ scooterPhysics.setOnSpeedBump((speedKmh, label) => {
   }
 });
 
-// Input state
-const pressed = new Set<string>();
+const gameCtx: GameContext = {
+  renderer,
+  scene,
+  camera,
+  world,
+  traffic,
+  corridorRoom,
+  roadNavigator,
+  pedestrians,
+  roadHazards,
+  weather,
+  visorRain,
+  voiceNav,
+  delivery,
+  dispatch,
+  scooterPhysics,
+  scooterMesh,
+  playerCtrl,
+  playerMesh,
+  camController,
+  audio,
+  hud,
+  modalUi,
+  districtUi,
+  onboardingSettings,
+  handheldPhone3D,
+  handheldFoodBag3D,
+};
 
-window.addEventListener('pointerdown', () => audio.ensureStarted(), { once: true });
-
-window.addEventListener('keydown', (e) => {
-  audio.ensureStarted();
-
-  // Let active modal (POS / PIN / Cargo / Camera shutter / Settlement / Transition) handle keys first!
-  if (modalUi.handleKeyDown(e)) {
-    return;
-  }
-
-  const code = e.code;
-  if (
-    code === 'Space' ||
-    code === 'Tab' ||
-    code === 'ArrowUp' ||
-    code === 'ArrowDown' ||
-    code === 'ArrowLeft' ||
-    code === 'ArrowRight' ||
-    code === 'F1'
-  ) {
-    e.preventDefault();
-  }
-
-  const firstPress = !pressed.has(code);
-  pressed.add(code);
-  if (!firstPress) return;
-
-  // District (P) / Settings (O) menus are modal: only their own toggles, Escape and mute pass through
-  if (
-    (districtUi.isOpen || onboardingSettings.isSettingsOpen) &&
-    code !== 'KeyO' &&
-    code !== 'KeyP' &&
-    code !== 'Escape' &&
-    code !== 'KeyM'
-  ) {
-    return;
-  }
-
-  switch (code) {
-    case 'KeyF': {
-      const res = playerCtrl.tryToggleMount(
-        scooterPhysics.state,
-        (mounted) => scooterPhysics.setMounted(mounted),
-        world.obstacles,
-        delivery.isCarryingFood()
-      );
-      if (res.changed) {
-        const nowRiding = playerCtrl.state.mode === 'riding';
-        if (nowRiding) {
-          if (hud.phoneMap.placement === 'in_hand') {
-            hud.stowPhoneToPocket();
-          }
-          hud.phoneMap.setZoomed(false);
-        } else {
-          // Physical phone possession: if mounted on scooter, it stays on the scooter when dismounting!
-          hud.phoneMap.setZoomed(false);
-        }
-        audio.playMountSound(nowRiding);
-        camController.syncYawOnModeChange(playerCtrl.state, scooterPhysics.state);
-
-        if (!nowRiding && hud.phoneMap.placement === 'mounted') {
-          hud.showToast(
-            '하차 완료 (📱 휴대폰이 오토바이 거치대에 남아있습니다 — [Tab]으로 챙기세요)',
-            3400
-          );
-          break;
-        }
-      }
-      hud.showToast(res.message);
-      break;
-    }
-    case 'KeyE': {
-      if (playerCtrl.state.mode === 'on_foot') {
-        handleContextInteract();
-      } else if (playerCtrl.state.mode === 'riding') {
-        const on = scooterPhysics.toggleRightBlinker();
-        hud.showToast(on ? '▶ 우측 깜빡이 ON (회전 후 자동 해제)' : '우측 깜빡이 OFF', 1600);
-      }
-      break;
-    }
-    case 'KeyQ': {
-      if (playerCtrl.state.mode === 'riding') {
-        const on = scooterPhysics.toggleLeftBlinker();
-        hud.showToast(on ? '◀ 좌측 깜빡이 ON (회전 후 자동 해제)' : '좌측 깜빡이 OFF', 1600);
-      }
-      break;
-    }
-    case 'KeyX': {
-      if (playerCtrl.state.mode === 'riding') {
-        const on = scooterPhysics.toggleHazard();
-        hud.showToast(on ? '⚠ 비상등 ON' : '비상등 OFF', 1600);
-      }
-      break;
-    }
-    case 'KeyL': {
-      scooterPhysics.state.headlights = !scooterPhysics.state.headlights;
-      hud.showToast(scooterPhysics.state.headlights ? '헤드라이트 ON' : '헤드라이트 OFF');
-      break;
-    }
-    case 'KeyN': {
-      const night = world.toggleDayNight();
-      delivery.setNightMode(night);
-      if (night && !scooterPhysics.state.headlights) {
-        scooterPhysics.state.headlights = true;
-      }
-      hud.showToast(
-        night
-          ? '🌙 야간 모드 ON! (헤드라이트 3D 빔 자동 점등 · 신규 콜 심야 할증 +₩1,200!)'
-          : '☀️ 주간 모드 ON',
-        3600
-      );
-      break;
-    }
-    case 'KeyU': {
-      handleCycleWeather();
-      break;
-    }
-    case 'KeyG': {
-      if (!playerCtrl.state.inCorridor && modalUi.activeModal === 'none') {
-        if (visorRain.triggerWipe()) {
-          audio.playVisorWipeSound();
-          hud.showToast('🧤 헬멧 바이저 빗물을 닦아냈습니다!', 1800);
-        }
-      }
-      break;
-    }
-    case 'KeyO': {
-      if (modalUi.activeModal === 'none') {
-        districtUi.close();
-        onboardingSettings.toggleSettingsModal();
-      }
-      break;
-    }
-    case 'KeyP': {
-      if (modalUi.activeModal === 'none') {
-        onboardingSettings.closeSettingsModal();
-        districtUi.toggle();
-      }
-      break;
-    }
-    case 'KeyM': {
-      const muted = audio.toggleMute();
-      voiceNav.setMuted(muted);
-      hud.showToast(muted ? '사운드 음소거' : '사운드 켜짐');
-      break;
-    }
-    case 'KeyH': {
-      if (playerCtrl.state.mode === 'riding') {
-        audio.setHorn(true);
-      }
-      break;
-    }
-    case 'KeyR': {
-      camController.resetLook();
-      break;
-    }
-    case 'Backspace': {
-      if (playerCtrl.state.inCorridor) {
-        const sp = corridorRoom.getRescuePoint();
-        playerCtrl.teleportTo(sp.x, sp.y, sp.z, sp.heading, true);
-        camController.onFootYaw = sp.heading;
-      } else {
-        scooterPhysics.reset();
-        playerCtrl.reset();
-        camController.onFootYaw = ACTIVE_MAP_DATA.meta.playerSpawn.heading;
-      }
-      hud.stowPhoneToPocket();
-      scooterMesh.setPhoneMounted(false);
-      camController.resetLook();
-      delivery.invalidateNavCache();
-      hud.showToast('위치 초기화 완료');
-      break;
-    }
-    case 'Tab': {
-      handleTogglePhone();
-      break;
-    }
-    case 'KeyV': {
-      handleTogglePhoneZoom();
-      break;
-    }
-    case 'Escape': {
-      if (districtUi.isOpen) {
-        districtUi.close();
-      } else if (onboardingSettings.isSettingsOpen) {
-        onboardingSettings.closeSettingsModal();
-      } else if (hud.phoneMap.isZoomed) {
-        handleTogglePhoneZoom();
-      }
-      break;
-    }
-    case 'F1': {
-      hud.toggleHelp();
-      break;
-    }
-  }
-});
-
-window.addEventListener('keyup', (e) => {
-  pressed.delete(e.code);
-  if (e.code === 'KeyH') {
-    audio.setHorn(false);
-  }
-});
-
-window.addEventListener('blur', () => {
-  pressed.clear();
-  audio.setHorn(false);
+const pressed = installKeyboardInput(gameCtx, {
+  handleContextInteract,
+  handleCycleWeather,
+  handleTogglePhone,
+  handleTogglePhoneZoom,
 });
 
 window.addEventListener('resize', () => {
@@ -1336,418 +1158,9 @@ hud.showToast(
   5200
 );
 
-const NEUTRAL_SCOOTER_INPUT: ScooterInput = {
-  throttle: false,
-  brake: false,
-  steerLeft: false,
-  steerRight: false,
-  handbrake: false,
-};
-
-let lastTime = performance.now();
-let elapsed = 0;
-
-function animate(now: number): void {
-  requestAnimationFrame(animate);
-
-  const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
-  lastTime = now;
-  elapsed += dt;
-
-  const inCorridor = playerCtrl.state.inCorridor;
-  const isRiding = playerCtrl.state.mode === 'riding';
-  const movementBlocked =
-    modalUi.isBlockingMovement() || onboardingSettings.isSettingsOpen || districtUi.isOpen;
-
-  if (!inCorridor) {
-    world.updateLobbyDoors(dt);
-    traffic.step(
-      dt,
-      elapsed,
-      world.isNight,
-      playerCtrl.state.x,
-      playerCtrl.state.z,
-      scooterPhysics.state.speed,
-      isRiding,
-      () => {
-        const fine = delivery.applyFine(1000);
-        hud.showToast(
-          fine > 0
-            ? `🚨 신호 위반! 빨간불 교차로 통과 (-₩${fine.toLocaleString()})`
-            : '🚨 신호 위반! 교차로 빨간불에 정지하세요!',
-          3200
-        );
-      },
-      (carX, carZ) => {
-        const relX = carX - scooterPhysics.state.x;
-        const relZ = carZ - scooterPhysics.state.z;
-        const leftX = Math.cos(scooterPhysics.state.heading);
-        const leftZ = -Math.sin(scooterPhysics.state.heading);
-        const hitSide = relX * leftX + relZ * leftZ >= 0 ? 1 : -1;
-        scooterPhysics.triggerExternalCrash(hitSide);
-      },
-      () => {
-        audio.playAiCarHorn();
-        hud.showToast('📢 빵빵! 차량 차선 끼어들기 주의!', 1800);
-      }
-    );
-    const handlePedestrianHit = (hitEvent: PedestrianCollisionEvent) => {
-      // 1. Immediate scooter slip crash (triggers heavy food damage '-55%' + rider ejection!)
-      scooterPhysics.triggerExternalCrash(hitEvent.hitSide, 'pedestrian_hit');
-      // 2. Immediate -₩50,000 fine/settlement & -1.0 Rider Trust Rating deduction
-      const penalty = delivery.applyPedestrianAccidentPenalty();
-      // 3. Emergency audio + prominent top banner ("보행자 접촉 사고 발생!")
-      audio.playPedestrianAccidentAlert();
-      hud.showAccidentBanner(penalty.fine, penalty.ratingLoss, penalty.newRating);
-    };
-
-    const scooterProx = {
-      x: scooterPhysics.state.x,
-      z: scooterPhysics.state.z,
-      heading: scooterPhysics.state.heading,
-      speedMps: scooterPhysics.state.speed,
-      isRiding,
-      crashed: scooterPhysics.state.crashed,
-    };
-
-    pedestrians.update(
-      dt,
-      traffic.signalState,
-      playerCtrl.state.x,
-      playerCtrl.state.z,
-      scooterPhysics.state.x,
-      scooterPhysics.state.z,
-      inCorridor,
-      scooterProx,
-      handlePedestrianHit,
-      () => {
-        audio.playPedestrianStartle();
-      }
-    );
-
-    roadHazards.step(
-      dt,
-      elapsed,
-      inCorridor,
-      scooterProx,
-      traffic.signalState,
-      (camEv) => {
-        delivery.applyFine(camEv.fine);
-        audio.playSpeedCameraFlash();
-        hud.triggerSpeedCameraFlash();
-        hud.showFineTicketPopup(camEv);
-        const reason =
-          camEv.kind === 'speeding'
-            ? `📸 무인 과속 단속! (${camEv.measuredKmh}km/h / 제한 ${camEv.limitKmh}km/h · ${camEv.label})`
-            : `📸 무인 신호위반 단속 카메라 적발! (${camEv.label})`;
-        hud.showToast(`${reason} 과태료 -₩${camEv.fine.toLocaleString()}`, 4400);
-      },
-      (popEv) => {
-        audio.playPedestrianStartle();
-        hud.showToast(`⚠️ 사각지대 돌발 주의! ${popEv.hazardName} 뒤에서 보행자 갑툭튀!`, 3200);
-      },
-      handlePedestrianHit,
-      (overSpeed) => {
-        audio.playCameraApproachBeep(overSpeed);
-      },
-      (patrolEv) => {
-        delivery.applyFine(patrolEv.fine);
-        audio.playPoliceSiren();
-        hud.triggerSpeedCameraFlash();
-        hud.showFineTicketPopup(patrolEv);
-        hud.showToast(
-          `🚓 ${patrolEv.label} 현장 단속! (${patrolEv.measuredKmh}km/h 과속) 과태료 -₩${patrolEv.fine.toLocaleString()}`,
-          4600
-        );
-      }
-    );
-    world.mapInfo.upcomingCamera = roadHazards.upcomingCamera;
-  } else {
-    world.mapInfo.upcomingCamera = null;
-    corridorRoom.updateVisual(elapsed, dt, playerCtrl.state.z, {
-      onFloorTick: () => {
-        audio.playElevatorFloorTick();
-      },
-      onDoorSlide: () => {
-        audio.playElevatorDoorSlide();
-      },
-      onArrivedTargetFloor: (floor) => {
-        audio.setElevatorHum(false);
-        audio.playElevatorDing();
-        voiceNav.speak(`${floor}층입니다. 문이 열립니다.`);
-        const cm = delivery.getCorridorMission();
-        const inst = cm ? getInstructionMeta(cm.order.deliveryInstruction) : null;
-        const unit = cm?.order.unitNumber ?? `${floor}층`;
-        hud.showToast(
-          `🔔 띵동! ${floor}층 도착! 엘리베이터에서 내려 ${unit}로 이동하세요${inst ? ` (${inst.badge})` : ''}`,
-          4600
-        );
-      },
-      onArrivedGroundFloor: () => {
-        audio.setElevatorHum(false);
-        audio.playElevatorDing();
-        voiceNav.speak('1층 로비에 도착했습니다.');
-        exitCorridorToStreet();
-      },
-    });
-  }
-
-  const allObstacles = inCorridor
-    ? []
-    : [...world.obstacles, ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
-
-  const activeBump = inCorridor ? null : world.getSpeedBumpAt(scooterPhysics.state.x, scooterPhysics.state.z);
-  const roadCondition = inCorridor
-    ? { isRaining: false, surface: 'none' as const, onSpeedBump: false }
-    : {
-        isRaining: weather.isRaining,
-        surface: world.getSlipSurfaceAt(scooterPhysics.state.x, scooterPhysics.state.z),
-        onSpeedBump: activeBump !== null,
-        speedBumpLabel: activeBump?.label,
-      };
-
-  if (isRiding && !movementBlocked) {
-    const scooterInput: ScooterInput = {
-      throttle: pressed.has('KeyW') || pressed.has('ArrowUp'),
-      brake: pressed.has('KeyS') || pressed.has('ArrowDown'),
-      steerLeft: pressed.has('KeyA') || pressed.has('ArrowLeft'),
-      steerRight: pressed.has('KeyD') || pressed.has('ArrowRight'),
-      handbrake: pressed.has('Space'),
-    };
-    scooterPhysics.step(dt, scooterInput, allObstacles, roadCondition);
-    playerCtrl.step(
-      dt,
-      { forward: 0, strafe: 0, sprint: false, jump: false },
-      camController.onFootYaw,
-      scooterPhysics.state,
-      allObstacles
-    );
-  } else {
-    if (!inCorridor) {
-      // Rider still mounted behind a modal -> coast with neutral controls instead of the parked/kickstand branch
-      scooterPhysics.step(dt, isRiding ? NEUTRAL_SCOOTER_INPUT : null, allObstacles, roadCondition);
-    }
-
-    if (playerCtrl.state.mode === 'on_foot' && !movementBlocked) {
-      const turnDir =
-        (pressed.has('ArrowLeft') ? 1 : 0) - (pressed.has('ArrowRight') ? 1 : 0);
-      if (turnDir !== 0) {
-        camController.rotateOnFootYaw(turnDir * 2.1 * dt);
-      }
-    }
-
-    const footInput: OnFootInput = movementBlocked
-      ? { forward: 0, strafe: 0, sprint: false, jump: false }
-      : {
-          forward:
-            (pressed.has('KeyW') || pressed.has('ArrowUp') ? 1 : 0) -
-            (pressed.has('KeyS') || pressed.has('ArrowDown') ? 1 : 0),
-          strafe: (pressed.has('KeyA') ? 1 : 0) - (pressed.has('KeyD') ? 1 : 0),
-          sprint: pressed.has('ShiftLeft') || pressed.has('ShiftRight'),
-          jump: pressed.has('Space') && modalUi.activeModal !== 'camera',
-        };
-    playerCtrl.step(
-      dt,
-      footInput,
-      camController.onFootYaw,
-      scooterPhysics.state,
-      allObstacles,
-      (x, z) => corridorRoom.clampPlayerInside(x, z),
-      (x, z) => corridorRoom.getFloorYAt(x, z),
-      () => audio.playStairFootstep()
-    );
-  }
-
-  // Step active mission delivery countdowns, peak-time cooking timers, cargo physics & live customer chat!
-  delivery.stepTimers(dt, (readyMission) => {
-    audio.playFoodReadyDingDong();
-    voiceNav.speak(`${readyMission.order.shop.name} 음식이 준비되었습니다. 픽업대에서 수령하세요.`);
-    hud.showToast(
-      `🔔 ${readyMission.order.shop.emoji} ${readyMission.order.shop.name} [#${readyMission.order.orderNumber}]: "음식이 준비되었습니다!" 픽업대 트레이에서 [E]로 수령하세요`,
-      4600
-    );
-  });
-  delivery.stepCargoPhysics(dt, scooterPhysics.state, isRiding, (ordNo, menuName) => {
-    audio.playLiquidSlosh();
-    hud.showToast(
-      `🍲 [#${ordNo}] ${menuName} 국물/음료 출렁임! 급코너·급브레이크 시 음식 상태가 감소합니다`,
-      2600
-    );
-  });
-  delivery.stepCustomerChatEvents(dt, inCorridor, isRiding, (chatEv) => {
-    audio.playCustomerChatPing();
-    voiceNav.speak('고객님께 새 메시지가 도착했습니다.');
-    hud.showCustomerChatPopup(chatEv);
-  });
-  dispatch.step(dt, delivery, inCorridor, movementBlocked);
-
-  // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
-  const navPlan = delivery.getNavigationPlan(
-    playerCtrl.state.x,
-    playerCtrl.state.z,
-    playerCtrl.state.heading,
-    scooterPhysics.state.x,
-    scooterPhysics.state.z,
-    inCorridor,
-    elapsed,
-    roadNavigator
-  );
-
-  // Outdoor Entrance Ground Marker + Shop Pickup Trays + 3-Slot Scooter Visuals
-  // (Navigation path is shown ONLY on the smartphone GPS screen, never on the 3D road!)
-  if (!inCorridor) {
-    world.updateBeacon(navPlan.target, navPlan.isPickupTarget, elapsed);
-
-    const cookingShopIds = new Set<string>();
-    const readyShopIds = new Set<string>();
-    for (const m of delivery.activeMissions) {
-      if (m.phase === 'cooking_wait') cookingShopIds.add(m.order.shop.id);
-      else if (m.phase === 'pickup_ready') readyShopIds.add(m.order.shop.id);
-    }
-    world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
-
-    scooterMesh.sync(scooterPhysics.state, elapsed, dt, world.isNight, weather.rainIntensity);
-    scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());
-    scooterMesh.setPhoneMounted(
-      hud.phoneMap.placement === 'mounted' &&
-        !hud.phoneMap.isZoomed &&
-        !handheldPhone3D.isHoldingPhoneDuringMountAnim()
-    );
-  }
-
-  // 1st-person 3D Right Hand Smartphone & 3D Left Hand Food Bag!
-  handheldPhone3D.update(
-    hud.phoneMap.placement === 'in_hand' &&
-      !hud.phoneMap.isZoomed &&
-      modalUi.activeModal === 'none',
-    playerCtrl.state,
-    dt,
-    elapsed
-  );
-  const showHandBag =
-    (delivery.isCarryingFood() ||
-      (delivery.getCorridorMission()?.phase === 'meet_waiting' && !npcTookFoodBag)) &&
-    !isRiding &&
-    modalUi.activeModal !== 'transition';
-  handheldFoodBag3D.update(showHandBag, playerCtrl.state, dt, elapsed);
-
-  playerMesh.sync(
-    playerCtrl.state,
-    scooterMesh.riderMountPoint,
-    scooterPhysics.state.steerAngle,
-    true
-  );
-
-  camController.update(camera, playerCtrl.state, scooterPhysics.state, scooterMesh, dt);
-
-  // Live viewfinder framing validation (Bounding Box + vector.project(camera)) when in PHOTO_DOOR camera mode!
-  if (inCorridor && modalUi.activeModal === 'camera') {
-    const { foodBagMesh, doorPlateMesh } = corridorRoom.getProofTargets();
-    const proofStatus = validateDeliveryPhotoFrame(camera, foodBagMesh, doorPlateMesh);
-    modalUi.updateCameraProofStatus(proofStatus);
-  }
-
-  // Weather local rain particles (InstancedMesh), 1st-person helmet visor droplets, wet asphalt & audio!
-  weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
-  visorRain.update(dt, weather.rainIntensity, inCorridor, scooterPhysics.state.speed, isRiding);
-  if (!inCorridor) {
-    world.updateWeatherVisuals(weather.rainIntensity, elapsed);
-  }
-  audio.updateWeatherAudio(weather.rainIntensity, inCorridor);
-  audio.update(scooterPhysics.state, elapsed);
-
-  // Korean Web Speech API Voice Navigation (Turn-by-Turn + 80m Speed Camera Enforcement Alert)
-  const navFocusKey = navPlan.focusMission
-    ? `${navPlan.focusMission.order.id}:${navPlan.isPickupTarget ? 'p' : 'd'}`
-    : null;
-  voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
-  voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
-
-  // Step smartphone battery drain & handlebar-mount wireless charging (2x faster with fast_charger upgrade!)
-  const chargeSpeedMul = getUpgradeEffects(delivery.career.upgrades).chargeSpeedMul;
-  hud.phoneMap.stepBattery(
-    dt,
-    scooterPhysics.state.engineOn,
-    () => {
-      audio.playWirelessChargeStart();
-      hud.showToast(
-        chargeSpeedMul > 1.5
-          ? '⚡ 고속 무선충전 거치대 작동! (2배 속도로 초고속 충전 중)'
-          : '⚡ 오토바이 거치대 무선충전 시작! (주행 중 배터리 자동 충전)',
-        2600
-      );
-    },
-    () => {
-      audio.playLowBatteryBeep();
-      voiceNav.speak('휴대폰 배터리가 부족합니다. 거치대에 장착해 충전하세요.');
-      hud.showToast(
-        '🪫 휴대폰 배터리 15% 이하! 오토바이 거치대 [Tab] 무선충전 또는 🏪 편의점 충전 필요',
-        4200
-      );
-    },
-    () => {
-      audio.playLowBatteryBeep();
-      hud.showToast(
-        '🪫 휴대폰 배터리 방전! 오토바이 거치대 [Tab] 시동 무선충전 또는 🏪 K-24 편의점에서 충전하세요',
-        4600
-      );
-    },
-    chargeSpeedMul
-  );
-
-  // Update 1-Minute First-Shift Interactive Onboarding Guide progress
-  onboardingSettings.updateOnboarding(playerCtrl.state, delivery);
-
-  hud.update(
-    playerCtrl.state,
-    scooterPhysics.state,
-    delivery,
-    dispatch.activeOffer,
-    navPlan,
-    traffic.signalState,
-    world.isNight,
-    weather.mode,
-    audio.muted,
-    elapsed,
-    world.mapInfo,
-    {
-      nearCargoBox: isPlayerNearCargoBox(),
-      nearGasPump: !inCorridor && world.isPlayerNearGasPump(playerCtrl.state.x, playerCtrl.state.z),
-      scooterOnGasPad:
-        !inCorridor && world.isScooterOnGasPad(scooterPhysics.state.x, scooterPhysics.state.z),
-      nearRepairShop:
-        !inCorridor && world.isPlayerNearRepairShop(playerCtrl.state.x, playerCtrl.state.z),
-      scooterOnRepairPad:
-        !inCorridor && world.isScooterOnRepairPad(scooterPhysics.state.x, scooterPhysics.state.z),
-      nearConvenienceStore:
-        !inCorridor && world.isPlayerNearConvenienceStore(playerCtrl.state.x, playerCtrl.state.z),
-      nearCorridorTargetDoor:
-        inCorridor && corridorRoom.isNearTargetDoor(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
-      nearCorridorElevator:
-        inCorridor && corridorRoom.isNearElevator(playerCtrl.state.x, playerCtrl.state.z, playerCtrl.state.y),
-      insideElevatorCabin:
-        inCorridor && corridorRoom.isInsideElevatorCabin(playerCtrl.state.x, playerCtrl.state.z),
-      elevatorPhase: corridorRoom.elevatorPhase,
-      elevatorCurrentFloor: corridorRoom.elevatorCurrentFloor,
-      elevatorTargetFloor: corridorRoom.elevatorTargetFloor,
-      elevatorDoorsOpen: corridorRoom.isElevatorDoorsOpen(),
-      isVillaCorridor: inCorridor && corridorRoom.isVillaMode,
-      villaCurrentFloor:
-        inCorridor && corridorRoom.isVillaMode
-          ? corridorRoom.getCurrentVillaFloor(playerCtrl.state.y)
-          : 1,
-      visorWetHint: !inCorridor && weather.isRaining && visorRain.dropletDensity >= 0.35,
-      modalOpen: modalUi.activeModal !== 'none' || onboardingSettings.isSettingsOpen || districtUi.isOpen,
-    }
-  );
-
-  // Only render scooter mirrors when outdoors & riding
-  if (!inCorridor && isRiding) {
-    scooterMesh.renderMirrors(renderer, scene, scooterPhysics.state);
-  }
-
-  void CORRIDOR_ORIGIN_Y;
-  renderer.render(scene, camera);
-}
-
-requestAnimationFrame(animate);
+startGameLoop(gameCtx, {
+  pressed,
+  exitCorridorToStreet,
+  isPlayerNearCargoBox,
+  isNpcHoldingFoodBag: () => npcTookFoodBag,
+});

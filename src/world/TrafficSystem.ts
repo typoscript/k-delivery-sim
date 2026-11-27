@@ -536,7 +536,8 @@ export class TrafficSystem {
     isRiding: boolean,
     onRedLightViolation: () => void,
     onVehicleCollision: (carX: number, carZ: number) => void,
-    onAiCarHorn?: () => void
+    onAiCarHorn?: () => void,
+    pedestrians?: ReadonlyArray<{ x: number; z: number; fsm: string }>
   ): void {
     const clampedDt = Math.min(dt, 0.05);
 
@@ -739,6 +740,22 @@ export class TrafficSystem {
           }
         } else {
           v.playerCutInActive = false;
+        }
+
+        // Yield to pedestrians on the crosswalk (or lying fallen in the road) inside our lane ahead
+        if (pedestrians) {
+          for (const pd of pedestrians) {
+            if (pd.fsm !== 'CROSSING' && pd.fsm !== 'FALLEN') continue;
+            const px = pd.x - v.x;
+            const pz = pd.z - v.z;
+            if (px * px + pz * pz > 400) continue;
+            const along = px * fx + pz * fz;
+            const side = px * -fz + pz * fx;
+            if (along > 0 && Math.abs(side) < v.halfWidth + 0.9) {
+              const pedGap = along - v.halfLength - 0.6;
+              if (pedGap < minGap) minGap = pedGap;
+            }
+          }
         }
 
         // Cross-traffic deadlock breaker: two cars nosed into each other at an unsignalized junction.

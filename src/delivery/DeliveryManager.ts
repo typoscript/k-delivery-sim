@@ -1001,16 +1001,16 @@ export class DeliveryManager {
     const prevTier = this.getCurrentTier();
     const tierBonus = prevTier.bonusPerDelivery;
     const extraBonuses = tempBonus + villaStairBonus + promisedTipBonus;
+    // Payout is the exact sum of the itemized (already rounded) ledger parts, so the daily ledger's
+    // net profit always matches the real wallet change (no independent ±₩100 rounding drift).
+    const damageDed = Math.max(0, Math.round((m.order.baseFee * (1 - integrityFactor)) / 100) * 100);
     const earned =
-      Math.round(
-        (m.order.baseFee * integrityFactor + tip + rainBonus + nightBonus + tierBonus + extraBonuses) / 100
-      ) * 100;
+      m.order.baseFee - damageDed + tip + rainBonus + nightBonus + tierBonus + extraBonuses;
 
     // Record itemized income breakdown into daily ledger (respects SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee)
     const flatRef = m.order.baseFlatFee || BASE_FLAT_FEE;
     const basePart = Math.min(m.order.baseFee, flatRef);
     const distPart = Math.max(0, m.order.baseFee - basePart);
-    const damageDed = Math.max(0, Math.round((m.order.baseFee * (1 - integrityFactor)) / 100) * 100);
     this.baseFeeTotal += basePart;
     this.distanceBonusTotal += distPart;
     this.rainBonusTotal += rainBonus;

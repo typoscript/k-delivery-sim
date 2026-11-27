@@ -52,6 +52,8 @@ export interface PedestrianAgent {
   evadeDirX: number;
   evadeDirZ: number;
   hitCooldown: number;
+  /** Seconds spent politely waiting for a player / parked scooter blocking the sidewalk ahead */
+  yieldTimer: number;
 }
 
 const SIDEWALK_Y = 0.16;
@@ -70,6 +72,8 @@ const COLLISION_DIST = PEDESTRIAN_SPHERE_RADIUS + SCOOTER_SPHERE_RADIUS; // 1.14
 const FALL_RECOVERY_SEC = 6.0;
 const STARTLE_HOLD_SEC = 1.15;
 const EVADE_STEP_DIST = 0.62;
+const SIDEWALK_YIELD_SEC = 1.6; // wait this long for a blocker ahead, then walk around it
+const DETOUR_SPEED = 1.1; // m/s sideways drift while walking around a blocker
 
 /**
  * Evaluates pedestrian crosswalk signal synchronized with TrafficSystem's 3-color cycle.
@@ -152,6 +156,7 @@ export class PedestrianManager {
         evadeDirX: 0,
         evadeDirZ: 0,
         hitCooldown: 0,
+        yieldTimer: 0,
       });
     }
 
@@ -305,7 +310,8 @@ export class PedestrianManager {
         a.currentSpeed = 0;
         a.reactionTimer -= clampedDt;
         if (a.reactionTimer <= 0) {
-          a.fsm = a.resumeFsm === 'CROSSING' ? 'WALKING' : a.resumeFsm;
+          // Knocked down mid-crosswalk -> keep CROSSING so the signal-aware sprint logic finishes the crossing
+          a.fsm = a.resumeFsm;
         }
         if (isVisible) {
           a.rig.root.position.set(a.x, a.y, a.z);
@@ -418,12 +424,45 @@ export class PedestrianManager {
           this.advanceToNextEdge(a, signal);
         }
       } else {
-        // WALKING along sidewalk centerlines
-        // Politely pause if on-foot player or parked scooter is right in front
-        if (isVisible) {
-          if (distPlayerSq < 1.9 * 1.9 || distScooter < 2.2) {
-            desiredSpeed = 0;
+        // WALKING along sidewalk centerlines.
+        // Politely pause if the on-foot player or a parked scooter is right IN FRONT (never for ones behind),
+        // then walk around it after a short wait instead of freezing forever.
+        let detour = 0;
+        if (isVisible && distToTarget > 0.05) {
+          const ux = dx / distToTarget;
+          const uz = dz / distToTarget;
+          const blockers: Array<[number, number, number]> = [
+            [playerX, playerZ, 1.9],
+            [scooter.x, scooter.z, 2.2],
+          ];
+          for (const [bx, bz, radius] of blockers) {
+            const rx = bx - a.x;
+            const rz = bz - a.z;
+            const ahead = rx * ux + rz * uz;
+            const lateral = rx * -uz + rz * ux;
+            if (ahead > 0 && ahead < radius && Math.abs(lateral) < 1.0) {
+              // (-uz, ux) = forward x up = RIGHT; lateral > 0 -> blocker on the right -> detour to the left
+              detour = lateral >= 0 ? 1 : -1;
+              break;
+            }
           }
+        }
+        if (detour !== 0) {
+          a.yieldTimer += clampedDt;
+          if (a.yieldTimer < SIDEWALK_YIELD_SEC) {
+            desiredSpeed = 0;
+          } else {
+            // Walk around: drift sideways (perpendicular to the path) while continuing forward slowly
+            desiredSpeed = a.walkSpeed * 0.6;
+            const ux = dx / distToTarget;
+            const uz = dz / distToTarget;
+            const sideX = uz * detour;
+            const sideZ = -ux * detour;
+            a.x += sideX * DETOUR_SPEED * clampedDt;
+            a.z += sideZ * DETOUR_SPEED * clampedDt;
+          }
+        } else {
+          a.yieldTimer = 0;
         }
 
         if (distToTarget < 0.45) {

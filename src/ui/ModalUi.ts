@@ -833,13 +833,16 @@ export class ModalUi {
         : '';
 
     const spillNote = result.spillDamageAccum > 0 ? ` · 국물/방지턱 -${result.spillDamageAccum}%` : '';
+    // Same rounding as DeliveryManager's payout so the popup matches the wallet; hidden when nothing was deducted
+    const damageDed = Math.max(0, Math.round((result.baseFee * (1 - result.foodIntegrity / 100)) / 100) * 100);
+    const damageRow =
+      damageDed > 0
+        ? `<div class="st-row warn"><span>음식 파손 배상 차감</span><span>-₩${damageDed.toLocaleString()}</span></div>`
+        : '';
     const tipRow =
       result.tipPenalty === 0
-        ? `<div class="st-row tip"><span>안전 배달 팁 (음식 상태 ${result.foodIntegrity}%)</span><span>+₩${result.tip.toLocaleString()}</span></div>`
-        : `<div class="st-row warn"><span>파손 배달팁 감액 (상태 ${result.foodIntegrity}%${spillNote})</span><span>팁 ₩${result.tip.toLocaleString()} (-₩${result.tipPenalty.toLocaleString()})</span></div>
-           <div class="st-row warn"><span>음식 파손 배상 차감</span><span>${Math.round(
-             (result.foodIntegrity / 100 - 1) * result.baseFee
-           ).toLocaleString()}원</span></div>`;
+        ? `<div class="st-row tip"><span>안전 배달 팁 (음식 상태 ${result.foodIntegrity}%)</span><span>+₩${result.tip.toLocaleString()}</span></div>${damageRow}`
+        : `<div class="st-row warn"><span>파손 배달팁 감액 (상태 ${result.foodIntegrity}%${spillNote})</span><span>팁 ₩${result.tip.toLocaleString()} (-₩${result.tipPenalty.toLocaleString()})</span></div>${damageRow}`;
 
     const starsFilled = '★'.repeat(result.review.stars) + '☆'.repeat(5 - result.review.stars);
     const reviewTagsHtml = result.review.tags
