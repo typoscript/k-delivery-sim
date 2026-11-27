@@ -85,7 +85,6 @@ const roadNavigator = new RoadNavigator();
 const pedestrians = new PedestrianManager(world.root); // Independent 25-block crosswalk AI (paused indoors!)
 const roadHazards = new RoadHazardManager(world.root); // Speed cameras, police patrols, construction zones, rival riders & pop-outs!
 world.mapInfo.speedCameras = roadHazards.cameraMarkers;
-world.mapInfo.policePatrols = roadHazards.patrolMarkers;
 world.mapInfo.constructionZones = roadHazards.constructionMarkers;
 roadNavigator.setRoadworks(roadHazards.constructionMarkers); // Mission routes detour around construction
 world.mapInfo.rivalRiders = roadHazards.rivalRiderMarkers;

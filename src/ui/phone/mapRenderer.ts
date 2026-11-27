@@ -343,32 +343,6 @@ export function renderMapToContext(
     }
   }
 
-  // Live Korean Police Patrol Car Markers (🚓 with alternating red/blue strobe) on Smartphone GPS Map!
-  if (mapInfo.policePatrols) {
-    const strobe = Math.floor(elapsedTime * 5) % 2 === 0;
-    for (const p of mapInfo.policePatrols) {
-      const px2 = toX(p.x);
-      const py2 = toY(p.z);
-      ctx.fillStyle = strobe ? '#2563eb' : '#ef4444';
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.arc(px2, py2, p.sirenActive ? 9.5 : 7.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.save();
-      ctx.translate(px2, py2);
-      if (rotateHeadingUp) ctx.rotate(-player.heading);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 9.5px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('🚓', 0, 0.5);
-      ctx.restore();
-    }
-  }
-
   // 1-Lane Road Construction Zone Markers (🚧) on Smartphone GPS Map!
   if (mapInfo.constructionZones) {
     for (const cz of mapInfo.constructionZones) {

@@ -16,7 +16,6 @@ import {
   DeliveryLocation,
   LandmarkMarker,
   ObstacleBox,
-  PolicePatrolMarker,
   RivalRiderMarker,
   ServiceStationInfo,
   SlipSurfaceType,
@@ -66,7 +65,6 @@ export interface CityMapInfo {
   busStops: BusStopPoint[];
   serviceStations: ServiceStationInfo[];
   speedCameras?: SpeedCameraMarker[];
-  policePatrols?: PolicePatrolMarker[];
   constructionZones?: ConstructionZoneMarker[];
   rivalRiders?: RivalRiderMarker[];
   speedBumps?: SpeedBumpInfo[];
