@@ -22,6 +22,8 @@ import { buildPolicePatrols, stepPolicePatrols } from './hazards/policePatrols';
 import { buildConstructionZones, stepConstructionZones } from './hazards/constructionZones';
 import { buildRivalRiders, stepRivalRiders } from './hazards/rivalRiders';
 
+import { RED_LIGHT_TICKET_FINE, SIDEWALK_TICKET_FINE, findWitness } from '../game/trafficViolations';
+
 export * from './hazards/hazardTypes';
 import {
   HazardFrame,
@@ -134,6 +136,30 @@ export class RoadHazardManager {
       this.updateStaticPropVisibility(spawn.x, spawn.z);
     }
     parent.add(this.root);
+  }
+
+  /**
+   * A patrol car close enough to see a red-light run / sidewalk riding writes a ticket (siren on, then its
+   * usual cooldown). Null when no free patrol is within PATROL_WITNESS_RADIUS_M.
+   */
+  public witnessTicket(
+    kind: 'patrol_red_light' | 'patrol_sidewalk',
+    x: number,
+    z: number,
+    speedKmh: number
+  ): SpeedCameraTriggerEvent | null {
+    const p = findWitness(this.patrolCars.filter((c) => c.citeCooldown <= 0), x, z);
+    if (!p) return null;
+    p.citeCooldown = 18.0;
+    p.sirenTimer = 4.5;
+    return {
+      cameraId: p.id,
+      label: p.label,
+      kind,
+      measuredKmh: Math.round(speedKmh),
+      limitKmh: 0,
+      fine: kind === 'patrol_red_light' ? RED_LIGHT_TICKET_FINE : SIDEWALK_TICKET_FINE,
+    };
   }
 
   public getAllObstacleBoxes(): ObstacleBox[] {

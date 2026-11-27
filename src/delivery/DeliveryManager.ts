@@ -1059,6 +1059,14 @@ export class DeliveryManager {
     return applyCrashToCargo(this.loadedCargo(), severity);
   }
 
+  /** Ticket written by a patrol (red light / sidewalk): fine + rider trust rating penalty */
+  public applyTrafficTicket(fine: number, ratingPenalty: number): { fine: number; newRating: number } {
+    this.applyFine(fine);
+    this.riderRating = Math.max(0, Math.round((this.riderRating - ratingPenalty) * 10) / 10);
+    this.persistCareer();
+    return { fine, newRating: this.riderRating };
+  }
+
   public applyFine(amount: number): number {
     this.fineExpense += amount;
     this.totalEarnings -= amount;

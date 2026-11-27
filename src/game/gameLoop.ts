@@ -3,6 +3,16 @@ import { GraphicsRuntime } from './GraphicsRuntime';
 import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world/renderLayers';
 import { PerfMonitor } from './PerfMonitor';
 import { applyGameClock } from './clockSync';
+import { activeRoadProximity } from '../world/roadProximity';
+import type { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
+import {
+  RED_LIGHT_TICKET_FINE,
+  SIDEWALK_MIN_KMH,
+  SIDEWALK_TICKET_FINE,
+  SidewalkRidingMonitor,
+  TICKET_RATING_PENALTY,
+  isSidewalkOffset,
+} from './trafficViolations';
 
 /** Urgent deliveries start ticking with this many seconds left */
 const URGENT_WARN_SEC = 30;
@@ -43,6 +53,20 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     steerLeft: false,
     steerRight: false,
     handbrake: false,
+  };
+
+  const roadProximity = activeRoadProximity();
+  const sidewalkMonitor = new SidewalkRidingMonitor();
+  /** Red-light / sidewalk ticket written by a patrol car: fine, rider rating, siren and the ticket card */
+  const issuePatrolTicket = (ticket: SpeedCameraTriggerEvent, what: string) => {
+    const res = delivery.applyTrafficTicket(ticket.fine, TICKET_RATING_PENALTY);
+    audio.playPoliceSiren();
+    hud.triggerSpeedCameraFlash();
+    hud.showFineTicketPopup(ticket);
+    hud.showToast(
+      `🚓 ${ticket.label} 현장 단속! (${what}) 과태료 -₩${res.fine.toLocaleString()} · 신뢰 평점 ${res.newRating.toFixed(1)}`,
+      4600
+    );
   };
 
   let lastTime = performance.now();
@@ -121,12 +145,22 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
         scooterPhysics.state.speed,
         isRiding,
         () => {
+          const ticket = roadHazards.witnessTicket(
+            'patrol_red_light',
+            scooterPhysics.state.x,
+            scooterPhysics.state.z,
+            Math.abs(scooterPhysics.state.speed) * 3.6
+          );
+          if (ticket) {
+            issuePatrolTicket(ticket, '빨간불 교차로 진입');
+            return;
+          }
           const fine = delivery.applyFine(1000);
           hud.showToast(
             fine > 0
-              ? `🚨 신호 위반! 빨간불 교차로 통과 (-₩${fine.toLocaleString()})`
+              ? `🚨 신호 위반! 빨간불 교차로 통과 (-₩${fine.toLocaleString()}) · 순찰차에 걸리면 ₩${RED_LIGHT_TICKET_FINE.toLocaleString()}`
               : '🚨 신호 위반! 교차로 빨간불에 정지하세요!',
-            3200
+            3600
           );
         },
         (carX, carZ) => {
@@ -233,6 +267,28 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
         { x: playerCtrl.state.x, z: playerCtrl.state.z }
       );
       world.mapInfo.upcomingCamera = roadHazards.upcomingCamera;
+
+      // Sidewalk riding: warning, or a full ticket when a patrol car sees it
+      const sx = scooterPhysics.state.x;
+      const sz = scooterPhysics.state.z;
+      const speedKmh = Math.abs(scooterPhysics.state.speed) * 3.6;
+      const curbOffset = isRiding && speedKmh >= SIDEWALK_MIN_KMH ? roadProximity.curbOffset(sx, sz) : -1;
+      if (
+        sidewalkMonitor.step(dt, {
+          isRiding,
+          crashed: scooterPhysics.state.crashed,
+          speedKmh,
+          curbOffset,
+          exempt: isSidewalkOffset(curbOffset) && (world.nearestGasStation(sx, sz)?.dist ?? Infinity) < 30,
+        })
+      ) {
+        const ticket = roadHazards.witnessTicket('patrol_sidewalk', sx, sz, speedKmh);
+        if (ticket) issuePatrolTicket(ticket, '인도 주행');
+        else {
+          audio.playPedestrianStartle();
+          hud.showToast(`🚸 인도 주행 중! 보행자 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`, 3600);
+        }
+      }
     } else {
       world.mapInfo.upcomingCamera = null;
       corridorRoom.updateVisual(elapsed, dt, playerCtrl.state.z, {

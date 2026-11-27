@@ -8,6 +8,7 @@ import {
   RoadHazardManager,
 } from './RoadHazardManager';
 import { SignalStateSnapshot } from './TrafficSystem';
+import { SIDEWALK_TICKET_FINE } from '../game/trafficViolations';
 import { ScooterProximityInfo } from './PedestrianManager';
 
 /** Minimal `document.createElement('canvas')` stub so canvas-texture builders run under Vitest's node env */
@@ -58,6 +59,18 @@ describe('RoadHazardManager on the unified open world', () => {
     expect(c.construction).toBeLessThanOrEqual(30);
     expect(minPairDistance(mgr.cameraMarkers)).toBeGreaterThanOrEqual(320);
     expect(minPairDistance(mgr.constructionMarkers)).toBeGreaterThanOrEqual(600);
+  });
+
+  it('a nearby patrol car writes red-light / sidewalk tickets, one per cooldown', () => {
+    const mgr = new RoadHazardManager(new THREE.Group());
+    const [p] = mgr.movingUnitPositions.filter((u) => u.id.startsWith('patrol') || u.id.startsWith('police'));
+    expect(p).toBeDefined();
+    expect(mgr.witnessTicket('patrol_sidewalk', p.x + 5000, p.z, 20)).toBeNull(); // nobody around
+    const t = mgr.witnessTicket('patrol_sidewalk', p.x + 10, p.z, 24)!;
+    expect(t).toMatchObject({ kind: 'patrol_sidewalk', fine: SIDEWALK_TICKET_FINE, measuredKmh: 24 });
+    // that car is now on cooldown; another car may still be close, but never the same one twice
+    const again = mgr.witnessTicket('patrol_red_light', p.x + 10, p.z, 30);
+    expect(again?.cameraId).not.toBe(t.cameraId);
   });
 
   it('starts police and rivals near the player spawn', () => {
