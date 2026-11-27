@@ -86,8 +86,12 @@ export class PhoneMap {
     dpFeeEl: document.getElementById('dp-fee')!,
     dpSubMetaEl: document.getElementById('dp-sub-meta')!,
     dpStopsEl: document.getElementById('dp-stops')!,
+    bannerEl: document.getElementById('phone-dispatch-banner')!,
+    bannerTitleEl: document.getElementById('db-title')!,
+    bannerMetaEl: document.getElementById('db-meta')!,
+    bannerFillEl: document.getElementById('db-progress-fill')!,
   };
-  private readonly dispatchState: DispatchPopupState = { lastOfferPopupId: '', lastOfferPulseTick: 0 };
+  private readonly dispatchState: DispatchPopupState = { lastOfferPopupId: '', lastOfferPulseTick: 0, expandedOfferId: '', currentOfferId: '' };
 
   private readonly callbacks: PhoneCallbacks;
   public placement: PhonePlacement = 'pocket';
@@ -200,7 +204,7 @@ export class PhoneMap {
       }
     });
 
-    this.dispatchEls.dispatchPopupEl.addEventListener('click', (e) => {
+    const onOfferClick = (e: MouseEvent) => {
       e.stopPropagation();
       const target = e.target as HTMLElement;
       const btn = target.closest('button') as HTMLButtonElement | null;
@@ -209,8 +213,12 @@ export class PhoneMap {
         this.callbacks.onAcceptDispatchOffer();
       } else if (btn.dataset.action === 'reject_offer') {
         this.callbacks.onRejectDispatchOffer();
+      } else if (btn.dataset.action === 'expand_offer') {
+        this.dispatchState.expandedOfferId = this.dispatchState.currentOfferId;
       }
-    });
+    };
+    this.dispatchEls.dispatchPopupEl.addEventListener('click', onOfferClick);
+    this.dispatchEls.bannerEl.addEventListener('click', onOfferClick);
 
     this.followBtn.classList.add('active');
     setupTouchHandInteraction(

@@ -14,11 +14,35 @@ export interface DispatchPopupEls {
   dpFeeEl: HTMLElement;
   dpSubMetaEl: HTMLElement;
   dpStopsEl: HTMLElement;
+  /** Compact banner shown first, so the map stays usable */
+  bannerEl: HTMLElement;
+  bannerTitleEl: HTMLElement;
+  bannerMetaEl: HTMLElement;
+  bannerFillEl: HTMLElement;
 }
 
 export interface DispatchPopupState {
   lastOfferPopupId: string;
   lastOfferPulseTick: number;
+  /** Offer the rider expanded from the banner to the full card */
+  expandedOfferId: string;
+  /** Offer currently shown (banner / card) */
+  currentOfferId: string;
+}
+
+/** One-line banner text for an offer: type + fee, then distance and surcharges / rival */
+export function offerBannerText(offer: DispatchOffer): { title: string; meta: string } {
+  const special = offer.orders.find((o) => o.special)?.special;
+  const kind =
+    special === 'urgent' ? '⏱️ 급한 배달' : special === 'group' ? '🍱 단체 주문' : offer.type === 'SINGLE' ? '🚀 한집' : '🛵 알뜰 2건';
+  const tags = [
+    `${offer.totalDistanceMeters}m`,
+    offer.totalPeakBonus > 0 ? '🔥피크' : '',
+    offer.totalRainBonus > 0 ? '🌧️우천' : '',
+    offer.totalNightBonus > 0 ? '🌙심야' : '',
+    offer.rival ? `🛵경쟁 ${Math.round(offer.rival.distM)}m` : '',
+  ].filter(Boolean);
+  return { title: `${kind} ₩${offer.totalFee.toLocaleString()}`, meta: `${Math.max(0, Math.ceil(offer.remainingOfferSec))}초 · ${tags.join(' · ')}` };
 }
 
 /** Highlights Korean apartment lobby PIN pattern & delivery instruction at the top of the smartphone app */
@@ -97,11 +121,30 @@ export function syncDispatchPopup(
 ): void {
   if (!offer) {
     els.dispatchPopupEl.classList.add('hidden');
+    els.bannerEl.classList.add('hidden');
     state.lastOfferPopupId = '';
+    state.currentOfferId = '';
     return;
   }
 
-  els.dispatchPopupEl.classList.remove('hidden');
+  state.currentOfferId = offer.id;
+  // A new call starts as the compact banner; tapping it opens the full card
+  const compact = state.expandedOfferId !== offer.id;
+  els.dispatchPopupEl.classList.toggle('hidden', compact);
+  els.bannerEl.classList.toggle('hidden', !compact);
+  if (compact) {
+    const { title, meta } = offerBannerText(offer);
+    els.bannerTitleEl.textContent = title;
+    els.bannerMetaEl.textContent = meta;
+    els.bannerFillEl.style.width = `${clamp(offer.remainingOfferSec / offer.durationOfferSec, 0, 1) * 100}%`;
+    els.bannerEl.classList.toggle('alttle', offer.type !== 'SINGLE');
+    els.bannerEl.classList.toggle('urgent', offer.remainingOfferSec <= 5);
+    if (offer.id !== state.lastOfferPopupId) {
+      els.bannerEl.classList.remove('vibrate');
+      void els.bannerEl.offsetWidth;
+      els.bannerEl.classList.add('vibrate');
+    }
+  }
   const isSingle = offer.type === 'SINGLE';
 
   if (offer.id !== state.lastOfferPopupId || offer.pulseTick !== state.lastOfferPulseTick) {

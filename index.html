@@ -173,6 +173,17 @@
               </div>
             </div>
 
+            <!-- Compact incoming call banner (default while the zoomed phone is open: the map stays usable) -->
+            <div id="phone-dispatch-banner" class="dispatch-banner hidden">
+              <button class="db-main" data-action="expand_offer" title="콜 자세히 보기">
+                <span id="db-title" class="db-title">🚀 한집 ₩0</span>
+                <span id="db-meta" class="db-meta"></span>
+              </button>
+              <button class="db-btn accept" data-action="accept_offer">수락</button>
+              <button class="db-btn reject" data-action="reject_offer" aria-label="거절">✕</button>
+              <div class="db-progress"><div id="db-progress-fill" class="db-progress-fill"></div></div>
+            </div>
+
             <!-- Battery Depleted Lock Overlay inside Zoomed Smartphone -->
             <div id="phone-dead-overlay" class="phone-dead-overlay hidden">
               <div class="pdo-icon">🪫</div>

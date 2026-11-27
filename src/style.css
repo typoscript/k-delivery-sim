@@ -5029,3 +5029,90 @@ body.phone-3d-hover canvas {
 .recap-none {
   color: #94a3b8;
 }
+
+/* Compact incoming call banner inside the zoomed phone (tap to open the full card) */
+.dispatch-banner {
+  position: absolute;
+  top: 58px;
+  left: 10px;
+  right: 10px;
+  z-index: 8;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 9px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 2px solid #2dd4bf;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  color: #f8fafc;
+  overflow: hidden;
+}
+.dispatch-banner.alttle {
+  border-color: #a78bfa;
+}
+.dispatch-banner.urgent {
+  border-color: #ef4444;
+}
+.dispatch-banner.vibrate {
+  animation: callCardVibrate 0.42s ease-in-out;
+}
+.dispatch-banner .db-main {
+  all: unset;
+  cursor: pointer;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dispatch-banner .db-title {
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dispatch-banner .db-meta {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dispatch-banner .db-btn {
+  border: none;
+  border-radius: 9px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.dispatch-banner .db-btn.accept {
+  background: #0d9488;
+  color: #fff;
+}
+.dispatch-banner.alttle .db-btn.accept {
+  background: #7c3aed;
+}
+.dispatch-banner .db-btn.reject {
+  background: rgba(255, 255, 255, 0.14);
+  color: #cbd5e1;
+  padding: 7px 9px;
+}
+.dispatch-banner .db-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(148, 163, 184, 0.25);
+}
+.dispatch-banner .db-progress-fill {
+  height: 100%;
+  background: #2dd4bf;
+}
+.dispatch-banner.urgent .db-progress-fill {
+  background: #ef4444;
+}
