@@ -5,6 +5,7 @@ import { DeliveryLocation, FoodTempType } from '../types';
 import { RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { CustomerReview, RiderTierSpec } from './RiderCareer';
 import type { AchievementSpec, AchievementStatus, DayRecord, WeekSummary } from './careerHistory';
+import type { WeekGoalStatus } from './weeklyGoals';
 import { ShiftGoalSpec, ShiftGoalStatus } from './ShiftDay';
 
 export const MAX_CONCURRENT_ORDERS = 3;
@@ -51,6 +52,10 @@ export interface ShiftRecap {
   next: AchievementStatus | null;
   /** Weekly statement when this day closes a week (every 7th day) */
   week: WeekSummary | null;
+  /** The week's goals checked at this clock-out (week end only) */
+  weekGoals: WeekGoalStatus[] | null;
+  /** Weekly goal bonus paid at this clock-out */
+  weeklyBonus: number;
 }
 
 export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';
@@ -252,6 +257,8 @@ export interface DailyFinanceLedger {
   tierBonusTotal: number;
   tipTotal: number;
   missionBonusTotal: number;
+  /** Weekly goal bonuses (paid on the 7th day's clock-out) */
+  weeklyBonusTotal: number;
   damageDeductionTotal: number;
   fuelExpense: number;
   repairExpense: number;

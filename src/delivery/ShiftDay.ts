@@ -75,6 +75,7 @@ export const SHIFT_LEDGER_KEYS = [
   'tierBonusTotal',
   'tipTotal',
   'missionBonusTotal',
+  'weeklyBonusTotal',
   'damageDeductionTotal',
   'fuelExpense',
   'repairExpense',

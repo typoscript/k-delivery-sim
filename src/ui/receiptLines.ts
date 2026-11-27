@@ -37,6 +37,9 @@ export function ledgerIncomeLines(l: DailyFinanceLedger): ReceiptLine[] {
     { key: 'tier', label: `${l.riderTier.icon} ${l.riderTier.name} 등급 보너스`, amount: l.tierBonusTotal, tone: 'income' },
     { key: 'tip', label: '안전 배달 팁', amount: l.tipTotal, tone: 'income' },
     { key: 'mission', label: '🏆 오늘의 목표 보너스', amount: l.missionBonusTotal, tone: 'income' },
+    ...(l.weeklyBonusTotal > 0
+      ? [{ key: 'weekly', label: '📆 주간 목표 보너스', amount: l.weeklyBonusTotal, tone: 'income' as const }]
+      : []),
   ];
 }
 
@@ -92,7 +95,7 @@ export function compactLines(lines: readonly ReceiptLine[], groups: ReadonlyArra
 
 /** Phone receipt grouping */
 export const PHONE_RECEIPT_GROUPS = [
-  { keys: ['tip', 'mission'], label: '안전 배달 팁 / 목표 보너스' },
+  { keys: ['tip', 'mission', 'weekly'], label: '안전 배달 팁 / 목표 보너스' },
   { keys: ['fuel', 'repair', 'upgrade', 'convenience'], label: '⛽ 유류 · 🔧 정비 · ⚙️ 업그레이드 · 🏪 편의점' },
 ];
 

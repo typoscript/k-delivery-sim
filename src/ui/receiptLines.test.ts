@@ -85,4 +85,18 @@ describe('receipt lines', () => {
     dm.clockOut();
     expect(fineLines(dm.getDailyLedger())).toHaveLength(1);
   });
+
+  it('a weekly goal bonus shows as its own income line and still adds up', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    deliverOne(dm, false);
+    dm.weeklyBonusTotal = 20000;
+    const l = dm.getDailyLedger();
+    const inc = ledgerIncomeLines(l);
+    expect(inc.find((x) => x.key === 'weekly')?.amount).toBe(20000);
+    expect(sum(inc)).toBe(l.grossIncome);
+    expect(sum(inc) + sum(ledgerExpenseLines(l))).toBe(l.netProfit);
+    expect(sum(compactLines(inc, PHONE_RECEIPT_GROUPS))).toBe(l.grossIncome);
+    expect(ledgerIncomeLines({ ...l, weeklyBonusTotal: 0 }).some((x) => x.key === 'weekly')).toBe(false);
+  });
 });
+

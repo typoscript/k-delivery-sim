@@ -1,5 +1,6 @@
 import { DeliveryManager } from '../../delivery/DeliveryManager';
 import { bestDay, safeDayStreak } from '../../delivery/careerHistory';
+import { weekGoalProgressText } from '../../delivery/weeklyGoals';
 import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, lineValue } from '../receiptLines';
 
 /** [수익] top-nav tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
@@ -203,6 +204,13 @@ function weekCardHtml(delivery: DeliveryManager): string {
     <div class="career-week-card">
       <div class="cw-title">📆 이번 주 · ${w.week}주차 <span>${w.firstDay}~${w.lastDay}일차</span></div>
       <div class="cw-row"><span>마친 근무일 ${w.days.length}일 · 배달 ${w.deliveries}건</span><b class="${w.net < 0 ? 'neg' : ''}">${won(w.net)}</b></div>
+      ${delivery
+        .getWeekGoals()
+        .map(
+          (g) =>
+            `<div class="cw-goal ${g.met ? 'met' : ''}"><span>${g.met ? '✅' : '⬜'} ${g.icon} ${g.title}</span><span>${weekGoalProgressText(g)} · +₩${g.bonus.toLocaleString()}</span></div>`
+        )
+        .join('')}
       <div class="cw-sub">${left === 0 ? '오늘 퇴근하면 주간 정산서가 나와요' : `${w.lastDay}일차 퇴근 때 주간 정산서가 나와요 (${left}일 남음)`}${w.bestDay ? ` · 최고 ${w.bestDay.day}일차 ${won(w.bestDay.net)}` : ''}</div>
     </div>`;
 }

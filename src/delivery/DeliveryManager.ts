@@ -90,6 +90,8 @@ import {
   DayRecord,
   DAYS_PER_WEEK,
   WeekSummary,
+  appendDay,
+  makeDayRecord,
   nextAchievement,
   previousDay,
   weekSummary,
@@ -101,6 +103,7 @@ import { computeSettlementPay } from './settlementPay';
 import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent, stepFoodCondition } from './cargoCare';
 import { ShiftProgress, settlementGoalCounters } from './shiftProgress';
 import { RiderRecords, ratingAfterReview, reviewInputFor } from './riderRecords';
+import { WeekGoalStatus, weekGoalStatuses } from './weeklyGoals';
 import { buildDailyLedger, pickShiftLedger } from './dailyLedger';
 
 export class DeliveryManager {
@@ -133,6 +136,7 @@ export class DeliveryManager {
   public tierBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
+  public weeklyBonusTotal = 0;
   /** Working day (N일차) on the game clock; the ledger above and the goals below belong to it */
   public shiftDay = 1;
   /** Game clock minute to resume at after a reload (kept up to date by the game loop) */
@@ -224,6 +228,11 @@ export class DeliveryManager {
     return this.progress.history;
   }
 
+  /** This week's goals with progress over the finished days of the week */
+  public getWeekGoals(): WeekGoalStatus[] {
+    return weekGoalStatuses(this.getWeekSummary());
+  }
+
   /** The current week so far (finished days of this week) */
   public getWeekSummary(): WeekSummary {
     return weekSummary(this.progress.history, this.shiftDay, this.getAchievements());
@@ -257,6 +266,31 @@ export class DeliveryManager {
     if (this.activeMissions.length > 0) return null;
     const awardedAtClockOut = this.awardDueGoals('clock_out').goals;
     const day = this.shiftDay;
+    // Week end: check the week's goals (including today) and pay their bonus into today's ledger
+    let weekGoals: WeekGoalStatus[] | null = null;
+    let weeklyBonus = 0;
+    if (day % DAYS_PER_WEEK === 0) {
+      const today = this.getDailyLedger();
+      const goalsNow = this.getShiftGoals();
+      const withToday = appendDay(
+        this.progress.history,
+        makeDayRecord({
+          day,
+          completedCount: today.completedCount,
+          grossIncome: today.grossIncome,
+          totalExpenses: today.totalExpenses,
+          netProfit: today.netProfit,
+          pedestrianAccidentCount: today.pedestrianAccidentCount,
+          goalsMet: goalsNow.filter((g) => g.claimed).length,
+          goalsTotal: goalsNow.length,
+          counters: this.progress.counters,
+        })
+      );
+      weekGoals = weekGoalStatuses(weekSummary(withToday, day));
+      weeklyBonus = weekGoals.filter((g) => g.met).reduce((a, g) => a + g.bonus, 0);
+      this.weeklyBonusTotal += weeklyBonus;
+      this.totalEarnings += weeklyBonus;
+    }
     const ledger = this.getDailyLedger();
     const goals = this.getShiftGoals();
     const previous = previousDay(this.progress.history, day);
@@ -280,6 +314,8 @@ export class DeliveryManager {
       newAtClockOut,
       next: nextAchievement(statuses),
       week: day % DAYS_PER_WEEK === 0 ? weekSummary(this.progress.history, day, statuses) : null,
+      weekGoals,
+      weeklyBonus,
     };
 
     this.shiftDay = day + 1;

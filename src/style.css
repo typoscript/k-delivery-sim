@@ -5184,3 +5184,15 @@ body.phone-3d-hover canvas {
   color: #64748b;
   margin-top: 2px;
 }
+
+.career-week-card .cw-goal {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.career-week-card .cw-goal.met {
+  color: #059669;
+}

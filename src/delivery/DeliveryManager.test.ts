@@ -244,6 +244,13 @@ describe('DeliveryManager mission flow', () => {
     expect(w.net).toBe(dm.getDayHistory().reduce((a, d) => a + d.net, 0));
     // day 8 starts week 2 with nothing finished yet
     expect(dm.getWeekSummary()).toMatchObject({ week: 2, days: [] });
+    // the week's goals were checked; met goals were paid into day 7's ledger and the wallet
+    const goals = last!.recap.weekGoals!;
+    expect(goals).toHaveLength(3);
+    const paid = goals.filter((g) => g.met).reduce((acc, g) => acc + g.bonus, 0);
+    expect(last!.recap.weeklyBonus).toBe(paid);
+    expect(last!.ledger.weeklyBonusTotal).toBe(paid);
+    expect(dm.getDailyLedger().weeklyBonusTotal).toBe(0); // day 8 starts at zero
   });
 
   it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {

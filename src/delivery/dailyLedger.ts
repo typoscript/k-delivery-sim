@@ -13,6 +13,7 @@ const INCOME_KEYS = [
   'tierBonusTotal',
   'tipTotal',
   'missionBonusTotal',
+  'weeklyBonusTotal',
 ] as const satisfies readonly (keyof ShiftLedger)[];
 
 const EXPENSE_KEYS = [
