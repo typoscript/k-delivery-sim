@@ -420,7 +420,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       voiceNav.speak('고객님께 새 메시지가 도착했습니다.');
       hud.showCustomerChatPopup(chatEv);
     });
-    dispatch.step(dt, delivery, inCorridor, movementBlocked);
+    dispatch.step(dt, delivery, inCorridor, movementBlocked, roadHazards.rivalRiderMarkers, playerCtrl.state);
 
     // Compute bundled multi-stop A* Navigation Plan (internally cached & throttled)
     const navPlan = delivery.getNavigationPlan(

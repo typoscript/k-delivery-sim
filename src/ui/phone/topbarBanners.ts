@@ -129,8 +129,9 @@ export function syncDispatchPopup(
     const peakTag = offer.totalPeakBonus > 0 ? ` · 🔥피크+₩${offer.totalPeakBonus.toLocaleString()}` : '';
     const special = offer.orders.find((o) => o.special);
     const specialTag = special ? ` · ${specialOrderTag(special)}` : '';
+    const rivalTag = offer.rival ? ` · 🛵 경쟁 라이더 ${Math.round(offer.rival.distM)}m · 빨리 수락!` : '';
     els.dpFeeEl.textContent = `₩${offer.totalFee.toLocaleString()}`;
-    els.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}${nightTag}${peakTag}${specialTag}`;
+    els.dpSubMetaEl.textContent = `제한 ${Math.round(offer.timeLimitSec / 60)}분(${offer.timeLimitSec}초) · 총 ${offer.totalDistanceMeters}m${rainTag}${nightTag}${peakTag}${specialTag}${rivalTag}`;
 
     els.dpStopsEl.innerHTML = offer.orders
       .map(

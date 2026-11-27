@@ -1,6 +1,7 @@
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
 import { buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { DeliveryLocation } from '../types';
+import { BOARD_CHECK_SEC, RivalContest, RivalPosition, contestingRival, pickBoardCallTaken, snatchDelaySec } from './rivalCompetition';
 import {
   ALTTLE_TIME_LIMIT_SEC,
   DeliveryManager,
@@ -27,12 +28,20 @@ export interface DispatchOffer {
   remainingOfferSec: number; // 20s countdown
   durationOfferSec: number;
   pulseTick: number; // increments when visual/audio vibrate should pulse
+  /** A rival rider near the shop competes for this call (null: nobody nearby) */
+  rival: RivalContest | null;
+  /** The rival takes the call when remainingOfferSec drops to this (-Infinity without a rival) */
+  rivalTakesAtSec: number;
 }
 
 export interface DispatchCallbacks {
   onOfferArrived: (offer: DispatchOffer) => void;
   onOfferExpired: (offer: DispatchOffer) => void;
   onOfferUrgentTick?: (offer: DispatchOffer) => void;
+  /** A nearby rival rider took the offer before it was accepted */
+  onOfferTakenByRival?: (offer: DispatchOffer) => void;
+  /** A nearby rival rider took a call off the [콜 목록] board */
+  onBoardCallTaken?: (order: DeliveryOrder) => void;
 }
 
 export const OFFER_DURATION_SEC = 20;
@@ -58,6 +67,7 @@ export class OrderDispatchManager {
   private offerIntervalMul = 1;
   private orderSeq = 100;
   private urgentNotified = false;
+  private boardCheckTimer = 0;
 
   constructor(locations: DeliveryLocation[], callbacks: DispatchCallbacks) {
     this.shops = locations.filter((l) => l.type === 'shop');
@@ -86,7 +96,11 @@ export class OrderDispatchManager {
     dt: number,
     delivery: DeliveryManager,
     inCorridor: boolean,
-    modalBlocking: boolean
+    modalBlocking: boolean,
+    /** Rival delivery riders around the player (they compete for calls near them) */
+    rivals: readonly RivalPosition[] = [],
+    /** Player position: rivals only compete for shops they are closer to than the player */
+    player?: { x: number; z: number }
   ): void {
     const clampedDt = Math.min(dt, 0.05);
     // Rush hour and a good rider reputation both bring calls faster
@@ -97,6 +111,7 @@ export class OrderDispatchManager {
       return;
     }
 
+    this.stepBoardCompetition(clampedDt, delivery, rivals, player);
     const allowed = this.getAllowedOfferTypes(delivery);
 
     if (this.state === 'OFFERING' && this.activeOffer) {
@@ -119,6 +134,15 @@ export class OrderDispatchManager {
         if (this.callbacks.onOfferUrgentTick) {
           this.callbacks.onOfferUrgentTick(this.activeOffer);
         }
+      }
+
+      if (this.activeOffer.remainingOfferSec <= this.activeOffer.rivalTakesAtSec) {
+        const taken = this.activeOffer;
+        this.activeOffer = null;
+        this.state = 'COOLDOWN';
+        this.cooldownRemainingSec = this.nextOfferDelaySec();
+        this.callbacks.onOfferTakenByRival?.(taken);
+        return;
       }
 
       if (this.activeOffer.remainingOfferSec <= 0) {
@@ -145,12 +169,37 @@ export class OrderDispatchManager {
       const chosenType = this.chooseOfferType(allowed, delivery);
       const offer = this.createOffer(chosenType, delivery);
       if (offer) {
+        // The nearest rival to any of the offer's shops competes for it
+        let rival: RivalContest | null = null;
+        for (const o of offer.orders) {
+          const c = contestingRival(rivals, o.shop.x, o.shop.z, player);
+          if (c && (!rival || c.distM < rival.distM)) rival = c;
+        }
+        offer.rival = rival;
+        offer.rivalTakesAtSec = rival ? offer.durationOfferSec - snatchDelaySec(rival.distM) : -Infinity;
         this.activeOffer = offer;
         this.state = 'OFFERING';
         this.urgentNotified = false;
         this.callbacks.onOfferArrived(offer);
       }
     }
+  }
+
+  /** Now and then a rival rider near a board call's shop takes it (the board refills) */
+  private stepBoardCompetition(
+    dt: number,
+    delivery: DeliveryManager,
+    rivals: readonly RivalPosition[],
+    player?: { x: number; z: number }
+  ): void {
+    if (rivals.length === 0) return;
+    this.boardCheckTimer += dt;
+    if (this.boardCheckTimer < BOARD_CHECK_SEC) return;
+    this.boardCheckTimer = 0;
+    const id = pickBoardCallTaken(delivery.availableOrders, rivals, Math.random, player);
+    if (!id) return;
+    const taken = delivery.takeAvailableOrderByRival(id);
+    if (taken) this.callbacks.onBoardCallTaken?.(taken);
   }
 
   /** Accepts the active 20s call offer and commits its order(s) to DeliveryManager */
@@ -282,6 +331,8 @@ export class OrderDispatchManager {
       remainingOfferSec: OFFER_DURATION_SEC,
       durationOfferSec: OFFER_DURATION_SEC,
       pulseTick: 1,
+      rival: null,
+      rivalTakesAtSec: -Infinity,
     };
   }
 }

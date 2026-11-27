@@ -538,6 +538,15 @@ export class DeliveryManager {
     this.fillOrderBoard(this.availableOrders, usedPairs, usedNumbers, 35);
   }
 
+  /** A rival rider took this call off the board: it disappears and the board refills */
+  public takeAvailableOrderByRival(orderId: string): DeliveryOrder | null {
+    const order = this.availableOrders.find((o) => o.id === orderId);
+    if (!order) return null;
+    this.availableOrders = this.availableOrders.filter((o) => o.id !== orderId);
+    this.replenishAvailableOrders();
+    return order;
+  }
+
   public cancelMission(orderId: string): ActiveMission | null {
     const idx = this.activeMissions.findIndex((m) => m.order.id === orderId);
     if (idx === -1) return null;

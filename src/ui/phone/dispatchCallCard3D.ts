@@ -75,6 +75,15 @@ export function render3DDispatchCallCard(
   ctx.textAlign = 'left';
   ctx.fillText(`₩${offer.totalFee.toLocaleString()}`, cardX + 18, cardY + 86);
 
+  // A rival rider near the shop will take the call if we wait
+  if (offer.rival) {
+    ctx.fillStyle = '#fb923c';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`🛵 경쟁 라이더 ${Math.round(offer.rival.distM)}m`, cardX + cardW - 16, cardY + 86);
+    ctx.textAlign = 'left';
+  }
+
   // Time limit & total distance subline
   ctx.fillStyle = offer.totalRainBonus > 0 ? '#38bdf8' : '#94a3b8';
   ctx.font = 'bold 13.5px sans-serif';

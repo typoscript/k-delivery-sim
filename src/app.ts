@@ -119,7 +119,17 @@ const dispatch = new OrderDispatchManager(world.locations, {
         : hud.phoneMap.isZoomed
           ? '스마트폰 화면의 [콜 수락] 버튼을 클릭해 터치하세요!'
           : '3D 휴대폰 화면의 [👆 바로 터치 수락]을 직접 클릭하세요!';
-    hud.showToast(`🔔 신규 콜 도착! ${label} · ₩${offer.totalFee.toLocaleString()} — ${hint}`, 4500);
+    const rivalHint = offer.rival ? ' · 🛵 근처 경쟁 라이더도 노리는 콜!' : '';
+    hud.showToast(`🔔 신규 콜 도착! ${label} · ₩${offer.totalFee.toLocaleString()}${rivalHint} — ${hint}`, 4500);
+  },
+  onOfferTakenByRival: (offer) => {
+    audio.playDispatchExpiredSound();
+    const label = offer.type === 'SINGLE' ? '한집배달' : '알뜰배달';
+    hud.showToast(`🛵 근처 경쟁 라이더가 ${label} 콜(₩${offer.totalFee.toLocaleString()})을 먼저 가져갔어요`, 3600);
+  },
+  onBoardCallTaken: (order) => {
+    // Only worth a word while the rider is looking at the call list
+    if (hud.phoneMap.isZoomed) hud.showToast(`🛵 다른 라이더가 #${order.orderNumber} 콜을 가져갔어요 (새 콜로 채워집니다)`, 2600);
   },
   onOfferUrgentTick: () => {
     audio.playDispatchCallAlert();
@@ -611,5 +621,5 @@ if (IS_UNIFIED_MAP && new URLSearchParams(window.location.search).get('bench') =
 
 // Dev-only handle for automated playtests (stripped from production builds)
 if (import.meta.env.DEV) {
-  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, camController, clock: gameCtx.clock, weatherSchedule: gameCtx.weatherSchedule, corridorRoom, modalUi, hud, audio, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
+  (window as unknown as { __kds: unknown }).__kds = { world, dispatch, scooterPhysics, playerCtrl, camController, clock: gameCtx.clock, weatherSchedule: gameCtx.weatherSchedule, corridorRoom, modalUi, hud, audio, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
 }
