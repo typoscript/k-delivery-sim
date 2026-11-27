@@ -45,6 +45,9 @@ import {
   PlacementRule,
 } from './hazards/hazardTypes';
 
+/** Max distance a respawned unit ends up from its picked start node (15m progress + lane offset) */
+const SPAWN_SLACK_M = 18;
+
 /**
  * Suwon Roadside Enforcement, Construction & Urban Delivery Hazards Manager:
  * 1. Fixed Speed Enforcement Cameras (50 km/h, 80m navi warning, ₩40,000 fine)
@@ -56,6 +59,7 @@ import {
  * static counts with road coverage (see *_RULE), hides props > 420m away, and recycles police / rivals
  * that drift > 300m from the player onto roads 120~250m away.
  */
+
 export class RoadHazardManager {
   public readonly root = new THREE.Group();
   public readonly obstacles: ObstacleBox[] = [];
@@ -254,7 +258,8 @@ export class RoadHazardManager {
     preferMajor: boolean,
     laneFrac: number
   ): boolean {
-    const pick = this.pickSpawnEdge(x, z, minR, maxR, preferMajor, u);
+    // The unit moves up to 15m along the edge plus its lane offset: keep that slack inside maxR
+    const pick = this.pickSpawnEdge(x, z, minR, Math.max(minR, maxR - SPAWN_SLACK_M), preferMajor, u);
     if (!pick) return false;
     const { from, edge } = pick;
     u.fromNode = from;
