@@ -21,7 +21,21 @@ export interface ChunkMaterials {
   park: THREE.Material;
   water: THREE.Material;
   plaza: THREE.Material;
+  /** Far LOD: untextured vertex-coloured buildings (one mesh per chunk) */
+  farBuildings: THREE.Material;
 }
+
+/** Chunks whose centre is farther than this from the camera draw the single-mesh far LOD */
+export const BUILDING_LOD_DISTANCE = 300;
+
+/** Average facade colours (base paint blended with the window pattern) for the far LOD */
+const FAR_WALL_COLORS: Record<BuildingWallCategory, THREE.Color> = {
+  shop: new THREE.Color(0xd8e1ec).lerp(new THREE.Color(0x1e3a5f), 0.32),
+  apt: new THREE.Color(0xe6e2d8).lerp(new THREE.Color(0x334155), 0.3),
+  villa: new THREE.Color(0xc89c82).lerp(new THREE.Color(0x263242), 0.28),
+  public: new THREE.Color(0xcbd5e1).lerp(new THREE.Color(0x0f2942), 0.3),
+};
+const FAR_ROOF_COLOR = new THREE.Color(0x64748b);
 
 /** Roads that belong to this chunk (edges bucketed by midpoint, junction discs by node position) */
 export interface ChunkRoads {
@@ -52,11 +66,19 @@ class GeoBuffer {
   readonly pos: number[] = [];
   readonly nor: number[] = [];
   readonly uv: number[] = [];
+  /** Per-vertex colours (far LOD buffer only) */
+  readonly col: number[] | null;
+  color = new THREE.Color(1, 1, 1);
+
+  constructor(withColor = false) {
+    this.col = withColor ? [] : null;
+  }
 
   vertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number): void {
     this.pos.push(x, y, z);
     this.nor.push(nx, ny, nz);
     this.uv.push(u, v);
+    if (this.col) this.col.push(this.color.r, this.color.g, this.color.b);
   }
 
   get triangles(): number {
@@ -69,6 +91,7 @@ class GeoBuffer {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    if (this.col) g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;
@@ -103,7 +126,7 @@ function addFlatPolygon(buf: GeoBuffer, pts: ReadonlyArray<[number, number]>, y:
  * Extruded building: outward-facing walls with world-metre UVs (u = perimeter distance, v = height,
  * matching the facade textures' 0.08 repeat) + flat roof.
  */
-export function addBuilding(walls: GeoBuffer, roof: GeoBuffer, b: OsmBuildingData): void {
+export function addBuilding(walls: GeoBuffer, roof: GeoBuffer, b: OsmBuildingData, far?: GeoBuffer): void {
   if (b.pts.length < 3) return;
   // Normalise winding so area > 0; then the outward normal of edge (dx, dz) is (dz, -dx)
   const pts = signedArea(b.pts) > 0 ? b.pts : [...b.pts].reverse();
@@ -126,9 +149,23 @@ export function addBuilding(walls: GeoBuffer, roof: GeoBuffer, b: OsmBuildingDat
     walls.vertex(qx, 0, qz, nx, 0, nz, u2, 0);
     walls.vertex(px, h, pz, nx, 0, nz, u, h);
     walls.vertex(qx, h, qz, nx, 0, nz, u2, h);
+    if (far) {
+      far.vertex(px, 0, pz, nx, 0, nz, 0, 0);
+      far.vertex(px, h, pz, nx, 0, nz, 0, 0);
+      far.vertex(qx, 0, qz, nx, 0, nz, 0, 0);
+      far.vertex(qx, 0, qz, nx, 0, nz, 0, 0);
+      far.vertex(px, h, pz, nx, 0, nz, 0, 0);
+      far.vertex(qx, h, qz, nx, 0, nz, 0, 0);
+    }
     u = u2;
   }
   addFlatPolygon(roof, pts, h);
+  if (far) {
+    const wallColor = far.color.clone();
+    far.color.copy(FAR_ROOF_COLOR);
+    addFlatPolygon(far, pts, h);
+    far.color.copy(wallColor);
+  }
 }
 
 /** Flat ribbon along a polyline (roads, rivers, pedestrian streets) */
@@ -191,39 +228,75 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const geometries: THREE.BufferGeometry[] = [];
   let triangleCount = 0;
 
-  const addMesh = (buf: GeoBuffer, mat: THREE.Material, opts: { cast?: boolean; receive?: boolean; order?: number }) => {
+  let drawCalls = 0;
+  const addMesh = (
+    buf: GeoBuffer,
+    mat: THREE.Material,
+    opts: { cast?: boolean; receive?: boolean; order?: number; parent?: THREE.Object3D; countDraw?: boolean }
+  ) => {
     const geo = buf.toGeometry();
     if (!geo) return;
     geometries.push(geo);
-    triangleCount += buf.triangles;
+    if (opts.countDraw !== false) {
+      triangleCount += buf.triangles;
+      drawCalls++;
+    }
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = !!opts.cast;
     mesh.receiveShadow = opts.receive ?? true;
     if (opts.order !== undefined) mesh.renderOrder = opts.order;
     mesh.matrixAutoUpdate = false; // static world geometry
     mesh.updateMatrix();
-    group.add(mesh);
+    (opts.parent ?? group).add(mesh);
   };
 
   // --- Buildings: one merged wall mesh per (facade category x shadow caster), one shared roof mesh pair
   const wallBufs = new Map<string, GeoBuffer>();
   const roofTall = new GeoBuffer();
   const roofLow = new GeoBuffer();
+  const farBuf = new GeoBuffer(true);
   const obstacles: ObstacleBox[] = [];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
   for (const b of chunk.buildings) {
     const tall = b.height >= SHADOW_HEIGHT_M;
-    const key = `${buildingWallCategory(b.kind, b.height)}|${tall ? 'T' : 'L'}`;
+    const cat = buildingWallCategory(b.kind, b.height);
+    const key = `${cat}|${tall ? 'T' : 'L'}`;
     let wb = wallBufs.get(key);
     if (!wb) wallBufs.set(key, (wb = new GeoBuffer()));
-    addBuilding(wb, tall ? roofTall : roofLow, b);
+    farBuf.color.copy(FAR_WALL_COLORS[cat]);
+    addBuilding(wb, tall ? roofTall : roofLow, b, farBuf);
     obstacles.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, pts: b.pts });
+    minX = Math.min(minX, b.minX);
+    maxX = Math.max(maxX, b.maxX);
+    minZ = Math.min(minZ, b.minZ);
+    maxZ = Math.max(maxZ, b.maxZ);
   }
-  for (const [key, buf] of wallBufs) {
-    const [cat, tall] = key.split('|') as [BuildingWallCategory, string];
-    addMesh(buf, mats.walls[cat], { cast: tall === 'T' });
+  if (chunk.buildings.length > 0) {
+    // Building LOD: textured per-category meshes nearby, one untextured vertex-coloured mesh far away.
+    // Vertices stay in world space; the LOD node sits at the chunk centre so distance is measured
+    // from there and its levels are offset back.
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const lod = new THREE.LOD();
+    lod.position.set(cx, 0, cz);
+    const near = new THREE.Group();
+    near.position.set(-cx, 0, -cz);
+    const far = new THREE.Group();
+    far.position.set(-cx, 0, -cz);
+    for (const [key, buf] of wallBufs) {
+      const [cat, tall] = key.split('|') as [BuildingWallCategory, string];
+      addMesh(buf, mats.walls[cat], { cast: tall === 'T', parent: near });
+    }
+    addMesh(roofTall, mats.roof, { cast: true, parent: near });
+    addMesh(roofLow, mats.roof, { parent: near });
+    addMesh(farBuf, mats.farBuildings, { parent: far, countDraw: false });
+    lod.addLevel(near, 0);
+    lod.addLevel(far, BUILDING_LOD_DISTANCE);
+    group.add(lod);
   }
-  addMesh(roofTall, mats.roof, { cast: true });
-  addMesh(roofLow, mats.roof, {});
 
   // --- Roads: merged ribbons + junction discs + yellow centre dashes on arterials
   const road = new GeoBuffer();
@@ -274,7 +347,8 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     obstacles,
     buildingCount: chunk.buildings.length,
     triangleCount,
-    drawCalls: group.children.length,
+    // Near-level draw calls (the far level replaces all building meshes with one)
+    drawCalls,
     dispose: () => {
       for (const g of geometries) g.dispose();
       geometries.length = 0;

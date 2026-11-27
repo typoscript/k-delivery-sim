@@ -13,6 +13,7 @@ const MATS: ChunkMaterials = {
   park: mat(),
   water: mat(),
   plaza: mat(),
+  farBuildings: mat(),
 };
 
 /** 10x10 grid of 200m chunks (origin -1000,-1000), one 10m building in the middle of each chunk */

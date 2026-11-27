@@ -16,5 +16,6 @@ export function createOpenWorldMaterials(): ChunkMaterials {
     park: new THREE.MeshStandardMaterial({ color: 0x4d7c4f, roughness: 0.95 }),
     water: new THREE.MeshStandardMaterial({ color: 0x3b82c4, roughness: 0.25, metalness: 0.1 }),
     plaza: new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
+    farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
   };
 }

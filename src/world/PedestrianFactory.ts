@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ColoredPart, mergeColoredParts } from './instancing';
 
 export type PedestrianGender = 'male' | 'female';
 
@@ -18,6 +19,23 @@ export interface PedestrianRig {
   gender: PedestrianGender;
   walkPhase: number;
   palette: PedestrianPalette;
+  /** Far LOD: the whole body baked into one vertex-coloured mesh (1 draw call, no limb animation) */
+  lowDetail: THREE.Mesh;
+}
+
+/** Shared material of every far-LOD pedestrian */
+const LOW_DETAIL_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 });
+
+/**
+ * Switches a pedestrian between the articulated 12-part rig (near) and its single merged mesh (far).
+ * Returns true when the full rig is active (only then is limb animation worth computing).
+ */
+export function setPedestrianDetail(rig: PedestrianRig, near: boolean): boolean {
+  if (rig.bodyGroup.visible !== near) {
+    rig.bodyGroup.visible = near;
+    rig.lowDetail.visible = !near;
+  }
+  return near;
 }
 
 // Korean everyday casual street-fashion color palettes
@@ -211,6 +229,22 @@ export class PedestrianFactory {
     const leftLegPivot = buildLeg(legOffsetX);
     const rightLegPivot = buildLeg(-legOffsetX);
 
+    // Far LOD: bake every visible part (rest pose) into one geometry with per-vertex colours
+    root.updateMatrixWorld(true);
+    const parts: ColoredPart[] = [];
+    bodyGroup.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      parts.push({
+        geometry: m.geometry,
+        matrix: m.matrixWorld.clone(),
+        color: (m.material as THREE.MeshStandardMaterial).color,
+      });
+    });
+    const lowDetail = new THREE.Mesh(mergeColoredParts(parts), LOW_DETAIL_MAT);
+    lowDetail.visible = false;
+    root.add(lowDetail);
+
     // Slight natural height variation across individuals
     const heightScale = isFemale ? 0.92 + Math.random() * 0.07 : 0.97 + Math.random() * 0.09;
     root.scale.set(heightScale, heightScale, heightScale);
@@ -223,6 +257,7 @@ export class PedestrianFactory {
       leftLegPivot,
       rightLegPivot,
       gender,
+      lowDetail,
       walkPhase: Math.random() * Math.PI * 2,
       palette: {
         topHex: TOP_PALETTE[topIdx],

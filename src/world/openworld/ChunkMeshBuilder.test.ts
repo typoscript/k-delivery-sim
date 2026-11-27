@@ -14,6 +14,7 @@ const MATS: ChunkMaterials = {
   park: mat(),
   water: mat(),
   plaza: mat(),
+  farBuildings: mat(),
 };
 
 const box = (cx: number, cz: number, w: number, d: number, height: number, clockwise = false): OsmBuildingData => {
@@ -39,6 +40,15 @@ const box = (cx: number, cz: number, w: number, d: number, height: number, clock
     maxZ: cz + d / 2,
     pts,
   };
+};
+
+/** All meshes in the chunk group, including both LOD levels */
+const meshesOf = (g: THREE.Object3D): THREE.Mesh[] => {
+  const out: THREE.Mesh[] = [];
+  g.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) out.push(o as THREE.Mesh);
+  });
+  return out;
 };
 
 const NO_ROADS = { nodes: [], edges: [], discNodeIds: [], nodeMaxWidth: new Float32Array(0) };
@@ -91,21 +101,46 @@ describe('buildChunkMeshes', () => {
 
   it('merges by material: a fixed small number of draw calls', () => {
     const r = buildChunkMeshes(chunk, roads, MATS);
-    // villa walls (low) + apt walls (tall) + 2 roofs + road + lines + park + water
+    // near level: villa walls (low) + apt walls (tall) + 2 roofs; + road + lines + park + water
     expect(r.drawCalls).toBe(8);
-    // only tall (>= 18m) buildings cast shadows
-    const casters = r.group.children.filter((m) => (m as THREE.Mesh).castShadow);
+    // only tall (>= 18m) buildings cast shadows (far LOD never does)
+    const casters = meshesOf(r.group).filter((m) => m.castShadow);
     expect(casters).toHaveLength(2);
+    // far LOD: one merged untextured mesh for all buildings of the chunk
+    const lod = r.group.children.find((c) => (c as THREE.LOD).isLOD) as THREE.LOD;
+    expect(lod.levels).toHaveLength(2);
+    expect(meshesOf(lod.levels[1].object)).toHaveLength(1);
+    expect(meshesOf(lod.levels[1].object)[0].material).toBe(MATS.farBuildings);
   });
 
   it('builds every triangle front-facing (walls outward, flat surfaces up), whatever the footprint winding', () => {
     const r = buildChunkMeshes(chunk, roads, MATS);
-    for (const m of r.group.children) expectFrontFacing((m as THREE.Mesh).geometry);
+    for (const m of meshesOf(r.group)) expectFrontFacing(m.geometry);
+  });
+
+  it('keeps LOD levels in world space and switches to the far mesh beyond the LOD distance', () => {
+    const r = buildChunkMeshes(chunk, roads, MATS);
+    r.group.updateMatrixWorld(true);
+    const lod = r.group.children.find((c) => (c as THREE.LOD).isLOD) as THREE.LOD;
+    const far = meshesOf(lod.levels[1].object)[0];
+    far.geometry.computeBoundingBox();
+    const bb = far.geometry.boundingBox!.clone().applyMatrix4(far.matrixWorld);
+    // the 12x12 building at x=30 still ends at x=36 in world space
+    expect(bb.max.x).toBeCloseTo(36, 3);
+    const cam = new THREE.PerspectiveCamera();
+    cam.position.set(15, 2, 0);
+    cam.updateMatrixWorld();
+    lod.update(cam);
+    expect(lod.getCurrentLevel()).toBe(0);
+    cam.position.set(15, 2, 1000);
+    cam.updateMatrixWorld();
+    lod.update(cam);
+    expect(lod.getCurrentLevel()).toBe(1);
   });
 
   it('points wall normals away from the building centre', () => {
     const r = buildChunkMeshes({ ...chunk, buildings: [box(5, 5, 10, 10, 12, true)] }, NO_ROADS, MATS);
-    const walls = r.group.children[0] as THREE.Mesh;
+    const walls = meshesOf(r.group).find((m) => m.material === MATS.walls.villa)!;
     const p = walls.geometry.getAttribute('position');
     const n = walls.geometry.getAttribute('normal');
     for (let i = 0; i < p.count; i++) {
@@ -116,7 +151,7 @@ describe('buildChunkMeshes', () => {
 
   it('extrudes walls to the building height', () => {
     const r = buildChunkMeshes({ ...chunk, buildings: [box(0, 0, 10, 10, 33)] }, NO_ROADS, MATS);
-    const bb = (r.group.children[0] as THREE.Mesh).geometry.boundingBox!;
+    const bb = meshesOf(r.group).find((m) => m.material === MATS.walls.apt)!.geometry.boundingBox!;
     expect(bb.max.y).toBeCloseTo(33);
     expect(bb.min.y).toBeCloseTo(0);
   });
@@ -126,7 +161,7 @@ describe('buildChunkMeshes', () => {
     const r = buildChunkMeshes(chunk, roads, MATS);
     parent.add(r.group);
     let disposed = 0;
-    const meshes = [...r.group.children] as THREE.Mesh[];
+    const meshes = meshesOf(r.group);
     meshes.forEach((m) => m.geometry.addEventListener('dispose', () => disposed++));
     let matDisposed = 0;
     MATS.road.addEventListener('dispose', () => matDisposed++);
@@ -145,7 +180,7 @@ describe('buildChunkMeshes', () => {
     const ms = performance.now() - t0;
     expect(r.buildingCount).toBe(heaviest.buildings);
     expect(r.drawCalls).toBeLessThanOrEqual(12);
-    for (const m of r.group.children) expectFrontFacing((m as THREE.Mesh).geometry);
+    for (const m of meshesOf(r.group)) expectFrontFacing(m.geometry);
     // Built on the main thread during streaming: must stay well under a frame budget
     expect(ms).toBeLessThan(40);
   });

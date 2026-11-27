@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { excludeFromMirrors } from './renderLayers';
 import { SignalStateSnapshot } from './TrafficSystem';
-import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
+import { PedestrianFactory, setPedestrianDetail, PedestrianRig } from './PedestrianFactory';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { CrosswalkAxis, PedestrianEdge, PedestrianGraph } from './PedestrianGraph';
 
@@ -64,6 +64,9 @@ const SIDEWALK_Y = 0.16;
 const ROAD_Y = 0.04;
 const CULL_DISTANCE = 80;
 const CULL_DISTANCE_SQ = CULL_DISTANCE * CULL_DISTANCE;
+/** Within this distance pedestrians use the full articulated rig, beyond it the merged far-LOD mesh */
+export const PEDESTRIAN_DETAIL_DISTANCE = 32;
+const DETAIL_DISTANCE_SQ = PEDESTRIAN_DETAIL_DISTANCE * PEDESTRIAN_DETAIL_DISTANCE;
 const BLINK_THRESHOLD_SEC = 2.2; // last 2.2s of green = blinking -> 1.5x sprint!
 const BLINK_RUN_MULTIPLIER = 1.5;
 
@@ -365,6 +368,8 @@ export class PedestrianManager {
       const isVisible = distPlayerSq <= CULL_DISTANCE_SQ;
       a.visible = isVisible;
       a.rig.root.visible = isVisible;
+      // LOD: full 12-part animated rig only close to the player; beyond that one merged mesh
+      const fullDetail = isVisible && setPedestrianDetail(a.rig, distPlayerSq <= DETAIL_DISTANCE_SQ);
 
       // --- A. Direct Contact Collision Detection (BoundingSphere + AABB, ONLY when riding >= 5 km/h!) ---
       if (
@@ -621,7 +626,7 @@ export class PedestrianManager {
       if (isVisible) {
         a.rig.root.position.set(a.x, a.y, a.z);
         a.rig.root.rotation.y = a.heading;
-        PedestrianFactory.updateWalkAnimation(a.rig, a.currentSpeed, clampedDt);
+        if (fullDetail) PedestrianFactory.updateWalkAnimation(a.rig, a.currentSpeed, clampedDt);
       }
     }
   }

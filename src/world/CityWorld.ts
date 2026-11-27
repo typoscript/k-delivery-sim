@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
+import { buildInstanced, placeMatrix } from './instancing';
 import {
   createAsphaltTexture,
   createBuildingMaterials,
@@ -372,6 +373,7 @@ export class CityWorld {
           metalness: 0.38,
         }),
         plaza: this.plazaMat ?? new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
+        farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
       },
       { chunkBaseUrl: './map/suwon/chunks/' }
     );
@@ -635,8 +637,8 @@ export class CityWorld {
         else incident.set(id, [e]);
       }
     }
+    const crosswalkMatrices: THREE.Matrix4[] = [];
     for (const sn of signalNodes) {
-      const crosswalkGroup = new THREE.Group();
       const localManholes: Array<[number, number]> = [
         [sn.x + 2.8, sn.z + 2.8],
         [sn.x - 2.8, sn.z - 2.6],
@@ -666,13 +668,17 @@ export class CityWorld {
         const cwCenterZ = sn.z + uz * 7.8;
         const halfW = e.width * 0.42;
         for (let off = -halfW; off <= halfW; off += 1.65) {
-          const bar = new THREE.Mesh(stripeGeo, this.crosswalkPaintMat);
-          bar.position.set(cwCenterX + rx * off, 0.054, cwCenterZ + rz * off);
-          bar.rotation.y = heading;
-          crosswalkGroup.add(bar);
+          crosswalkMatrices.push(placeMatrix(cwCenterX + rx * off, 0.054, cwCenterZ + rz * off, heading));
         }
       }
-      this.addProp(crosswalkGroup, sn.x, sn.z);
+    }
+    // Every zebra stripe in the city is one instance of a single InstancedMesh (1 draw call)
+    if (crosswalkMatrices.length > 0) {
+      const stripes = buildInstanced(stripeGeo, this.crosswalkPaintMat, crosswalkMatrices);
+      stripes.receiveShadow = true;
+      excludeFromMirrors(stripes);
+      this.root.add(stripes);
+      freezeStatic(stripes);
     }
 
     if (manholePositions.length > 0) {
@@ -1543,24 +1549,20 @@ export class CityWorld {
     const poolGeo = new THREE.PlaneGeometry(14, 14);
     poolGeo.rotateX(-Math.PI / 2);
 
-    for (const [lx, lz] of lampPositions) {
-      const g = new THREE.Group();
-      g.position.set(lx, 0.05, lz);
-      const pole = new THREE.Mesh(poleGeo, poleMat);
-      pole.position.y = 3.1;
-      const lamp = new THREE.Mesh(lampGeo, this.lampGlowMat);
-      lamp.position.y = 6.2;
-      g.add(pole, lamp);
-      this.addProp(g, lx, lz);
-
-      // Warm golden streetlamp light pool projected onto asphalt at night (zero PointLight cost!)
-      const pool = new THREE.Mesh(poolGeo, poolMat);
-      pool.position.set(lx, 0.072, lz);
-      excludeFromMirrors(pool);
-      this.streetLampPoolGroup.add(pool);
-      freezeStatic(pool);
-      this.culler?.register(pool, lx, lz);
+    // All lamp poles / heads / night light pools city-wide: 3 InstancedMeshes (was 3 meshes per lamp)
+    const poles = buildInstanced(poleGeo, poleMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 3.15, lz)));
+    const heads = buildInstanced(lampGeo, this.lampGlowMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 6.25, lz)));
+    // Warm golden streetlamp light pools projected onto asphalt at night (zero PointLight cost!)
+    const pools = buildInstanced(poolGeo, poolMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 0.072, lz)));
+    poles.castShadow = true;
+    for (const m of [poles, heads]) {
+      excludeFromMirrors(m);
+      this.root.add(m);
+      freezeStatic(m);
     }
+    excludeFromMirrors(pools);
+    this.streetLampPoolGroup.add(pools);
+    freezeStatic(pools);
     this.streetLampPoolGroup.visible = false;
     this.root.add(this.streetLampPoolGroup);
   }

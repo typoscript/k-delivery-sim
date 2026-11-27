@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
+import { buildInstanced, mergeColoredParts, placeMatrix } from './instancing';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
@@ -120,13 +121,11 @@ export class TrafficSystem {
   private readonly tmpMin = new THREE.Vector3();
   private readonly tmpMax = new THREE.Vector3();
 
-  /** Signal gantries with their junction position (distance-culled on the city-sized unified map) */
-  private readonly signalProps: Array<{ g: THREE.Group; x: number; z: number }> = [];
-  private signalCullTimer = 0;
-  private readonly cullSignals = ACTIVE_MAP_DATA.meta.unified === true;
 
   private readonly carWheelGeo: THREE.CylinderGeometry;
   private readonly carRimGeo: THREE.CylinderGeometry;
+  private readonly carWheelMergedGeo: THREE.BufferGeometry;
+  private readonly carWheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.25 });
 
   constructor(scene: THREE.Scene, busStops: BusStopPoint[]) {
     this.busStops = busStops;
@@ -148,6 +147,11 @@ export class TrafficSystem {
     this.carWheelGeo.rotateZ(Math.PI / 2);
     this.carRimGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.24, 8);
     this.carRimGeo.rotateZ(Math.PI / 2);
+    const identity = new THREE.Matrix4();
+    this.carWheelMergedGeo = mergeColoredParts([
+      { geometry: this.carWheelGeo, matrix: identity, color: 0x111827 },
+      { geometry: this.carRimGeo, matrix: identity, color: 0xcbd5e1 },
+    ]);
 
     this.nsRedMat = new THREE.MeshStandardMaterial({ color: 0x3b0a0a, emissive: 0xef4444, emissiveIntensity: 0 });
     this.nsYellowMat = new THREE.MeshStandardMaterial({ color: 0x3b2c0a, emissive: 0xfacc15, emissiveIntensity: 0 });
@@ -169,6 +173,13 @@ export class TrafficSystem {
     const boxGeo = new THREE.BoxGeometry(1.5, 0.48, 0.26);
     const lampGeo = new THREE.CircleGeometry(0.14, 10);
 
+    // Every gantry part is ONE InstancedMesh for the whole city (was ~11 meshes per gantry,
+    // 940 gantries): pole, arm, housing and the 3 lamp colours per signal phase.
+    const poleM: THREE.Matrix4[] = [];
+    const armM: THREE.Matrix4[] = [];
+    const boxM: THREE.Matrix4[] = [];
+    const lampM = { ns: [[], [], []] as THREE.Matrix4[][], ew: [[], [], []] as THREE.Matrix4[][] };
+    const flip = new THREE.Matrix4().makeRotationY(Math.PI);
     for (const n of ACTIVE_MAP_DATA.nodes) {
       if (!n.isSignal) continue;
       // Place 2 diagonal corner signal gantries at each signalized Suwon intersection
@@ -176,43 +187,38 @@ export class TrafficSystem {
         [n.x + 7.2, n.z + 7.2, 0, true],
         [n.x - 7.2, n.z - 7.2, Math.PI / 2, false],
       ];
-
       for (const [cx, cz, rotY, isNS] of corners) {
-        const g = new THREE.Group();
-        g.position.set(cx, 0, cz);
-        g.rotation.y = rotY;
-
-        const pole = new THREE.Mesh(poleGeo, poleMat);
-        pole.position.y = 2.7;
-        const arm = new THREE.Mesh(armGeo, poleMat);
-        arm.position.set(0, 5.2, -1.7);
-        const box = new THREE.Mesh(boxGeo, housingMat);
-        box.position.set(0, 5.15, -3.1);
-
-        const rMat = isNS ? this.nsRedMat : this.ewRedMat;
-        const yMat = isNS ? this.nsYellowMat : this.ewYellowMat;
-        const gMat = isNS ? this.nsGreenMat : this.ewGreenMat;
-
+        const base = placeMatrix(cx, 0, cz, rotY);
+        poleM.push(base.clone().multiply(new THREE.Matrix4().makeTranslation(0, 2.7, 0)));
+        armM.push(base.clone().multiply(new THREE.Matrix4().makeTranslation(0, 5.2, -1.7)));
+        boxM.push(base.clone().multiply(new THREE.Matrix4().makeTranslation(0, 5.15, -3.1)));
+        const lamps = isNS ? lampM.ns : lampM.ew;
         for (const faceDir of [-1, 1]) {
           const zOff = -3.1 + faceDir * 0.14;
-          const rMesh = new THREE.Mesh(lampGeo, rMat);
-          rMesh.position.set(-0.46, 5.15, zOff);
-          if (faceDir < 0) rMesh.rotation.y = Math.PI;
-          const yMesh = new THREE.Mesh(lampGeo, yMat);
-          yMesh.position.set(0, 5.15, zOff);
-          if (faceDir < 0) yMesh.rotation.y = Math.PI;
-          const gMesh = new THREE.Mesh(lampGeo, gMat);
-          gMesh.position.set(0.46, 5.15, zOff);
-          if (faceDir < 0) gMesh.rotation.y = Math.PI;
-          g.add(rMesh, yMesh, gMesh);
+          [-0.46, 0, 0.46].forEach((lx, ci) => {
+            const local = new THREE.Matrix4().makeTranslation(lx, 5.15, zOff);
+            if (faceDir < 0) local.multiply(flip);
+            lamps[ci].push(base.clone().multiply(local));
+          });
         }
-
-        g.add(pole, arm, box);
-        this.root.add(g);
-        this.signalProps.push({ g, x: n.x, z: n.z });
-        excludeFromMirrors(g);
-        freezeStatic(g);
       }
+    }
+    const parts: THREE.InstancedMesh[] = [
+      buildInstanced(poleGeo, poleMat, poleM),
+      buildInstanced(armGeo, poleMat, armM),
+      buildInstanced(boxGeo, housingMat, boxM),
+      buildInstanced(lampGeo, this.nsRedMat, lampM.ns[0]),
+      buildInstanced(lampGeo, this.nsYellowMat, lampM.ns[1]),
+      buildInstanced(lampGeo, this.nsGreenMat, lampM.ns[2]),
+      buildInstanced(lampGeo, this.ewRedMat, lampM.ew[0]),
+      buildInstanced(lampGeo, this.ewYellowMat, lampM.ew[1]),
+      buildInstanced(lampGeo, this.ewGreenMat, lampM.ew[2]),
+    ];
+    parts[0].castShadow = true;
+    for (const m of parts) {
+      excludeFromMirrors(m);
+      this.root.add(m);
+      freezeStatic(m);
     }
   }
 
@@ -231,7 +237,6 @@ export class TrafficSystem {
     const group = new THREE.Group();
     const wheels: THREE.Object3D[] = [];
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.9 });
-    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.7, roughness: 0.3 });
     const glassMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.15, metalness: 0.55 });
     const brakeMat = new THREE.MeshStandardMaterial({
       color: 0x991b1b,
@@ -326,7 +331,8 @@ export class TrafficSystem {
     ]) {
       const wg = new THREE.Group();
       wg.position.set(wx, 0.34, wz);
-      wg.add(new THREE.Mesh(this.carWheelGeo, tireMat), new THREE.Mesh(this.carRimGeo, rimMat));
+      // Tire + rim baked into one vertex-coloured mesh: 1 draw call per wheel instead of 2
+      wg.add(new THREE.Mesh(this.carWheelMergedGeo, this.carWheelMat));
       group.add(wg);
       wheels.push(wg);
     }
@@ -557,17 +563,6 @@ export class TrafficSystem {
     pedestrians?: ReadonlyArray<{ x: number; z: number; fsm: string }>
   ): void {
     const clampedDt = Math.min(dt, 0.05);
-
-    // 0. Hide signal gantries far from the player (470 junctions city-wide, ~20 near the player)
-    if (this.cullSignals) {
-      this.signalCullTimer -= clampedDt;
-      if (this.signalCullTimer <= 0) {
-        this.signalCullTimer = 0.5;
-        for (const sp of this.signalProps) {
-          sp.g.visible = Math.abs(sp.x - playerX) < 520 && Math.abs(sp.z - playerZ) < 520;
-        }
-      }
-    }
 
     // 1. Update 3-color traffic signal cycle
     const t = elapsedTime % CYCLE_DURATION;
