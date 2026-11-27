@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DAILY_MISSION_BONUS,
-  DAILY_MISSION_TARGET,
   DeliveryManager,
   MAX_CONCURRENT_ORDERS,
   VILLA_STAIR_BONUS,
 } from './DeliveryManager';
 import { DeliveryLocation } from '../types';
+import { SHIFT_GOALS } from './ShiftDay';
+import { SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
+
+const DAILY_MISSION_TARGET = SHIFT_GOALS[0].target;
+const DAILY_MISSION_BONUS = SHIFT_GOALS[0].bonus;
 
 const loc = (id: string, x: number, z: number, type: 'shop' | 'residential', extra: Partial<DeliveryLocation> = {}): DeliveryLocation => ({
   id,
@@ -155,5 +158,51 @@ describe('DeliveryManager mission flow', () => {
     expect(l.netProfit - startLedger).toBe(dm.totalEarnings - start);
     expect(l.completedCount).toBe(DAILY_MISSION_TARGET);
     expect([0, DAILY_MISSION_BONUS]).toContain(missionBonus);
+  });
+
+  it('daily goals pay once each: 3 deliveries, then 2 rush-hour deliveries', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    const paid: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = deliver(dm, accept(dm).order.id);
+      paid.push(...r.goalsCompleted.map((g) => g.id));
+    }
+    expect(paid).toEqual(['deliveries']);
+    dm.setDemandPhase(demandPhaseAt(12 * 60)); // lunch rush: new calls carry the peak surcharge
+    for (let i = 0; i < 2; i++) {
+      const r = deliver(dm, accept(dm).order.id);
+      paid.push(...r.goalsCompleted.map((g) => g.id));
+    }
+    expect(paid).toEqual(['deliveries', 'peak']);
+    expect(dm.getShiftGoals().map((g) => g.claimed)).toEqual([true, true, false]);
+  });
+
+  it('clock-out pays the accident-free bonus, closes the day and starts the next one fresh', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);
+    const wallet = dm.totalEarnings;
+    const res = dm.clockOut()!;
+    expect(res.day).toBe(1);
+    expect(res.nextDay).toBe(2);
+    expect(res.awardedAtClockOut.map((g) => g.id)).toEqual(['safe']);
+    expect(dm.totalEarnings).toBe(wallet + SHIFT_GOALS[2].bonus);
+    expect(res.ledger.completedCount).toBe(3);
+    expect(res.ledger.missionBonusTotal).toBe(SHIFT_GOALS[0].bonus + SHIFT_GOALS[2].bonus);
+    // day 2: empty ledger, fresh goals, shift start time
+    expect(dm.shiftDay).toBe(2);
+    expect(dm.getDailyLedger().completedCount).toBe(0);
+    expect(dm.getDailyLedger().netProfit).toBe(0);
+    expect(dm.getShiftGoals().every((g) => !g.claimed)).toBe(true);
+    expect(dm.shiftClockMinute).toBe(SHIFT_START_MINUTE);
+  });
+
+  it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);
+    dm.applyPedestrianAccidentPenalty();
+    const m = accept(dm);
+    expect(dm.clockOut()).toBeNull(); // still has an order
+    dm.cancelMission(m.order.id);
+    expect(dm.clockOut()!.awardedAtClockOut).toEqual([]);
   });
 });

@@ -298,7 +298,7 @@ const exitCorridorToStreet = () => {
 };
 
 let npcTookFoodBag = false;
-let pendingMissionBonusPopup: { target: number; bonus: number; totalWallet: number } | null = null;
+let pendingMissionBonusPopup: { title: string; bonus: number; totalWallet: number } | null = null;
 
 const finalizeCorridorSettlement = () => {
   renderer.render(scene, camera);
@@ -316,7 +316,7 @@ const finalizeCorridorSettlement = () => {
     }
     if (result.missionJustCompleted) {
       pendingMissionBonusPopup = {
-        target: delivery.getDailyMissionStatus().target,
+        title: result.goalsCompleted.map((g) => `${g.icon} ${g.title}`).join(' · '),
         bonus: result.missionBonusAwarded,
         totalWallet: result.totalEarnings,
       };
@@ -583,8 +583,8 @@ const modalUi = new ModalUi({
       const info = pendingMissionBonusPopup;
       pendingMissionBonusPopup = null;
       audio.playMissionBonusFanfare();
-      modalUi.showMissionBonusPopup(info.target, info.bonus, info.totalWallet);
-      hud.showToast(`🏆 일일 배달 미션 달성! +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
+      modalUi.showMissionBonusPopup(info.title, info.bonus, info.totalWallet);
+      hud.showToast(`🏆 오늘의 목표 달성! ${info.title} +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
       return;
     }
     hud.showToast(
@@ -994,6 +994,25 @@ const hud = new Hud(
       hud.phoneMap.setZoomed(false);
       modalUi.openDailyReportModal(delivery.getDailyLedger());
     },
+    onClockOut: () => {
+      const res = delivery.clockOut();
+      if (!res) {
+        hud.showToast('📦 배달 중인 주문을 모두 마친 뒤 퇴근할 수 있어요', 3200);
+        return;
+      }
+      // Next working day starts at the shift start time (just before the lunch rush)
+      gameCtx.clock.jumpTo(delivery.shiftClockMinute);
+      applyGameClock(gameCtx, false);
+      hud.phoneMap.setZoomed(false);
+      audio.playMissionBonusFanfare();
+      modalUi.openDailyReportModal(res.ledger, res);
+      const bonus = res.awardedAtClockOut.reduce((a, g) => a + g.bonus, 0);
+      hud.showToast(
+        `🏁 ${res.day}일차 퇴근 완료${bonus > 0 ? ` · 🛡️ 무사고 보너스 +₩${bonus.toLocaleString()}` : ''} · ${res.nextDay}일차 ${gameCtx.clock.label} 출근!`,
+        5200
+      );
+      voiceNav.speak(`${res.day}일차 근무를 마쳤습니다. 수고하셨습니다.`);
+    },
     onInteractMission: handleContextInteract,
     onTogglePhone: handleTogglePhone,
     onToggleZoom: handleTogglePhoneZoom,
@@ -1182,8 +1201,12 @@ const gameCtx: GameContext = {
   onboardingSettings,
   handheldPhone3D,
   handheldFoodBag3D,
-  clock: new GameClock(),
+  // Resume the saved working day's time (a new rider starts at 10:40, just before the lunch rush)
+  clock: new GameClock(delivery.shiftClockMinute),
 };
+// Save the shift clock regularly and when the page is hidden / closed so a reload resumes the same time
+window.setInterval(() => delivery.persistCareer(), 15000);
+window.addEventListener('pagehide', () => delivery.persistCareer());
 applyGameClock(gameCtx, false);
 
 const pressed = installKeyboardInput(gameCtx, {

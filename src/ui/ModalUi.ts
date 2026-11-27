@@ -1,6 +1,7 @@
 import {
   ActiveMission,
   CARGO_SLOT_COUNT,
+  ClockOutResult,
   DailyFinanceLedger,
   DeliveryManager,
   DeliveryOrder,
@@ -127,6 +128,8 @@ export class ModalUi {
   // Daily Comprehensive Settlement Dashboard Modal
   private readonly reportBackdrop = document.getElementById('daily-report-modal')!;
   private readonly reportBody = document.getElementById('daily-report-body')!;
+  private readonly reportOkBtn = document.getElementById('daily-report-ok-btn')!;
+  private readonly reportTitleEl = document.getElementById('daily-report-title')!;
 
   // Daily Mission Bonus Celebration Modal
   private readonly missionBonusBackdrop = document.getElementById('mission-bonus-modal')!;
@@ -674,9 +677,28 @@ export class ModalUi {
     this.cvsBackdrop.classList.remove('hidden');
   }
 
-  public openDailyReportModal(ledger: DailyFinanceLedger): void {
+  /**
+   * Daily settlement report. With `clockOut` it is the end-of-shift receipt: today's goals and the
+   * clock-out bonus are listed and the button starts the next working day.
+   */
+  public openDailyReportModal(ledger: DailyFinanceLedger, clockOut?: ClockOutResult): void {
     this.closeAll();
     this.activeModal = 'daily_report';
+    this.reportOkBtn.textContent = clockOut ? `🌅 ${clockOut.nextDay}일차 출근하기` : '확인 (Esc)';
+    this.reportTitleEl.textContent = clockOut
+      ? `🏁 ${clockOut.day}일차 퇴근 정산 명세서`
+      : `🧾 배민커넥트 ${ledger.shiftDay}일차 정산 명세서`;
+    const goalsHtml = clockOut
+      ? `<div class="rep-section">
+        <div class="rep-sec-title">📅 ${clockOut.day}일차 목표</div>
+        ${clockOut.goals
+          .map(
+            (g) =>
+              `<div class="rep-line ${g.claimed ? 'inc' : ''}"><span>${g.claimed ? '✅' : '⬜'} ${g.icon} ${g.title}</span><span>${g.claimed ? `+₩${g.bonus.toLocaleString()}` : '미달성'}</span></div>`
+          )
+          .join('')}
+      </div>`
+      : '';
 
     const netNeg = ledger.netProfit < 0;
     const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
@@ -717,6 +739,7 @@ export class ModalUi {
         <div class="rep-line exp"><span>🏪 편의점 음료·충전</span><span>-${fmt(ledger.convenienceExpense)}</span></div>
         <div class="rep-line sub exp"><span>총 차감/지출 소계</span><span>-${fmt(ledger.totalExpenses)}</span></div>
       </div>
+      ${goalsHtml}
       <div class="rep-section">
         <div class="rep-line inc"><span>💼 누적 영구 저장 지갑 잔고 (${ledger.riderTier.icon} 누적 ${ledger.lifetimeCompleted}건)</span><span>₩${ledger.walletBalance.toLocaleString()}</span></div>
       </div>
@@ -725,10 +748,10 @@ export class ModalUi {
     this.reportBackdrop.classList.remove('hidden');
   }
 
-  public showMissionBonusPopup(targetCount: number, bonusAmount: number, totalWallet: number): void {
+  public showMissionBonusPopup(goalTitle: string, bonusAmount: number, totalWallet: number): void {
     this.closeAll();
     this.activeModal = 'mission_bonus';
-    this.mbTitleEl.textContent = `오늘 ${targetCount}건 배달 완료하기 (${targetCount}/${targetCount})`;
+    this.mbTitleEl.textContent = goalTitle;
     this.mbAmountEl.textContent = `+₩${bonusAmount.toLocaleString()} 보너스 지급!`;
     this.mbWalletEl.textContent = `지갑 잔고에 즉시 반영되었습니다 (현재 ₩${totalWallet.toLocaleString()})`;
     this.missionBonusBackdrop.classList.remove('hidden');

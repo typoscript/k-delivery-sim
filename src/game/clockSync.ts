@@ -7,6 +7,7 @@ import { GameContext } from './GameContext';
  */
 export function applyGameClock(ctx: GameContext, announce = true): void {
   const { clock, world, delivery, scooterPhysics, hud, voiceNav } = ctx;
+  delivery.shiftClockMinute = clock.minute;
   const night = world.setNightness(clock.nightness);
   if (delivery.isNightMode !== night) {
     delivery.setNightMode(night);
@@ -34,8 +35,13 @@ export function applyGameClock(ctx: GameContext, announce = true): void {
       voiceNav.speak(`${phase.label} 시간입니다. 주문이 많아집니다.`);
     } else if (announce && wasPeak) {
       hud.showToast(`${prevLabel} 종료 · ${phase.emoji} ${phase.label} 시간대`, 3200);
+    } else if (announce && phase.id === 'dawn') {
+      hud.showToast(
+        `🌌 자정이 지났어요 · 콜이 뜸해져요. 휴대폰 [수익] 탭의 🏁 퇴근하기로 ${delivery.shiftDay}일차를 마감하고 다음 날 출근할 수 있어요`,
+        5600
+      );
     }
   }
 
-  hud.setClock(clock.label, phase);
+  hud.setClock(clock.label, phase, delivery.shiftDay);
 }

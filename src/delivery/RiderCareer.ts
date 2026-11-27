@@ -1,3 +1,5 @@
+import { ShiftSave, parseShiftSave } from './ShiftDay';
+
 export type UpgradeId =
   | 'thermal_box'
   | 'suspension_tires'
@@ -82,8 +84,8 @@ export interface RiderCareerSave {
   reviews: CustomerReview[];
   shopPickupCounts: Record<string, number>;
   shopNames: Record<string, string>;
-  /** Daily 3-delivery mission progress, keyed by local date so a page reload can't re-claim the bonus */
-  dailyMission?: { date: string; progress: number; claimed: boolean };
+  /** Current working day on the game clock (day, time, ledger, goals) so a reload resumes the same shift */
+  shift?: ShiftSave;
 }
 
 /** Local calendar date key (YYYY-MM-DD) for daily mission persistence */
@@ -385,17 +387,7 @@ export function loadRiderCareer(): RiderCareerSave {
         }
       }
     }
-    let dailyMission: RiderCareerSave['dailyMission'];
-    const dm = parsed.dailyMission;
-    if (
-      dm &&
-      typeof dm === 'object' &&
-      typeof dm.date === 'string' &&
-      typeof dm.progress === 'number' &&
-      Number.isFinite(dm.progress)
-    ) {
-      dailyMission = { date: dm.date, progress: Math.max(0, Math.floor(dm.progress)), claimed: dm.claimed === true };
-    }
+    const shift = parseShiftSave(parsed.shift);
     return {
       walletBalance,
       lifetimeCompleted,
@@ -404,7 +396,7 @@ export function loadRiderCareer(): RiderCareerSave {
       reviews,
       shopPickupCounts,
       shopNames,
-      dailyMission,
+      shift,
     };
   } catch {
     return fallback;

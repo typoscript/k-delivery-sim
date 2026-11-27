@@ -191,6 +191,9 @@ export class PhoneMap {
         this.lastSheetFingerprint = '';
       } else if (action === 'open_report') {
         this.callbacks.onOpenDailyReport();
+      } else if (action === 'clock_out') {
+        this.callbacks.onClockOut();
+        this.lastSheetFingerprint = '';
       } else if (action === 'interact') {
         this.callbacks.onInteractMission();
       }

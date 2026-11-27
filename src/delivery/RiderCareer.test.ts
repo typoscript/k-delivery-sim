@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadRiderCareer, localDateKey, saveRiderCareer } from './RiderCareer';
+import { emptyShift } from './ShiftDay';
 
 const store = new Map<string, string>();
 
@@ -29,7 +30,7 @@ describe('loadRiderCareer', () => {
     const c = loadRiderCareer();
     expect(c.walletBalance).toBe(0);
     expect(c.reviews).toEqual([]);
-    expect(c.dailyMission).toBeUndefined();
+    expect(c.shift).toBeUndefined();
   });
 
   it('survives corrupted JSON', () => {
@@ -57,16 +58,29 @@ describe('loadRiderCareer', () => {
     for (const r of reviews) expect(() => '★'.repeat(r.stars) + '☆'.repeat(5 - r.stars)).not.toThrow();
   });
 
-  it('round-trips daily mission progress', () => {
+  it('round-trips the current shift (day, clock, goals, ledger)', () => {
     const c = loadRiderCareer();
-    c.dailyMission = { date: localDateKey(), progress: 3, claimed: true };
+    const shift = emptyShift(4, 13 * 60 + 5);
+    shift.peakDeliveries = 2;
+    shift.claimed = ['deliveries', 'peak'];
+    shift.ledger.completedCount = 5;
+    shift.ledger.peakBonusTotal = 2000;
+    c.shift = shift;
     saveRiderCareer(c);
-    expect(loadRiderCareer().dailyMission).toEqual({ date: localDateKey(), progress: 3, claimed: true });
+    expect(loadRiderCareer().shift).toEqual(shift);
   });
 
-  it('ignores a malformed daily mission entry', () => {
-    writeRaw({ dailyMission: { date: 5, progress: 'x' } });
-    expect(loadRiderCareer().dailyMission).toBeUndefined();
+  it('repairs or drops a malformed shift entry', () => {
+    writeRaw({ shift: { day: 'x', clockMinute: 5 } });
+    expect(loadRiderCareer().shift).toBeUndefined();
+    writeRaw({ shift: { day: 0, clockMinute: 1500, claimed: ['peak', 'bogus', 'peak'], ledger: { tipTotal: 'a', fineExpense: 1000.4 } } });
+    const s = loadRiderCareer().shift!;
+    expect(s.day).toBe(1);
+    expect(s.clockMinute).toBe(60);
+    expect(s.claimed).toEqual(['peak']);
+    expect(s.ledger.tipTotal).toBe(0);
+    expect(s.ledger.fineExpense).toBe(1000);
+    expect(s.peakDeliveries).toBe(0);
   });
 });
 

@@ -2942,6 +2942,19 @@ kbd {
 }
 
 /* Daily Delivery Mission Widget */
+.bc-goals-title {
+  font-size: 11px;
+  font-weight: 900;
+  margin: 2px 2px 0;
+}
+
+.fin-open-btn.clock-out {
+  margin-top: 6px;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  color: #ffffff;
+  border-color: #ea580c;
+}
+
 .bc-mission-card {
   border-radius: 12px;
   padding: 8px 10px;

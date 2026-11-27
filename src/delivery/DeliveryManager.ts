@@ -15,9 +15,18 @@ import {
   getRiderTier,
   getUpgradeEffects,
   loadRiderCareer,
-  localDateKey,
   saveRiderCareer,
 } from './RiderCareer';
+import {
+  SHIFT_LEDGER_KEYS,
+  ShiftGoalId,
+  ShiftGoalSpec,
+  ShiftGoalStatus,
+  ShiftLedger,
+  emptyShift,
+  goalsToAward,
+  shiftGoalStatuses,
+} from './ShiftDay';
 
 export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
@@ -34,19 +43,18 @@ export const ALTTLE_FLAT_FEE = 2800; // 알뜰배달 기본 2,800원 x 2건
 export const ALTTLE_TIME_LIMIT_SEC = 500; // 알뜰배달 제한시간 500초
 export const FUEL_PRICE_PER_PERCENT = 40; // full 0->100% fill = ₩4,000
 export const REPAIR_COST_PER_DAMAGE_STAGE = 2500; // stage 1..3 = ₩2,500..₩7,500
-export const DAILY_MISSION_TARGET = 3; // 오늘 3건 배달 완료하기
-export const DAILY_MISSION_BONUS = 5000; // +₩5,000 미션 달성 보너스
 export const PEDESTRIAN_ACCIDENT_FINE = 50000; // 보행자 접촉 사고 과태료 및 합의금 -50,000원
 export const PEDESTRIAN_RATING_PENALTY = 1.0; // 보행자 사고 신뢰 평점 -1.0점 감점
 export const INITIAL_RIDER_RATING = 5.0; // 배달 기사 초기 신뢰 평점 (5.0 만점)
 
-export interface DailyMissionStatus {
-  title: string;
-  current: number;
-  target: number;
-  bonus: number;
-  completed: boolean;
-  progressPct: number;
+/** Result of clocking out: the finished day's ledger and goals, after which the next day starts */
+export interface ClockOutResult {
+  day: number;
+  ledger: DailyFinanceLedger;
+  goals: ShiftGoalStatus[];
+  /** Goals paid at clock-out (e.g. accident-free shift) */
+  awardedAtClockOut: ShiftGoalSpec[];
+  nextDay: number;
 }
 
 export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';
@@ -187,6 +195,8 @@ export function generateKoreanLobbyPin(): { code: string; label: string } {
 }
 
 export interface DailyFinanceLedger {
+  /** Working day (N일차) this ledger belongs to */
+  shiftDay: number;
   completedCount: number;
   baseFeeTotal: number;
   distanceBonusTotal: number;
@@ -307,6 +317,8 @@ export interface SettlementResult {
   completedCount: number;
   missionJustCompleted: boolean;
   missionBonusAwarded: number;
+  /** Daily goals completed by this delivery (their bonuses are in missionBonusAwarded) */
+  goalsCompleted: ShiftGoalSpec[];
   review: CustomerReview;
 }
 
@@ -369,10 +381,13 @@ export class DeliveryManager {
   public tierBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
-  public dailyMissionClaimed = false;
-  /** Deliveries counted toward today's mission (persisted per local date, survives reloads & district switches) */
-  private dailyMissionProgress = 0;
-  private dailyMissionDate = localDateKey();
+  /** Working day (N일차) on the game clock; the ledger above and the goals below belong to it */
+  public shiftDay = 1;
+  /** Game clock minute to resume at after a reload (kept up to date by the game loop) */
+  public shiftClockMinute = SHIFT_START_MINUTE;
+  /** Deliveries of rush-hour calls today (goal: 피크타임 배달 2건) */
+  public peakDeliveries = 0;
+  private readonly claimedGoals = new Set<ShiftGoalId>();
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
@@ -401,11 +416,12 @@ export class DeliveryManager {
     this.totalEarnings = this.career.walletBalance;
     this.lifetimeCompleted = this.career.lifetimeCompleted;
     this.riderRating = this.career.riderRating;
-    const dm = this.career.dailyMission;
-    if (dm && dm.date === this.dailyMissionDate) {
-      this.dailyMissionProgress = dm.progress;
-      this.dailyMissionClaimed = dm.claimed;
-    }
+    const shift = this.career.shift ?? emptyShift(1, SHIFT_START_MINUTE);
+    this.shiftDay = shift.day;
+    this.shiftClockMinute = shift.clockMinute;
+    this.peakDeliveries = shift.peakDeliveries;
+    for (const id of shift.claimed) this.claimedGoals.add(id);
+    this.restoreLedger(shift.ledger);
     this.refreshAvailableOrders();
   }
 
@@ -419,12 +435,71 @@ export class DeliveryManager {
     this.career.walletBalance = Math.round(this.totalEarnings);
     this.career.lifetimeCompleted = this.lifetimeCompleted;
     this.career.riderRating = Math.round(this.riderRating * 10) / 10;
-    this.career.dailyMission = {
-      date: this.dailyMissionDate,
-      progress: this.dailyMissionProgress,
-      claimed: this.dailyMissionClaimed,
+    this.career.shift = {
+      day: this.shiftDay,
+      clockMinute: Math.floor(this.shiftClockMinute),
+      peakDeliveries: this.peakDeliveries,
+      claimed: [...this.claimedGoals],
+      ledger: this.ledgerSnapshot(),
     };
     saveRiderCareer(this.career);
+  }
+
+  private ledgerSnapshot(): ShiftLedger {
+    const out = {} as ShiftLedger;
+    for (const k of SHIFT_LEDGER_KEYS) out[k] = this[k];
+    return out;
+  }
+
+  private restoreLedger(l: ShiftLedger): void {
+    for (const k of SHIFT_LEDGER_KEYS) this[k] = l[k];
+  }
+
+  private goalState() {
+    return {
+      completedCount: this.completedCount,
+      peakDeliveries: this.peakDeliveries,
+      pedestrianAccidentCount: this.pedestrianAccidentCount,
+      claimed: this.claimedGoals,
+    };
+  }
+
+  /** Today's goals (배달 3건 · 피크타임 2건 · 무사고 퇴근) with progress */
+  public getShiftGoals(): ShiftGoalStatus[] {
+    return shiftGoalStatuses(this.goalState());
+  }
+
+  private awardGoals(goals: ShiftGoalSpec[]): number {
+    let total = 0;
+    for (const g of goals) {
+      this.claimedGoals.add(g.id);
+      this.missionBonusTotal += g.bonus;
+      this.totalEarnings += g.bonus;
+      total += g.bonus;
+    }
+    return total;
+  }
+
+  /**
+   * 퇴근: pays clock-out goals, closes today's ledger and starts the next working day at the shift start
+   * time with an empty ledger and fresh goals. Not allowed while orders are still being delivered.
+   */
+  public clockOut(): ClockOutResult | null {
+    if (this.activeMissions.length > 0) return null;
+    const awardedAtClockOut = goalsToAward(this.goalState(), 'clock_out');
+    this.awardGoals(awardedAtClockOut);
+    const day = this.shiftDay;
+    const ledger = this.getDailyLedger();
+    const goals = this.getShiftGoals();
+
+    this.shiftDay = day + 1;
+    this.shiftClockMinute = SHIFT_START_MINUTE;
+    this.peakDeliveries = 0;
+    this.claimedGoals.clear();
+    this.restoreLedger(emptyShift(this.shiftDay, SHIFT_START_MINUTE).ledger);
+    this.persistCareer();
+    this.refreshAvailableOrders();
+    return { day, ledger, goals, awardedAtClockOut, nextDay: this.shiftDay };
   }
 
   public getCurrentTier(): RiderTierSpec {
@@ -1054,27 +1129,14 @@ export class DeliveryManager {
     this.totalEarnings += earned;
     this.completedCount += 1;
     this.lifetimeCompleted += 1;
-    const today = localDateKey();
-    if (today !== this.dailyMissionDate) {
-      // Crossed midnight mid-shift -> start a fresh daily mission
-      this.dailyMissionDate = today;
-      this.dailyMissionProgress = 0;
-      this.dailyMissionClaimed = false;
-    }
-    this.dailyMissionProgress += 1;
+    if (peakBonus > 0) this.peakDeliveries += 1;
     const nextTier = this.getCurrentTier();
     const tierPromotedTo = nextTier.id !== prevTier.id ? nextTier : null;
 
-    // Check daily 3-delivery mission completion (+₩5,000 instant wallet bonus!)
-    let missionJustCompleted = false;
-    let missionBonusAwarded = 0;
-    if (!this.dailyMissionClaimed && this.dailyMissionProgress >= DAILY_MISSION_TARGET) {
-      this.dailyMissionClaimed = true;
-      this.missionBonusTotal += DAILY_MISSION_BONUS;
-      this.totalEarnings += DAILY_MISSION_BONUS;
-      missionJustCompleted = true;
-      missionBonusAwarded = DAILY_MISSION_BONUS;
-    }
+    // Daily goals (배달 3건 +₩5,000 · 피크타임 2건 +₩3,000) pay out the moment they are reached
+    const goalsCompleted = goalsToAward(this.goalState(), 'delivery');
+    const missionBonusAwarded = this.awardGoals(goalsCompleted);
+    const missionJustCompleted = goalsCompleted.length > 0;
 
     const now = new Date();
     const completedAt = `${String(now.getHours()).padStart(2, '0')}:${String(
@@ -1145,6 +1207,7 @@ export class DeliveryManager {
       completedCount: this.completedCount,
       missionJustCompleted,
       missionBonusAwarded,
+      goalsCompleted,
       review,
     };
 
@@ -1479,18 +1542,6 @@ export class DeliveryManager {
     this.persistCareer();
   }
 
-  public getDailyMissionStatus(): DailyMissionStatus {
-    const current = Math.min(this.dailyMissionProgress, DAILY_MISSION_TARGET);
-    return {
-      title: `오늘 ${DAILY_MISSION_TARGET}건 배달 완료하기`,
-      current,
-      target: DAILY_MISSION_TARGET,
-      bonus: DAILY_MISSION_BONUS,
-      completed: this.dailyMissionClaimed,
-      progressPct: Math.min(100, Math.round((current / DAILY_MISSION_TARGET) * 100)),
-    };
-  }
-
   public getDailyLedger(): DailyFinanceLedger {
     const grossIncome =
       this.baseFeeTotal +
@@ -1509,6 +1560,7 @@ export class DeliveryManager {
       this.convenienceExpense +
       this.fineExpense;
     return {
+      shiftDay: this.shiftDay,
       completedCount: this.completedCount,
       baseFeeTotal: this.baseFeeTotal,
       distanceBonusTotal: this.distanceBonusTotal,

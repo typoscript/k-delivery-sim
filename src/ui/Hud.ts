@@ -225,10 +225,10 @@ export class Hud {
   }
 
   /** Game clock pill (time + demand phase) and the smartphone status-bar clock */
-  public setClock(label: string, phase: DemandPhase): void {
+  public setClock(label: string, phase: DemandPhase, day: number): void {
     const text = phase.isPeak
-      ? `🕐 ${label} · ${phase.emoji} ${phase.label} +₩${phase.peakBonus.toLocaleString()}`
-      : `🕐 ${label} · ${phase.emoji} ${phase.label}`;
+      ? `${day}일차 🕐 ${label} · ${phase.emoji} ${phase.label} +₩${phase.peakBonus.toLocaleString()}`
+      : `${day}일차 🕐 ${label} · ${phase.emoji} ${phase.label}`;
     this.phoneMap.clockLabel = label;
     if (text === this.lastClockText) return;
     this.lastClockText = text;

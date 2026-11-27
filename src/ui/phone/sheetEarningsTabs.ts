@@ -2,21 +2,41 @@ import { DeliveryManager } from '../../delivery/DeliveryManager';
 
 /** [수익] top-nav tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
 export function renderDailyMissionWidget(delivery: DeliveryManager): string {
-  const ms = delivery.getDailyMissionStatus();
+  const goals = delivery.getShiftGoals();
+  const done = goals.filter((g) => g.claimed).length;
+  const rows = goals
+    .map((g) => {
+      const reward = g.claimed
+        ? '✓ 지급완료'
+        : g.awardAt === 'clock_out'
+          ? `퇴근 시 +₩${g.bonus.toLocaleString()}`
+          : `+₩${g.bonus.toLocaleString()}`;
+      const sub =
+        g.id === 'safe'
+          ? delivery.pedestrianAccidentCount > 0
+            ? '오늘 보행자 사고가 있어 무사고 보너스는 지급되지 않아요'
+            : g.met
+              ? '지금 퇴근하면 무사고 보너스가 지급돼요'
+              : `${g.target - g.current}건 더 배달하고 사고 없이 퇴근하기`
+          : g.claimed
+            ? '보너스 지갑 반영 완료'
+            : `앞으로 ${g.target - g.current}건`;
+      return `
+      <div class="bc-mission-card ${g.claimed ? 'done' : ''}">
+        <div class="bc-mission-top">
+          <span>${g.icon} ${g.title} (${g.current}/${g.target})</span>
+          <span class="bc-mission-reward">${reward}</span>
+        </div>
+        <div class="bc-mission-track">
+          <div class="bc-mission-fill" style="width:${g.progressPct}%"></div>
+        </div>
+        <div class="bc-mission-sub"><span>${sub}</span><span>${g.progressPct}%</span></div>
+      </div>`;
+    })
+    .join('');
   return `
-    <div class="bc-mission-card ${ms.completed ? 'done' : ''}">
-      <div class="bc-mission-top">
-        <span>🏆 ${ms.title} (현재 ${ms.current}/${ms.target})</span>
-        <span class="bc-mission-reward">${ms.completed ? '✓ 지급완료' : `+₩${ms.bonus.toLocaleString()}`}</span>
-      </div>
-      <div class="bc-mission-track">
-        <div class="bc-mission-fill" style="width:${ms.progressPct}%"></div>
-      </div>
-      <div class="bc-mission-sub">
-        <span>${ms.completed ? '🎉 일일 보너스 +₩5,000 지갑 반영 완료!' : `앞으로 ${ms.target - ms.current}건 더 완료 시 보너스 지급`}</span>
-        <span>${ms.progressPct}%</span>
-      </div>
-    </div>
+    <div class="bc-goals-title">📅 ${delivery.shiftDay}일차 오늘의 목표 (${done}/${goals.length})</div>
+    ${rows}
   `;
 }
 
@@ -24,8 +44,7 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
   const l = delivery.getDailyLedger();
   const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
   const walletSign = l.walletBalance < 0 ? '-' : '';
-  const today = new Date();
-  const dateStr = `${today.getMonth() + 1}월 ${today.getDate()}일 · ${l.completedCount}건`;
+  const dateStr = `${l.shiftDay}일차 · ${l.completedCount}건`;
 
   return `
     ${renderDailyMissionWidget(delivery)}
@@ -51,6 +70,7 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
       </div>
     </div>
     <button class="fin-open-btn" data-action="open_report">📊 전체 화면 정산 명세서 크게 보기</button>
+    <button class="fin-open-btn clock-out" data-action="clock_out">🏁 퇴근하기 · ${l.shiftDay}일차 마감 후 다음 날 출근</button>
   `;
 }
 

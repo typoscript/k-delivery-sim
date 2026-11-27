@@ -227,11 +227,12 @@ export function renderOnFootPhoneOverlay(
     ctx.fillStyle = isNight ? '#38bdf8' : '#0284c7';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    const ms = delivery.getDailyMissionStatus();
+    const goals = delivery.getShiftGoals();
+    const next = goals.find((g) => !g.claimed);
     ctx.fillText(
-      ms.completed
-        ? '🏆 일일 미션 달성! (+₩5,000 지급 완료) · [V] 확대'
-        : `🏆 오늘 미션 ${ms.current}/${ms.target}건 (+₩${ms.bonus.toLocaleString()}) · [V] 확대`,
+      next
+        ? `📅 ${delivery.shiftDay}일차 목표 ${next.icon} ${next.title} ${next.current}/${next.target} · [V] 확대`
+        : `🏆 ${delivery.shiftDay}일차 목표 모두 달성! · [V] 확대`,
       w / 2,
       sheetY + 160
     );
