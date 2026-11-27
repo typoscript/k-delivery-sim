@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ScooterMesh > builds the same cub scooter every time 1`] = `
+{
+  "colorHash": 64695008,
+  "hash": -1368674322,
+  "instances": 0,
+  "meshes": 71,
+  "sceneChildren": 1,
+  "vertices": 2512,
+  "visible": 58,
+}
+`;
+
+exports[`ScooterMesh > builds the same electric scooter every time 1`] = `
+{
+  "colorHash": 1663207427,
+  "hash": -1368674322,
+  "instances": 0,
+  "meshes": 71,
+  "sceneChildren": 1,
+  "vertices": 2512,
+  "visible": 56,
+}
+`;
+
+exports[`ScooterMesh > builds the same pcx scooter every time 1`] = `
+{
+  "colorHash": 73714618,
+  "hash": -1368674322,
+  "instances": 0,
+  "meshes": 71,
+  "sceneChildren": 1,
+  "vertices": 2512,
+  "visible": 56,
+}
+`;
