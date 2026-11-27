@@ -26,6 +26,7 @@ import {
   WORLD_ORIGIN,
   project,
 } from './suwon-config.mjs';
+import { generateDeliverySpots } from './delivery-spots.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -406,6 +407,7 @@ async function main() {
 
   let bCount = 0;
   let bSkipped = 0;
+  const allBuildings = []; // kept for generated delivery spots (step 5)
   for (const el of els) {
     const t = el.tags;
     if (!t?.building) continue;
@@ -439,6 +441,7 @@ async function main() {
       pts: toPts(ring),
     };
     chunkOf(b.cx, b.cz).buildings.push(b);
+    allBuildings.push({ id: el.id, type: el.type, tags: t, kind: b.kind, ring: b.pts, area, height: b.height, cx: b.cx, cz: b.cz, minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ });
     bCount++;
   }
   stats.buildings = { kept: bCount, skipped: bSkipped };
@@ -577,7 +580,25 @@ async function main() {
     };
   }
 
-  // ---------- 5. write
+  // ---------- 5. generated delivery spots: OSM food places -> shops, residential buildings -> customers
+  const generated = generateDeliverySpots({
+    elements: els,
+    buildings: allBuildings,
+    nodes,
+    edges: outEdges,
+    busStops,
+    legacyDistricts,
+    outerRing,
+    chunkOf: (x, z) => {
+      const ix = Math.max(0, Math.min(cols - 1, Math.floor((x - minX) / CHUNK_SIZE_M)));
+      const iz = Math.max(0, Math.min(rows - 1, Math.floor((z - minZ) / CHUNK_SIZE_M)));
+      return `${ix}_${iz}`;
+    },
+    project,
+  });
+  stats.generatedSpots = generated.stats;
+
+  // ---------- 6. write
   await rm(OUT_DIR, { recursive: true, force: true });
   await mkdir(join(OUT_DIR, 'chunks'), { recursive: true });
   const chunkIndex = [];
@@ -614,6 +635,8 @@ async function main() {
     edges: outEdges,
     busStops,
     legacyDistricts,
+    generatedShops: generated.shops,
+    generatedResidences: generated.residences,
     chunks: chunkIndex,
   };
   const worldBody = JSON.stringify(world);

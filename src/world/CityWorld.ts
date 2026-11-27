@@ -122,6 +122,8 @@ export class CityWorld {
     string,
     { leftDoor: THREE.Mesh; rightDoor: THREE.Mesh; open: boolean }
   >();
+  /** Lobby whose door is unlocked (kept separately: open-world lobby props are rebuilt when re-approached) */
+  private openLobbyId: string | null = null;
   private readonly shopTrays = new Map<
     string,
     { bag: THREE.Group; ledMat: THREE.MeshStandardMaterial }
@@ -1440,105 +1442,145 @@ export class CityWorld {
     }
   }
 
-  /** Builds outdoor pickup counters & residential glass lobby portals oriented cleanly toward each Suwon road */
+  /**
+   * Builds outdoor pickup counters & residential glass lobby portals oriented cleanly toward each Suwon road.
+   * Open world: thousands of generated spots, so each prop (with its sign texture) is built only when the
+   * player comes near and disposed again when far away (ProximityCuller lazy entries).
+   */
   private buildPickupWindowsAndLobbies(): void {
-    const counterMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.35, metalness: 0.45 });
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 });
-    const screenMat = new THREE.MeshStandardMaterial({
-      color: 0x0ea5e9,
-      emissive: 0x38bdf8,
-      emissiveIntensity: 0.9,
-    });
-    const glassDoorMat = new THREE.MeshStandardMaterial({
-      color: 0x7dd3fc,
-      roughness: 0.12,
-      metalness: 0.3,
-      transparent: true,
-      opacity: 0.48,
-    });
-    const pinPadMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      emissive: 0x22c55e,
-      emissiveIntensity: 0.6,
-    });
+    const shared = {
+      counterMat: new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.35, metalness: 0.45 }),
+      darkMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 }),
+      innerMat: new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 }),
+      screenMat: new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x38bdf8, emissiveIntensity: 0.9 }),
+      glassDoorMat: new THREE.MeshStandardMaterial({
+        color: 0x7dd3fc,
+        roughness: 0.12,
+        metalness: 0.3,
+        transparent: true,
+        opacity: 0.48,
+      }),
+      pinPadMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x22c55e, emissiveIntensity: 0.6 }),
+    };
+    const sharedMats = new Set<THREE.Material>(Object.values(shared));
 
     for (const loc of this.locations) {
-      const heading = loc.facingHeading ?? 0;
-      const g = new THREE.Group();
-      // Place slightly back from the interaction point so player stands cleanly on sidewalk facing counter/lobby
-      const backX = -Math.sin(heading) * 1.1;
-      const backZ = -Math.cos(heading) * 1.1;
-      g.position.set(loc.x + backX, 0.05, loc.z + backZ);
-      g.rotation.y = heading;
-
-      if (loc.type === 'shop') {
-        const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.72), counterMat);
-        counter.position.set(0, 0.52, 0);
-        const awning = new THREE.Mesh(
-          new THREE.BoxGeometry(3.0, 0.65, 0.25),
-          new THREE.MeshBasicMaterial({
-            map: this.createSignTexture(`${loc.emoji} ${loc.name}`, '#c2410c', '#fff7ed'),
-          })
-        );
-        awning.position.set(0, 2.35, 0.15);
-
-        const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), darkMat);
-        posStand.position.set(0.82, 1.18, 0.08);
-        posStand.rotation.x = -0.35;
-        const posScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.22), screenMat);
-        posScreen.position.set(0.82, 1.21, 0.21);
-        posScreen.rotation.x = -0.35;
-
-        const tray = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.032, 0.42), darkMat);
-        tray.position.set(-0.35, 1.06, 0.04);
-        const trayLedMat = new THREE.MeshStandardMaterial({
-          color: 0x1e293b,
-          emissive: 0xfacc15,
-          emissiveIntensity: 0.08,
+      if (this.culler) {
+        this.culler.registerLazy(this.root, loc.x, loc.z, () => {
+          const built = this.buildLocationProp(loc, shared);
+          mergeStaticByMaterial(built.object, built.keep);
+          excludeFromMirrors(built.object);
+          freezeStatic(built.object);
+          return { object: built.object, dispose: () => this.disposeLocationProp(loc.id, built.object, sharedMats) };
         });
-        const trayLed = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.035, 0.03), trayLedMat);
-        trayLed.position.set(-0.35, 1.07, 0.25);
-
-        const trayBag = HandheldFoodBag3D.createFoodBagMesh();
-        trayBag.position.set(-0.35, 1.21, 0.04);
-        trayBag.scale.set(1.12, 1.12, 1.12);
-        trayBag.visible = false;
-
-        this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
-        g.add(counter, awning, posStand, posScreen, tray, trayLed, trayBag);
-        this.addProp(g, loc.x, loc.z, undefined, (o) => o === trayBag);
       } else {
-        const isVilla = loc.residenceKind === 'walkup_villa';
-        const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), darkMat);
-        archFrame.position.set(0, 1.35, 0);
-        const innerCut = new THREE.Mesh(
-          new THREE.BoxGeometry(2.35, 2.4, 0.45),
-          new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
-        );
-        innerCut.position.set(0, 1.2, -0.02);
-
-        const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), glassDoorMat);
-        leftDoor.position.set(-0.56, 1.18, 0.22);
-        const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), glassDoorMat);
-        rightDoor.position.set(0.56, 1.18, 0.22);
-
-        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.36, 0.08), pinPadMat);
-        pad.position.set(1.32, 1.3, 0.22);
-
-        const signBg = isVilla ? '#065f46' : '#1e3a8a';
-        const lobbySign = new THREE.Mesh(
-          new THREE.BoxGeometry(3.2, 0.62, 0.2),
-          new THREE.MeshBasicMaterial({
-            map: this.createSignTexture(`${loc.emoji} ${loc.name}`, signBg, '#f8fafc'),
-          })
-        );
-        lobbySign.position.set(0, 3.0, 0.16);
-
-        this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: false });
-        g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
-        this.addProp(g, loc.x, loc.z, undefined, (o) => o === leftDoor || o === rightDoor);
+        const built = this.buildLocationProp(loc, shared);
+        this.addProp(built.object, loc.x, loc.z, undefined, built.keep);
       }
     }
+  }
+
+  private buildLocationProp(
+    loc: DeliveryLocation,
+    m: {
+      counterMat: THREE.Material;
+      darkMat: THREE.Material;
+      innerMat: THREE.Material;
+      screenMat: THREE.Material;
+      glassDoorMat: THREE.Material;
+      pinPadMat: THREE.Material;
+    }
+  ): { object: THREE.Group; keep: (o: THREE.Object3D) => boolean } {
+    const heading = loc.facingHeading ?? 0;
+    const g = new THREE.Group();
+    // Place slightly back from the interaction point so player stands cleanly on sidewalk facing counter/lobby
+    const backX = -Math.sin(heading) * 1.1;
+    const backZ = -Math.cos(heading) * 1.1;
+    g.position.set(loc.x + backX, 0.05, loc.z + backZ);
+    g.rotation.y = heading;
+
+    if (loc.type === 'shop') {
+      const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.72), m.counterMat);
+      counter.position.set(0, 0.52, 0);
+      const awning = new THREE.Mesh(
+        new THREE.BoxGeometry(3.0, 0.65, 0.25),
+        new THREE.MeshBasicMaterial({
+          map: this.createSignTexture(`${loc.emoji} ${loc.name}`, '#c2410c', '#fff7ed'),
+        })
+      );
+      awning.position.set(0, 2.35, 0.15);
+
+      const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), m.darkMat);
+      posStand.position.set(0.82, 1.18, 0.08);
+      posStand.rotation.x = -0.35;
+      const posScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.22), m.screenMat);
+      posScreen.position.set(0.82, 1.21, 0.21);
+      posScreen.rotation.x = -0.35;
+
+      const tray = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.032, 0.42), m.darkMat);
+      tray.position.set(-0.35, 1.06, 0.04);
+      const trayLedMat = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        emissive: 0xfacc15,
+        emissiveIntensity: 0.08,
+      });
+      const trayLed = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.035, 0.03), trayLedMat);
+      trayLed.position.set(-0.35, 1.07, 0.25);
+
+      const trayBag = HandheldFoodBag3D.createFoodBagMesh();
+      trayBag.position.set(-0.35, 1.21, 0.04);
+      trayBag.scale.set(1.12, 1.12, 1.12);
+      trayBag.visible = false;
+
+      // syncShopPickupTrays() refreshes the bag / LED from the delivery state every frame
+      this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
+      g.add(counter, awning, posStand, posScreen, tray, trayLed, trayBag);
+      return { object: g, keep: (o) => o === trayBag };
+    }
+
+    const isVilla = loc.residenceKind === 'walkup_villa';
+    const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), m.darkMat);
+    archFrame.position.set(0, 1.35, 0);
+    const innerCut = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.4, 0.45), m.innerMat);
+    innerCut.position.set(0, 1.2, -0.02);
+
+    const leftDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), m.glassDoorMat);
+    leftDoor.position.set(-0.56, 1.18, 0.22);
+    const rightDoor = new THREE.Mesh(new THREE.BoxGeometry(1.12, 2.34, 0.08), m.glassDoorMat);
+    rightDoor.position.set(0.56, 1.18, 0.22);
+
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.36, 0.08), m.pinPadMat);
+    pad.position.set(1.32, 1.3, 0.22);
+
+    const signBg = isVilla ? '#065f46' : '#1e3a8a';
+    const lobbySign = new THREE.Mesh(
+      new THREE.BoxGeometry(3.2, 0.62, 0.2),
+      new THREE.MeshBasicMaterial({
+        map: this.createSignTexture(`${loc.emoji} ${loc.name}`, signBg, '#f8fafc'),
+      })
+    );
+    lobbySign.position.set(0, 3.0, 0.16);
+
+    // A lobby rebuilt while its door is unlocked starts open (updateLobbyDoors animates from here)
+    this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: this.openLobbyId === loc.id });
+    g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
+    return { object: g, keep: (o) => o === leftDoor || o === rightDoor };
+  }
+
+  /** Frees a lazily built counter / lobby: its geometries, sign texture and per-prop materials (not the shared ones) */
+  private disposeLocationProp(id: string, obj: THREE.Object3D, sharedMats: Set<THREE.Material>): void {
+    this.shopTrays.delete(id);
+    this.lobbyDoors.delete(id);
+    obj.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.dispose();
+      for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        if (sharedMats.has(mat)) continue;
+        (mat as THREE.MeshBasicMaterial).map?.dispose();
+        mat.dispose();
+      }
+    });
   }
 
   private buildStreetLamps(): void {
@@ -1579,6 +1621,7 @@ export class CityWorld {
   }
 
   public setLobbyDoorOpen(locationId: string | null): void {
+    this.openLobbyId = locationId;
     for (const [id, entry] of this.lobbyDoors.entries()) {
       entry.open = locationId === id;
     }

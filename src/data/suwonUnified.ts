@@ -9,6 +9,7 @@ export const SUWON_OPEN_WORLD = worldJson as unknown as OpenWorldData;
  * Builds the single game dataset for the unified Suwon open world:
  * - road graph, signals and bus stops cover the whole 6.2km x 4.25km city
  * - every district's hand-tuned shops / residences / gas stations / repair shops are included (world coordinates)
+ * - plus shops & residences generated from OSM across the whole map, so calls exist between the districts too
  * - buildings, parks, waters and pedestrian streets are empty here: they stream in per 200m chunk (ChunkStreamer)
  * - spawn, station and the primary service spots come from the chosen spawn district
  */
@@ -37,8 +38,8 @@ export function buildUnifiedSuwonDataset(spawnDistrictId: SuwonDistrictId): Suwo
     buildings: [],
     parks: [],
     waters: [],
-    shops: districts.flatMap((d) => d.shops),
-    residences: districts.flatMap((d) => d.residences),
+    shops: [...districts.flatMap((d) => d.shops), ...(w.generatedShops ?? [])],
+    residences: [...districts.flatMap((d) => d.residences), ...(w.generatedResidences ?? [])],
     busStops: w.busStops,
     serviceSpots: spawn.serviceSpots,
     serviceSpotList: districts.map((d) => ({

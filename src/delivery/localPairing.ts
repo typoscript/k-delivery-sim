@@ -10,6 +10,8 @@ import { DeliveryLocation } from '../types';
 export const LOCAL_SHOP_RADIUS_M = 900;
 /** Customers for a shop: within this distance of the shop (a realistic delivery radius) */
 export const LOCAL_CUSTOMER_RADIUS_M = 1100;
+/** Customers this close to the shop are skipped when enough farther ones exist (no 20m next-door runs) */
+export const MIN_CUSTOMER_DIST_M = 120;
 /** If too few locations are inside the radius (e.g. between districts), fall back to the nearest N */
 const MIN_CANDIDATES = 3;
 const FALLBACK_NEAREST = 5;
@@ -37,6 +39,8 @@ export function pickLocalCustomer(
   shop: { x: number; z: number },
   rand: () => number = Math.random
 ): DeliveryLocation {
-  const pool = localCandidates(residences, shop.x, shop.z, LOCAL_CUSTOMER_RADIUS_M);
+  const local = localCandidates(residences, shop.x, shop.z, LOCAL_CUSTOMER_RADIUS_M);
+  const far = local.filter((r) => Math.hypot(r.x - shop.x, r.z - shop.z) >= MIN_CUSTOMER_DIST_M);
+  const pool = far.length >= MIN_CANDIDATES ? far : local;
   return pool[Math.floor(rand() * pool.length)];
 }

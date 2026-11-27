@@ -2,7 +2,7 @@
 // Downloads raw OpenStreetMap data for the whole Suwon play area (all 4 districts + the land between)
 // from the public Overpass API and caches it in tools/osm/cache/suwon-raw.json.
 //
-// Usage:  node tools/osm/fetch-suwon.mjs [--force]
+// Usage:  node tools/osm/fetch-suwon.mjs [--force]   (OVERPASS_URL=... to use a single mirror)
 // Data:   © OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)
 
 import { mkdir, writeFile, stat } from 'node:fs/promises';
@@ -12,7 +12,8 @@ import { SUWON_BBOX } from './suwon-config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, 'cache', 'suwon-raw.json');
-const ENDPOINTS = [
+/** OVERPASS_URL=<interpreter url> forces one mirror (useful when the others are down or timing out) */
+const ENDPOINTS = process.env.OVERPASS_URL ? [process.env.OVERPASS_URL] : [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
@@ -22,7 +23,8 @@ const ENDPOINTS = [
 const TILES_X = 3;
 const TILES_Y = 2;
 
-// Roads (drivable), signals, bus stops, buildings, parks/green, water, pedestrian areas & streets
+// Roads (drivable), signals, bus stops, buildings, parks/green, water, pedestrian areas & streets,
+// food places (generated delivery shops) and named residential areas (apartment complex names)
 const buildQuery = (bb) => `
 [out:json][timeout:300];
 (
@@ -39,6 +41,11 @@ const buildQuery = (bb) => `
   way["waterway"~"^(river|stream|canal)$"](${bb});
   way["highway"="pedestrian"](${bb});
   way["area:highway"="pedestrian"](${bb});
+  node["amenity"~"^(restaurant|fast_food|cafe|food_court|ice_cream|pub|bar)$"](${bb});
+  way["amenity"~"^(restaurant|fast_food|cafe|food_court|ice_cream|pub|bar)$"](${bb});
+  node["shop"~"^(bakery|pastry|confectionery|deli)$"](${bb});
+  way["landuse"="residential"]["name"](${bb});
+  relation["landuse"="residential"]["name"](${bb});
 );
 out body geom qt;
 `;

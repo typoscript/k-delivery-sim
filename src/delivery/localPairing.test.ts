@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DeliveryLocation } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
-import { LOCAL_CUSTOMER_RADIUS_M, LOCAL_SHOP_RADIUS_M, pickLocalCustomer, pickLocalShop } from './localPairing';
+import {
+  LOCAL_CUSTOMER_RADIUS_M,
+  LOCAL_SHOP_RADIUS_M,
+  MIN_CUSTOMER_DIST_M,
+  pickLocalCustomer,
+  pickLocalShop,
+} from './localPairing';
 
 const loc = (id: string, x: number, z: number, type: 'shop' | 'residential'): DeliveryLocation => ({
   id,
@@ -40,5 +46,34 @@ describe('local shop / customer pairing', () => {
     const seen = new Set<string>();
     for (let i = 0; i < 300; i++) seen.add(pickLocalShop(shops, 0, 0).id);
     expect(seen.size).toBe(3);
+  });
+
+  it('skips next-door customers when enough farther ones exist', () => {
+    const shop = loc('s', 0, 0, 'shop');
+    const res = [loc('near', 30, 0, 'residential'), loc('f1', 300, 0, 'residential'), loc('f2', 0, 400, 'residential'), loc('f3', -500, 0, 'residential')];
+    for (let i = 0; i < 100; i++) {
+      const c = pickLocalCustomer(res, shop);
+      expect(Math.hypot(c.x, c.z)).toBeGreaterThanOrEqual(MIN_CUSTOMER_DIST_M);
+    }
+    // ... but still delivers next door when that is all there is
+    const few = [loc('near', 30, 0, 'residential'), loc('f1', 300, 0, 'residential')];
+    const seen = new Set<string>();
+    for (let i = 0; i < 100; i++) seen.add(pickLocalCustomer(few, shop).id);
+    expect(seen.has('near')).toBe(true);
+  });
+
+  it('offers calls between the districts on the open world (generated spots)', () => {
+    const shops = ACTIVE_MAP_DATA.shops.map((s) => loc(s.id, s.x, s.z, 'shop'));
+    const res = ACTIVE_MAP_DATA.residences.map((r) => loc(r.id, r.x, r.z, 'residential'));
+    expect(shops.filter((s) => s.id.startsWith('gen-')).length).toBeGreaterThan(100);
+    expect(res.filter((r) => r.id.startsWith('gen-')).length).toBeGreaterThan(200);
+    // Rider standing between districts: offered shop and customer are real local spots, not a 2km fallback
+    const between = { x: 0, z: 0 };
+    for (let i = 0; i < 100; i++) {
+      const shop = pickLocalShop(shops, between.x, between.z);
+      expect(Math.hypot(shop.x - between.x, shop.z - between.z)).toBeLessThanOrEqual(LOCAL_SHOP_RADIUS_M);
+      const customer = pickLocalCustomer(res, shop);
+      expect(Math.hypot(customer.x - shop.x, customer.z - shop.z)).toBeLessThanOrEqual(LOCAL_CUSTOMER_RADIUS_M);
+    }
   });
 });

@@ -73,6 +73,10 @@ export interface OpenWorldData {
   edges: OsmGraphEdge[];
   busStops: OsmBusStopData[];
   legacyDistricts: LegacyDistrictData[];
+  /** Curbside shops generated from OSM food places across the whole map (outside the legacy districts) */
+  generatedShops?: OsmDeliverySpot[];
+  /** Customer lobbies generated from OSM residential buildings across the whole map */
+  generatedResidences?: OsmDeliverySpot[];
   chunks: ChunkIndexEntry[];
 }
 
