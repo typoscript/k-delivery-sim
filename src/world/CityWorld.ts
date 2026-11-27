@@ -25,7 +25,12 @@ import {
   UpcomingCameraAlert,
   WeatherMode,
 } from '../types';
-import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA, SUWON_DISTRICTS } from '../data/suwonDistricts';
+import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
+import { OsmParkData, OsmPlazaData, OsmServiceSpot, SuwonDistrictId } from '../data/suwonTypes';
+import { ChunkStreamer, ChunkStreamerStats } from './openworld/ChunkStreamer';
+import { ProximityCuller } from './openworld/ProximityCuller';
+import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 
 export interface MapBuildingFootprint {
@@ -54,6 +59,10 @@ export interface CityMapInfo {
   upcomingCamera?: UpcomingCameraAlert | null;
   obstacles: ObstacleBox[];
   buildings: MapBuildingFootprint[];
+  /** Unified open world: parks / water / pedestrian streets of the currently streamed chunks */
+  areaParks?: OsmParkData[];
+  areaWaters?: OsmParkData[];
+  areaPlazas?: OsmPlazaData[];
 }
 
 interface SignalHazardZone {
@@ -81,7 +90,16 @@ export class CityWorld {
   public readonly speedBumps: SpeedBumpInfo[] = [];
   public readonly landmarks: LandmarkMarker[] = [];
   public readonly mapInfo: CityMapInfo;
-  private landmarksBuilder?: SuwonLandmarksBuilder;
+  private readonly landmarkBuilders: SuwonLandmarksBuilder[] = [];
+
+  // Unified open world: chunk streaming for buildings/roads/parks + distance culling for static props
+  private readonly unified = ACTIVE_MAP_DATA.meta.unified === true;
+  private streamer?: ChunkStreamer;
+  private readonly culler?: ProximityCuller;
+  private streamerVersionSeen = -1;
+  private collisionCache: ObstacleBox[] = [];
+  private collisionStreamedRef: ObstacleBox[] | null = null;
+  private plazaMat?: THREE.MeshStandardMaterial;
 
   private readonly scene: THREE.Scene;
   private readonly dirLight: THREE.DirectionalLight;
@@ -121,7 +139,8 @@ export class CityWorld {
     scene.add(this.root);
 
     scene.background = new THREE.Color(0x93c5fd);
-    scene.fog = new THREE.FogExp2(0xa5d4fb, 0.00145);
+    scene.fog = new THREE.FogExp2(0xa5d4fb, this.fogDensity(0.00145));
+    if (this.unified) this.culler = new ProximityCuller(gridSpecOf(SUWON_OPEN_WORLD), 2);
 
     this.hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x475569, 0.92);
     this.root.add(this.hemiLight);
@@ -139,6 +158,7 @@ export class CityWorld {
     this.dirLight.shadow.camera.bottom = -d;
     this.dirLight.shadow.bias = -0.0005;
     this.root.add(this.dirLight);
+    this.root.add(this.dirLight.target);
 
     this.lampGlowMat = new THREE.MeshStandardMaterial({
       color: 0xe2e8f0,
@@ -183,6 +203,7 @@ export class CityWorld {
     this.buildSpeedBumps();
     this.buildParksAndTrees();
     this.buildSuwonOsmBuildings();
+    this.initOpenWorldStreaming();
     this.buildSuwonStationLandmark();
     this.buildServiceStations();
     this.buildBusStops();
@@ -297,10 +318,105 @@ export class CityWorld {
     };
   }
 
+  /** Unified city uses denser fog so chunks streaming in ~400-500m away fade in instead of popping */
+  private fogDensity(legacyDensity: number): number {
+    return this.unified ? Math.max(legacyDensity * 2, 0.0028) : legacyDensity;
+  }
+
+  /** Sidewalk paving keeps the legacy tile size (110 repeats per 820m) on any world size */
+  private sizedSidewalkTexture(): THREE.CanvasTexture {
+    const tex = createSidewalkTexture();
+    const r = (110 * CITY_WORLD_LIMIT * 2) / 820;
+    tex.repeat.set(r, r);
+    return tex;
+  }
+
+  /** Adds a static prop; in the unified city it is distance-culled with the chunk streaming window */
+  private addProp(obj: THREE.Object3D, x: number, z: number, radiusChunks?: number): void {
+    this.root.add(obj);
+    this.culler?.register(obj, x, z, radiusChunks);
+  }
+
+  /** Unified open world: buildings, road surfaces, parks, water & pedestrian streets stream per 200m chunk */
+  private initOpenWorldStreaming(): void {
+    if (!this.unified) return;
+    const b = createBuildingMaterials();
+    this.buildingNightMats.push(b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat);
+    this.streamer = new ChunkStreamer(
+      this.root,
+      SUWON_OPEN_WORLD,
+      {
+        walls: { shop: b.shopWallMat, apt: b.aptWallMat, villa: b.villaWallMat, public: b.publicWallMat },
+        roof: b.roofMat,
+        road: this.asphaltMat,
+        roadLine: new THREE.MeshBasicMaterial({ color: 0xfacc15 }),
+        park: new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 }),
+        water: new THREE.MeshStandardMaterial({
+          color: 0x0284c7,
+          emissive: 0x0369a1,
+          emissiveIntensity: 0.18,
+          roughness: 0.14,
+          metalness: 0.38,
+        }),
+        plaza: this.plazaMat ?? new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
+      },
+      { chunkBaseUrl: './map/suwon/chunks/' }
+    );
+    const spawn = ACTIVE_MAP_DATA.meta.playerSpawn;
+    this.updateStreaming(spawn.x, spawn.z);
+  }
+
+  /**
+   * Per-frame open-world tick (no-op on legacy district maps): streams chunks & culls props around the
+   * player, keeps the sun's shadow frustum centred on the player and refreshes the phone-map overlays.
+   */
+  public updateStreaming(px: number, pz: number): void {
+    if (!this.streamer) return;
+    this.streamer.update(px, pz);
+    this.culler?.update(px, pz);
+    this.dirLight.position.set(px + 160, 240, pz + 120);
+    this.dirLight.target.position.set(px, 0, pz);
+    if (this.streamer.version !== this.streamerVersionSeen) {
+      this.streamerVersionSeen = this.streamer.version;
+      const chunks = this.streamer.getBuiltChunkData();
+      this.buildings.length = 0;
+      const parks: OsmParkData[] = [];
+      const waters: OsmParkData[] = [];
+      const plazas: OsmPlazaData[] = [];
+      for (const c of chunks) {
+        for (const bd of c.buildings) {
+          this.buildings.push({ x: bd.cx, z: bd.cz, w: bd.w, d: bd.d, pts: bd.pts, label: bd.name ? bd.name.slice(0, 12) : undefined, kind: bd.kind });
+        }
+        parks.push(...c.parks);
+        waters.push(...c.waters);
+        plazas.push(...c.pedestrianPlazas);
+      }
+      this.mapInfo.areaParks = parks;
+      this.mapInfo.areaWaters = waters;
+      this.mapInfo.areaPlazas = plazas;
+    }
+  }
+
+  /** Building / prop colliders relevant to the player (streamed 3x3 chunks in the unified city) */
+  public getCollisionObstacles(): ObstacleBox[] {
+    if (!this.streamer) return this.obstacles;
+    const streamed = this.streamer.collisionObstacles;
+    if (streamed !== this.collisionStreamedRef) {
+      this.collisionStreamedRef = streamed;
+      this.collisionCache = this.obstacles.length > 0 ? [...this.obstacles, ...streamed] : streamed;
+    }
+    return this.collisionCache;
+  }
+
+  /** Streaming diagnostics (unified city only) */
+  public get streamingStats(): ChunkStreamerStats | null {
+    return this.streamer ? this.streamer.stats : null;
+  }
+
   private buildBaseGround(): void {
     // Outer Suwon suburban backdrop greenbelt
     const outerGround = new THREE.Mesh(
-      new THREE.PlaneGeometry(1400, 1400),
+      new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2 + 600, CITY_WORLD_LIMIT * 2 + 600),
       new THREE.MeshStandardMaterial({ color: 0x527358, roughness: 0.95 })
     );
     outerGround.rotation.x = -Math.PI / 2;
@@ -310,7 +426,7 @@ export class CityWorld {
     // Korean urban sidewalk interlocking brick base across playable Suwon Ingye-dong district
     const sidewalkBase = new THREE.Mesh(
       new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2, CITY_WORLD_LIMIT * 2),
-      new THREE.MeshStandardMaterial({ map: createSidewalkTexture(), roughness: 0.88 })
+      new THREE.MeshStandardMaterial({ map: this.sizedSidewalkTexture(), roughness: 0.88 })
     );
     sidewalkBase.rotation.x = -Math.PI / 2;
     sidewalkBase.position.y = 0;
@@ -361,11 +477,13 @@ export class CityWorld {
 
     const nodes = ACTIVE_MAP_DATA.nodes;
     const edges = ACTIVE_MAP_DATA.edges;
+    this.plazaMat = plazaMat;
 
     // Track max width incident to each node for smooth circular asphalt junction caps
     const nodeMaxW = new Float32Array(nodes.length);
 
-    for (const e of edges) {
+    // Unified open world: road surfaces stream in per chunk (merged meshes); only junction props are built here
+    for (const e of this.unified ? [] : edges) {
       const na = nodes[e.a];
       const nb = nodes[e.b];
       const dx = nb.x - na.x;
@@ -418,7 +536,7 @@ export class CityWorld {
     // Smooth circular asphalt discs at road nodes so arbitrary-angle junctions connect seamlessly!
     const discGeo = new THREE.CircleGeometry(1, 14);
     discGeo.rotateX(-Math.PI / 2);
-    const activeNodes = nodes.filter((n) => nodeMaxW[n.id] > 0);
+    const activeNodes = this.unified ? [] : nodes.filter((n) => nodeMaxW[n.id] > 0);
     const discInst = new THREE.InstancedMesh(discGeo, this.asphaltMat, activeNodes.length);
     discInst.receiveShadow = true;
     const dummy = new THREE.Object3D();
@@ -457,7 +575,17 @@ export class CityWorld {
     stripeGeo.rotateX(-Math.PI / 2);
 
     const signalNodes = nodes.filter((n) => n.isSignal);
+    // Incident edges per node (avoids scanning every edge for every signal on the 8,000-edge city graph)
+    const incident = new Map<number, typeof edges>();
+    for (const e of edges) {
+      for (const id of [e.a, e.b]) {
+        const list = incident.get(id);
+        if (list) list.push(e);
+        else incident.set(id, [e]);
+      }
+    }
     for (const sn of signalNodes) {
+      const crosswalkGroup = new THREE.Group();
       const localManholes: Array<[number, number]> = [
         [sn.x + 2.8, sn.z + 2.8],
         [sn.x - 2.8, sn.z - 2.6],
@@ -471,8 +599,7 @@ export class CityWorld {
       });
 
       // Place crosswalk zebra bars on each incident road edge (~7.8m out from junction center)
-      for (const e of edges) {
-        if (e.a !== sn.id && e.b !== sn.id) continue;
+      for (const e of incident.get(sn.id) ?? []) {
         if (e.dist < 16) continue;
         const other = nodes[e.a === sn.id ? e.b : e.a];
         const dx = other.x - sn.x;
@@ -491,9 +618,10 @@ export class CityWorld {
           const bar = new THREE.Mesh(stripeGeo, this.crosswalkPaintMat);
           bar.position.set(cwCenterX + rx * off, 0.054, cwCenterZ + rz * off);
           bar.rotation.y = heading;
-          this.root.add(bar);
+          crosswalkGroup.add(bar);
         }
       }
+      this.addProp(crosswalkGroup, sn.x, sn.z);
     }
 
     if (manholePositions.length > 0) {
@@ -528,8 +656,10 @@ export class CityWorld {
       .filter((e) => !e.isMajor && e.dist >= 28 && e.width >= 7.0)
       .sort((a, b) => b.dist - a.dist);
 
+    // Legacy district: 14 bumps; unified city: same density (~1 per 0.05 km^2 of road network) up to 160
+    const maxBumps = this.unified ? 160 : 14;
     for (const e of candidates) {
-      if (this.speedBumps.length >= 14) break;
+      if (this.speedBumps.length >= maxBumps) break;
       const na = nodes[e.a];
       const nb = nodes[e.b];
       const mx = (na.x + nb.x) * 0.5;
@@ -548,7 +678,7 @@ export class CityWorld {
       hump.rotation.y = angle;
       hump.receiveShadow = true;
       hump.castShadow = true;
-      this.root.add(hump);
+      this.addProp(hump, mx, mz);
 
       // Curbside warning signpost
       const rx = -Math.cos(angle);
@@ -560,7 +690,8 @@ export class CityWorld {
       const board = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.34, 0.05), signFaceMat);
       board.position.set(sx, 1.85, sz);
       board.rotation.y = angle;
-      this.root.add(pole, board);
+      this.addProp(pole, sx, sz);
+      this.addProp(board, sx, sz);
 
       this.speedBumps.push({
         id: `bump-${this.speedBumps.length + 1}`,
@@ -702,8 +833,9 @@ export class CityWorld {
     }
 
     // Perimeter greenbelt trees
-    for (let p = -380; p <= 380; p += 38) {
-      treeCoords.push([p, -402, 1.15], [p, 402, 1.15], [-402, p, 1.15], [402, p, 1.15]);
+    const lim = CITY_WORLD_LIMIT;
+    for (let p = -(lim - 30); p <= lim - 30; p += 38) {
+      treeCoords.push([p, -(lim - 8), 1.15], [p, lim - 8, 1.15], [-(lim - 8), p, 1.15], [lim - 8, p, 1.15]);
     }
 
     if (treeCoords.length > 0) {
@@ -850,20 +982,73 @@ export class CityWorld {
 
   /** Builds the iconic district 3D signature landmarks (팔달문·화성행궁·통닭거리 / 수원시청역·나혜석거리·효원공원 / 수원역·로데오거리) */
   private buildSuwonStationLandmark(): void {
-    this.landmarksBuilder = new SuwonLandmarksBuilder({
-      root: this.root,
-      districtId: ACTIVE_DISTRICT.id,
-      mapData: ACTIVE_MAP_DATA,
-      zones: this.zones,
-      landmarks: this.landmarks,
-      createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
-    });
+    if (!this.unified) {
+      this.landmarkBuilders.push(
+        new SuwonLandmarksBuilder({
+          root: this.root,
+          districtId: ACTIVE_DISTRICT.id,
+          mapData: ACTIVE_MAP_DATA,
+          zones: this.zones,
+          landmarks: this.landmarks,
+          createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
+        })
+      );
+      return;
+    }
+    // Unified city: every district's hand-built landmarks, authored in that district's local coordinates,
+    // placed under a group offset to the district origin (and culled when the player is far away)
+    for (const d of SUWON_OPEN_WORLD.legacyDistricts) {
+      const meta = SUWON_DISTRICTS.find((m) => m.id === d.id);
+      if (!meta) continue;
+      const group = new THREE.Group();
+      group.position.set(d.origin.x, 0, d.origin.z);
+      const zones: CityZoneMarker[] = [];
+      const landmarks: LandmarkMarker[] = [];
+      this.landmarkBuilders.push(
+        new SuwonLandmarksBuilder({
+          root: group,
+          districtId: d.id as SuwonDistrictId,
+          mapData: meta.data,
+          zones,
+          landmarks,
+          createSignTexture: (title, bg, fg) => this.createSignTexture(title, bg, fg),
+        })
+      );
+      for (const z of zones) this.zones.push({ ...z, x: z.x + d.origin.x, z: z.z + d.origin.z });
+      for (const l of landmarks) this.landmarks.push({ ...l, x: l.x + d.origin.x, z: l.z + d.origin.z });
+      // Landmarks span the whole 820m district: keep them visible within ~5 chunks (1km) of its centre
+      this.addProp(group, d.origin.x, d.origin.z, 5);
+    }
   }
 
   /** Builds K-Oil Self-Service Gas Station & Lightning Motorcycle Repair Center in open roadside bays */
   private buildServiceStations(): void {
-    const gas = ACTIVE_MAP_DATA.serviceSpots.gas;
-    const rep = ACTIVE_MAP_DATA.serviceSpots.repair;
+    if (!this.unified || !ACTIVE_MAP_DATA.serviceSpotList) {
+      this.buildServiceStationSet(ACTIVE_MAP_DATA.serviceSpots.gas, ACTIVE_MAP_DATA.serviceSpots.repair, '인계', ACTIVE_MAP_DATA.meta.scooterSpawn, this.obstacles);
+      return;
+    }
+    const labels: Record<string, string> = { ingye: '인계', haenggung: '행궁', suwon_station: '수원역', gwanggyo: '광교' };
+    for (const set of ACTIVE_MAP_DATA.serviceSpotList) {
+      const d = SUWON_OPEN_WORLD.legacyDistricts.find((x) => x.id === set.districtId)!;
+      const meta = SUWON_DISTRICTS.find((m) => m.id === set.districtId)!;
+      // Buildings stream in later, so keep the convenience store clear of the district's known footprints
+      const legacyBoxes: ObstacleBox[] = meta.data.buildings.map((b) => ({
+        minX: b.minX + d.origin.x,
+        maxX: b.maxX + d.origin.x,
+        minZ: b.minZ + d.origin.z,
+        maxZ: b.maxZ + d.origin.z,
+      }));
+      this.buildServiceStationSet(set.gas, set.repair, labels[set.districtId] ?? '수원', d.scooterSpawn, legacyBoxes);
+    }
+  }
+
+  private buildServiceStationSet(
+    gas: OsmServiceSpot,
+    rep: OsmServiceSpot,
+    label: string,
+    spawn: { x: number; z: number },
+    buildingBoxes: ObstacleBox[]
+  ): void {
 
     // 1. 인계 K-오일 셀프주유소
     const gasGroup = new THREE.Group();
@@ -894,10 +1079,10 @@ export class CityWorld {
     );
     pump.position.set(0, 0.84, -0.7);
     gasGroup.add(gasPad, canopy, gasSign, pump);
-    this.root.add(gasGroup);
+    this.addProp(gasGroup, gas.x, gas.z, 3);
 
     this.serviceStations.push({
-      name: '인계 K-오일 셀프주유소',
+      name: `${label} K-오일 셀프주유소`,
       kind: 'gas',
       padMinX: gas.x - 5.2,
       padMaxX: gas.x + 5.2,
@@ -929,7 +1114,7 @@ export class CityWorld {
     );
     repSign.position.set(0, 3.9, -0.25);
     repGroup.add(repPad, garage, repSign);
-    this.root.add(repGroup);
+    this.addProp(repGroup, rep.x, rep.z, 3);
 
     this.serviceStations.push({
       name: '번개 오토바이 센터',
@@ -944,7 +1129,6 @@ export class CityWorld {
     });
 
     // 3. 24시 한국 편의점 (K-24 편의점 — 스태미나 음료 & 보조배터리 급속 충전!)
-    const spawn = ACTIVE_MAP_DATA.meta.scooterSpawn;
     const nodes = ACTIVE_MAP_DATA.nodes;
     let cvsX = spawn.x + 32;
     let cvsZ = spawn.z + 18;
@@ -970,7 +1154,7 @@ export class CityWorld {
         if (dSpawn < 24 || dSpawn > 135) continue;
         if (Math.hypot(px - gas.x, pz - gas.z) < 28) continue;
         if (Math.hypot(px - rep.x, pz - rep.z) < 28) continue;
-        const hitsBldg = this.obstacles.some(
+        const hitsBldg = buildingBoxes.some(
           (o) => px + 2.2 > o.minX && px - 2.2 < o.maxX && pz + 2.2 > o.minZ && pz - 2.2 < o.maxZ
         );
         if (hitsBldg) continue;
@@ -1055,7 +1239,7 @@ export class CityWorld {
     parasol.position.set(2.1, 2.25, 0.75);
 
     cvsGroup.add(cvsPad, cvsBody, cvsWindow, stripe1, stripe2, stripe3, cvsSign, tblPole, tblTop, parasol);
-    this.root.add(cvsGroup);
+    this.addProp(cvsGroup, cvsX, cvsZ, 3);
 
     this.serviceStations.push({
       name: 'K-24 편의점 (24시)',
@@ -1071,33 +1255,33 @@ export class CityWorld {
   }
 
   public isPlayerNearConvenienceStore(px: number, pz: number): boolean {
-    const st = this.serviceStations.find((s) => s.kind === 'convenience');
-    if (!st) return false;
-    return Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius;
+    return this.serviceStations.some(
+      (st) => st.kind === 'convenience' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
+    );
   }
 
   public isScooterOnGasPad(sx: number, sz: number): boolean {
-    const st = this.serviceStations.find((s) => s.kind === 'gas');
-    if (!st) return false;
-    return sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ;
+    return this.serviceStations.some(
+      (st) => st.kind === 'gas' && sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ
+    );
   }
 
   public isPlayerNearGasPump(px: number, pz: number): boolean {
-    const st = this.serviceStations.find((s) => s.kind === 'gas');
-    if (!st) return false;
-    return Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius;
+    return this.serviceStations.some(
+      (st) => st.kind === 'gas' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
+    );
   }
 
   public isScooterOnRepairPad(sx: number, sz: number): boolean {
-    const st = this.serviceStations.find((s) => s.kind === 'repair');
-    if (!st) return false;
-    return sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ;
+    return this.serviceStations.some(
+      (st) => st.kind === 'repair' && sx >= st.padMinX && sx <= st.padMaxX && sz >= st.padMinZ && sz <= st.padMaxZ
+    );
   }
 
   public isPlayerNearRepairShop(px: number, pz: number): boolean {
-    const st = this.serviceStations.find((s) => s.kind === 'repair');
-    if (!st) return false;
-    return Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius;
+    return this.serviceStations.some(
+      (st) => st.kind === 'repair' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
+    );
   }
 
   /** Builds 8 real Suwon City Hall Station / NewCore / Ingye bus stops from OSM */
@@ -1122,6 +1306,7 @@ export class CityWorld {
         edgeIndex: bs.edgeIndex,
       });
 
+      const buildShelter = () => {
       const g = new THREE.Group();
       g.position.set(bs.shelterX, 0.05, bs.shelterZ);
       g.rotation.y = bs.facingHeading;
@@ -1139,7 +1324,19 @@ export class CityWorld {
       const signBoard = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.55, 0.12), signMat);
       signBoard.position.set(0, 2.95, 0.65);
       g.add(roof, backGlass, bench, signBoard);
-      this.root.add(g);
+      const dispose = () => {
+        for (const m of [roof, backGlass, bench, signBoard]) m.geometry.dispose();
+        signMat.map?.dispose();
+        signMat.dispose();
+      };
+      return { object: g, dispose };
+      };
+      if (this.culler) {
+        // 228 city-wide stops: build (and texture) each shelter only when the player gets close
+        this.culler.registerLazy(this.root, bs.shelterX, bs.shelterZ, buildShelter);
+      } else {
+        this.root.add(buildShelter().object);
+      }
     }
   }
 
@@ -1236,7 +1433,7 @@ export class CityWorld {
 
         this.shopTrays.set(loc.id, { bag: trayBag, ledMat: trayLedMat });
         g.add(counter, awning, posStand, posScreen, tray, trayLed, trayBag);
-        this.root.add(g);
+        this.addProp(g, loc.x, loc.z);
       } else {
         const isVilla = loc.residenceKind === 'walkup_villa';
         const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), darkMat);
@@ -1266,7 +1463,7 @@ export class CityWorld {
 
         this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: false });
         g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
-        this.root.add(g);
+        this.addProp(g, loc.x, loc.z);
       }
     }
   }
@@ -1298,12 +1495,13 @@ export class CityWorld {
       const lamp = new THREE.Mesh(lampGeo, this.lampGlowMat);
       lamp.position.y = 6.2;
       g.add(pole, lamp);
-      this.root.add(g);
+      this.addProp(g, lx, lz);
 
       // Warm golden streetlamp light pool projected onto asphalt at night (zero PointLight cost!)
       const pool = new THREE.Mesh(poolGeo, poolMat);
       pool.position.set(lx, 0.072, lz);
       this.streetLampPoolGroup.add(pool);
+      this.culler?.register(pool, lx, lz);
     }
     this.streetLampPoolGroup.visible = false;
     this.root.add(this.streetLampPoolGroup);
@@ -1400,7 +1598,7 @@ export class CityWorld {
   private applySkyTheme(): void {
     const isRain = this.weatherMode === 'rain';
     const isCloudy = this.weatherMode === 'cloudy';
-    this.landmarksBuilder?.setNightMode(this.isNight);
+    for (const lb of this.landmarkBuilders) lb.setNightMode(this.isNight);
     this.streetLampPoolGroup.visible = this.isNight;
     for (const bm of this.buildingNightMats) {
       bm.emissiveIntensity = this.isNight ? (isRain ? 0.96 : 0.84) : 0;
@@ -1410,7 +1608,7 @@ export class CityWorld {
       const bgHex = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
       const fogDensity = isRain ? 0.0046 : isCloudy ? 0.0036 : 0.003;
       this.scene.background = new THREE.Color(bgHex);
-      this.scene.fog = new THREE.FogExp2(bgHex, fogDensity);
+      this.scene.fog = new THREE.FogExp2(bgHex, this.fogDensity(fogDensity));
       this.dirLight.intensity = isRain ? 0.16 : isCloudy ? 0.2 : 0.25;
       this.dirLight.color.setHex(isRain ? 0x6b88b0 : 0x8aa8d6);
       this.hemiLight.intensity = isRain ? 0.22 : 0.28;
@@ -1418,7 +1616,7 @@ export class CityWorld {
       this.windowGlowMat.emissiveIntensity = isRain ? 1.3 : 1.1;
     } else if (isRain) {
       this.scene.background = new THREE.Color(0x5b6d80);
-      this.scene.fog = new THREE.FogExp2(0x5b6d80, 0.0042);
+      this.scene.fog = new THREE.FogExp2(0x5b6d80, this.fogDensity(0.0042));
       this.dirLight.intensity = 0.54;
       this.dirLight.color.setHex(0xb8cde0);
       this.hemiLight.intensity = 0.58;
@@ -1426,7 +1624,7 @@ export class CityWorld {
       this.windowGlowMat.emissiveIntensity = 0.42;
     } else if (isCloudy) {
       this.scene.background = new THREE.Color(0x889cb0);
-      this.scene.fog = new THREE.FogExp2(0x889cb0, 0.0024);
+      this.scene.fog = new THREE.FogExp2(0x889cb0, this.fogDensity(0.0024));
       this.dirLight.intensity = 0.94;
       this.dirLight.color.setHex(0xdce6f2);
       this.hemiLight.intensity = 0.74;

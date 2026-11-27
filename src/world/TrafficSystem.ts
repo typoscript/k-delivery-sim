@@ -119,6 +119,11 @@ export class TrafficSystem {
   private readonly tmpMin = new THREE.Vector3();
   private readonly tmpMax = new THREE.Vector3();
 
+  /** Signal gantries with their junction position (distance-culled on the city-sized unified map) */
+  private readonly signalProps: Array<{ g: THREE.Group; x: number; z: number }> = [];
+  private signalCullTimer = 0;
+  private readonly cullSignals = ACTIVE_MAP_DATA.meta.unified === true;
+
   private readonly carWheelGeo: THREE.CylinderGeometry;
   private readonly carRimGeo: THREE.CylinderGeometry;
 
@@ -203,6 +208,7 @@ export class TrafficSystem {
 
         g.add(pole, arm, box);
         this.root.add(g);
+        this.signalProps.push({ g, x: n.x, z: n.z });
       }
     }
   }
@@ -365,7 +371,15 @@ export class TrafficSystem {
       [0x64748b, '#64748b', false],
     ];
 
-    const pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : ACTIVE_MAP_DATA.nodes.map((n) => n.id);
+    let pool = this.majorNodeIds.length > 0 ? this.majorNodeIds : ACTIVE_MAP_DATA.nodes.map((n) => n.id);
+    if (ACTIVE_MAP_DATA.meta.unified) {
+      // City-sized map: start traffic on the arterials around the spawn instead of scattered over 6km
+      const sp = ACTIVE_MAP_DATA.meta.scooterSpawn;
+      const nodes = ACTIVE_MAP_DATA.nodes;
+      pool = [...pool]
+        .sort((a, b) => Math.hypot(nodes[a].x - sp.x, nodes[a].z - sp.z) - Math.hypot(nodes[b].x - sp.x, nodes[b].z - sp.z))
+        .slice(0, 60);
+    }
     const total = 24;
 
     for (let i = 0; i < total; i++) {
@@ -540,6 +554,17 @@ export class TrafficSystem {
     pedestrians?: ReadonlyArray<{ x: number; z: number; fsm: string }>
   ): void {
     const clampedDt = Math.min(dt, 0.05);
+
+    // 0. Hide signal gantries far from the player (470 junctions city-wide, ~20 near the player)
+    if (this.cullSignals) {
+      this.signalCullTimer -= clampedDt;
+      if (this.signalCullTimer <= 0) {
+        this.signalCullTimer = 0.5;
+        for (const sp of this.signalProps) {
+          sp.g.visible = Math.abs(sp.x - playerX) < 520 && Math.abs(sp.z - playerZ) < 520;
+        }
+      }
+    }
 
     // 1. Update 3-color traffic signal cycle
     const t = elapsedTime % CYCLE_DURATION;

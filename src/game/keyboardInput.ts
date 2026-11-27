@@ -62,7 +62,7 @@ export function installKeyboardInput(ctx: GameContext, actions: KeyboardActions)
         const res = playerCtrl.tryToggleMount(
           scooterPhysics.state,
           (mounted) => scooterPhysics.setMounted(mounted),
-          world.obstacles,
+          world.getCollisionObstacles(),
           delivery.isCarryingFood()
         );
         if (res.changed) {

@@ -53,7 +53,7 @@ export interface ChunkStreamerStats {
 type ChunkState =
   | { kind: 'fetching'; abort: AbortController }
   | { kind: 'ready'; data: ChunkData }
-  | { kind: 'built'; result: ChunkBuildResult };
+  | { kind: 'built'; result: ChunkBuildResult; data: ChunkData };
 
 const defaultFetcher: ChunkFetcher = async (url, signal) => {
   const res = await fetch(url, { signal });
@@ -85,6 +85,8 @@ export class ChunkStreamer {
   private totalAborted = 0;
   private fetchErrors = 0;
   private disposed = false;
+  /** Increments whenever a chunk is built or released (lets consumers refresh derived data lazily) */
+  public version = 0;
 
   constructor(
     parent: THREE.Object3D,
@@ -175,7 +177,8 @@ export class ChunkStreamer {
       if (st?.kind !== 'ready') continue;
       const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials);
       this.root.add(result.group);
-      this.states.set(key, { kind: 'built', result });
+      this.states.set(key, { kind: 'built', result, data: st.data });
+      this.version++;
       this.totalLoaded++;
       this.colliderKey = '';
       builds++;
@@ -233,6 +236,7 @@ export class ChunkStreamer {
     } else if (st.kind === 'built') {
       st.result.dispose();
       this.totalUnloaded++;
+      this.version++;
       this.colliderKey = '';
     } else {
       const qi = this.buildQueue.indexOf(key);
@@ -258,6 +262,13 @@ export class ChunkStreamer {
     }
     this.colliderCache = out;
     this.colliderKey = key;
+    return out;
+  }
+
+  /** Raw data of every currently built chunk (for map overlays: footprints, parks, water...) */
+  public getBuiltChunkData(): ChunkData[] {
+    const out: ChunkData[] = [];
+    for (const st of this.states.values()) if (st.kind === 'built') out.push(st.data);
     return out;
   }
 

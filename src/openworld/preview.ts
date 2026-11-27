@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { createSidewalkTexture } from '../world/cityTextures';
 import { ChunkStreamer } from '../world/openworld/ChunkStreamer';
-import { OpenWorldData } from '../world/openworld/OpenWorldTypes';
 import { createOpenWorldMaterials } from '../world/openworld/openWorldMaterials';
+import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
 
 /**
  * Standalone open-world streaming preview (openworld.html).
@@ -45,8 +45,7 @@ const statsEl = document.getElementById('ow-stats')!;
 const buttonsEl = document.getElementById('ow-buttons')!;
 
 async function main(): Promise<void> {
-  const res = await fetch(`${MAP_BASE}world.json`);
-  const world = (await res.json()) as OpenWorldData;
+  const world = SUWON_OPEN_WORLD;
   const b = world.meta.bounds;
 
   // Sidewalk-paved ground under the whole city (roads/buildings stream on top)

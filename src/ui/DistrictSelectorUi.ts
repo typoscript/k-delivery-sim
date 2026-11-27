@@ -1,9 +1,18 @@
 import {
   ACTIVE_DISTRICT,
+  IS_UNIFIED_MAP,
   SUWON_DISTRICTS,
   SuwonDistrictId,
+  rememberSuwonDistrict,
   switchSuwonDistrict,
 } from '../data/suwonDistricts';
+
+export interface DistrictSelectorOptions {
+  /** Unified open world: move the rider to that district in place (no reload, missions kept) */
+  onTeleport?: (id: SuwonDistrictId) => void;
+  /** Unified open world: district the rider is currently in / nearest to */
+  getCurrentId?: () => SuwonDistrictId;
+}
 
 /**
  * Interactive Suwon-si Multi-District Selector Modal & Top HUD Badge Pill.
@@ -20,7 +29,9 @@ export class DistrictSelectorUi {
   private readonly listEl = document.getElementById('district-list')!;
   private readonly areaEl = document.getElementById('phone-area-name');
 
-  constructor() {
+  private currentId: SuwonDistrictId = ACTIVE_DISTRICT.id;
+
+  constructor(private readonly opts: DistrictSelectorOptions = {}) {
     this.badgeBtn.textContent = ACTIVE_DISTRICT.badgeLabel;
     if (this.areaEl) {
       this.areaEl.textContent = ACTIVE_DISTRICT.shortName;
@@ -48,7 +59,12 @@ export class DistrictSelectorUi {
       }
       const distId = btn.dataset.district as SuwonDistrictId | undefined;
       if (distId) {
-        if (distId === ACTIVE_DISTRICT.id) {
+        if (IS_UNIFIED_MAP && this.opts.onTeleport) {
+          this.close();
+          rememberSuwonDistrict(distId);
+          this.opts.onTeleport(distId);
+          this.refreshCurrent();
+        } else if (distId === ACTIVE_DISTRICT.id) {
           this.close();
         } else {
           switchSuwonDistrict(distId);
@@ -59,14 +75,16 @@ export class DistrictSelectorUi {
 
   private renderDistrictList(): void {
     this.listEl.innerHTML = SUWON_DISTRICTS.map((d) => {
-      const isCurrent = d.id === ACTIVE_DISTRICT.id;
+      const isCurrent = d.id === this.currentId;
       const villaCount = d.data.residences.filter((r) => r.residenceKind === 'walkup_villa').length;
       const chips = d.highlights.map((h) => `<span class="di-stat-chip">${h}</span>`).join('');
       return `
         <button class="district-item ${isCurrent ? 'active' : ''}" data-district="${d.id}">
           <div class="di-top">
             <span class="di-name">${d.icon} ${d.fullTitle}</span>
-            <span class="di-badge">${isCurrent ? '✓ 현재 출근 중' : '출근하기 →'}</span>
+            <span class="di-badge">${
+              IS_UNIFIED_MAP ? (isCurrent ? '📍 현재 위치' : '바로 이동 →') : isCurrent ? '✓ 현재 출근 중' : '출근하기 →'
+            }</span>
           </div>
           <div class="di-desc">${d.description}</div>
           <div class="di-stats">
@@ -78,7 +96,22 @@ export class DistrictSelectorUi {
     }).join('');
   }
 
+  /** Unified map: updates the HUD badge / phone area name to the district the rider is in */
+  public refreshCurrent(): void {
+    if (!IS_UNIFIED_MAP || !this.opts.getCurrentId) return;
+    const id = this.opts.getCurrentId();
+    if (id === this.currentId) return;
+    this.currentId = id;
+    const meta = SUWON_DISTRICTS.find((d) => d.id === id);
+    if (!meta) return;
+    this.badgeBtn.textContent = meta.badgeLabel;
+    if (this.areaEl) this.areaEl.textContent = meta.shortName;
+    document.title = `K-Delivery Sim — 수원 오픈월드 · ${meta.shortName}`;
+    this.renderDistrictList();
+  }
+
   public open(): void {
+    this.refreshCurrent();
     this.isOpen = true;
     this.modalBackdrop.classList.remove('hidden');
   }

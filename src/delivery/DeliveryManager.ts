@@ -1,6 +1,8 @@
 import { DeliveryLocation, FoodTempType, clamp } from '../types';
 import { RoadNavigator, RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { pickLocalCustomer, pickLocalShop } from './localPairing';
 import {
   CustomerReview,
   MAX_STORED_REVIEWS,
@@ -340,6 +342,10 @@ export class DeliveryManager {
   public completedMissions: CompletedMissionRecord[] = [];
   public selectedMissionId: string | null = null; // null = Auto Recommended Route
 
+  /** Rider position used to offer nearby shops on the city-sized open-world map */
+  public refX = ACTIVE_MAP_DATA.meta.playerSpawn.x;
+  public refZ = ACTIVE_MAP_DATA.meta.playerSpawn.z;
+
   public totalEarnings = 0; // Persistent wallet balance across sessions & Suwon districts!
   public completedCount = 0; // Today's session completed count
   public lifetimeCompleted = 0; // Lifetime completed deliveries (determines Rider Tier!)
@@ -393,6 +399,12 @@ export class DeliveryManager {
       this.dailyMissionClaimed = dm.claimed;
     }
     this.refreshAvailableOrders();
+  }
+
+  /** Called every frame with the rider position (outdoors) so new orders stay local */
+  public setReferencePosition(x: number, z: number): void {
+    this.refX = x;
+    this.refZ = z;
   }
 
   public persistCareer(): void {
@@ -613,8 +625,8 @@ export class DeliveryManager {
     let attempts = 0;
     while (orders.length < 4 && attempts < 45) {
       attempts++;
-      const shop = this.shops[Math.floor(Math.random() * this.shops.length)];
-      const customer = this.residences[Math.floor(Math.random() * this.residences.length)];
+      const shop = pickLocalShop(this.shops, this.refX, this.refZ);
+      const customer = pickLocalCustomer(this.residences, shop);
       const key = `${shop.id}-${customer.id}`;
       if (usedPairs.has(key)) continue;
       usedPairs.add(key);
@@ -734,8 +746,8 @@ export class DeliveryManager {
     let attempts = 0;
     while (this.availableOrders.length < 4 && attempts < 35) {
       attempts++;
-      const shop = this.shops[Math.floor(Math.random() * this.shops.length)];
-      const customer = this.residences[Math.floor(Math.random() * this.residences.length)];
+      const shop = pickLocalShop(this.shops, this.refX, this.refZ);
+      const customer = pickLocalCustomer(this.residences, shop);
       const key = `${shop.id}-${customer.id}`;
       if (usedPairs.has(key)) continue;
       usedPairs.add(key);

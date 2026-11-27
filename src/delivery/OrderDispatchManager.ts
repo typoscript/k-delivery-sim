@@ -1,3 +1,4 @@
+import { pickLocalCustomer, pickLocalShop } from './localPairing';
 import { DeliveryLocation } from '../types';
 import {
   ALTTLE_FLAT_FEE,
@@ -226,9 +227,9 @@ export class OrderDispatchManager {
         );
         shop = nearbyShops[Math.floor(Math.random() * nearbyShops.length)] ?? this.shops[0];
       } else {
-        shop = this.shops[Math.floor(Math.random() * this.shops.length)];
+        shop = pickLocalShop(this.shops, delivery.refX, delivery.refZ);
       }
-      const customer = this.residences[Math.floor(Math.random() * this.residences.length)];
+      const customer = pickLocalCustomer(this.residences, shop);
       const pairKey = `${shop.id}-${customer.id}`;
       if (usedPairs.has(pairKey)) continue;
       if (orders.some((o) => o.customer.id === customer.id)) continue;

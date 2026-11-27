@@ -256,7 +256,7 @@ export class RoadNavigator {
     const roadNodes: RoutePoint[] = [];
     let curr = GOAL_ID;
     let safety = 0;
-    while (curr !== -1 && safety < 256) {
+    while (curr !== -1 && safety <= totalNodes) {
       roadNodes.push({ x: nodes[curr].x, z: nodes[curr].z });
       if (curr === START_ID) break;
       curr = cameFrom[curr];

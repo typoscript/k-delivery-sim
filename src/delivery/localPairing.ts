@@ -1,0 +1,42 @@
+import { DeliveryLocation } from '../types';
+
+/**
+ * Picks shop/customer pairs that make sense on a city-sized map: a shop near the rider and a customer
+ * near that shop. On a single 820m legacy district every location is within these radii, so selection
+ * is the same uniform pick as before.
+ */
+
+/** Shops offered to the rider: within this distance of the rider */
+export const LOCAL_SHOP_RADIUS_M = 900;
+/** Customers for a shop: within this distance of the shop (a realistic delivery radius) */
+export const LOCAL_CUSTOMER_RADIUS_M = 1100;
+/** If too few locations are inside the radius (e.g. between districts), fall back to the nearest N */
+const MIN_CANDIDATES = 3;
+const FALLBACK_NEAREST = 5;
+
+function localCandidates<T extends { x: number; z: number }>(items: readonly T[], x: number, z: number, radius: number): T[] {
+  const within = items.filter((it) => Math.hypot(it.x - x, it.z - z) <= radius);
+  if (within.length >= MIN_CANDIDATES) return within;
+  return [...items]
+    .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))
+    .slice(0, FALLBACK_NEAREST);
+}
+
+export function pickLocalShop(
+  shops: readonly DeliveryLocation[],
+  refX: number,
+  refZ: number,
+  rand: () => number = Math.random
+): DeliveryLocation {
+  const pool = localCandidates(shops, refX, refZ, LOCAL_SHOP_RADIUS_M);
+  return pool[Math.floor(rand() * pool.length)];
+}
+
+export function pickLocalCustomer(
+  residences: readonly DeliveryLocation[],
+  shop: { x: number; z: number },
+  rand: () => number = Math.random
+): DeliveryLocation {
+  const pool = localCandidates(residences, shop.x, shop.z, LOCAL_CUSTOMER_RADIUS_M);
+  return pool[Math.floor(rand() * pool.length)];
+}

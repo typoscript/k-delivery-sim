@@ -46,6 +46,12 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       modalUi.isBlockingMovement() || onboardingSettings.isSettingsOpen || districtUi.isOpen;
 
     if (!inCorridor) {
+      // Open-world chunk streaming & prop culling around whoever is moving (rider follows the scooter)
+      world.updateStreaming(
+        isRiding ? scooterPhysics.state.x : playerCtrl.state.x,
+        isRiding ? scooterPhysics.state.z : playerCtrl.state.z
+      );
+      delivery.setReferencePosition(playerCtrl.state.x, playerCtrl.state.z);
       world.updateLobbyDoors(dt);
       traffic.step(
         dt,
@@ -146,7 +152,8 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
             `🚓 ${patrolEv.label} 현장 단속! (${patrolEv.measuredKmh}km/h 과속) 과태료 -₩${patrolEv.fine.toLocaleString()}`,
             4600
           );
-        }
+        },
+        { x: playerCtrl.state.x, z: playerCtrl.state.z }
       );
       world.mapInfo.upcomingCamera = roadHazards.upcomingCamera;
     } else {
@@ -181,7 +188,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
 
     const allObstacles = inCorridor
       ? []
-      : [...world.obstacles, ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
+      : [...world.getCollisionObstacles(), ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
 
     const activeBump = inCorridor ? null : world.getSpeedBumpAt(scooterPhysics.state.x, scooterPhysics.state.z);
     const roadCondition = inCorridor

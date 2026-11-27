@@ -80,9 +80,32 @@ export function renderMapToContext(
   const toX = (wx: number) => -(wx - viewCamX) * scale;
   const toY = (wz: number) => -(wz - viewCamZ) * scale;
 
+  // Viewport culling (the unified city has 8,000+ road segments): anything whose bbox misses a square
+  // around the camera that covers the whole canvas at any heading-up rotation is skipped
+  const viewR = Math.hypot(w, h) / scale;
+  const inView = (minX: number, maxX: number, minZ: number, maxZ: number) =>
+    maxX >= viewCamX - viewR && minX <= viewCamX + viewR && maxZ >= viewCamZ - viewR && minZ <= viewCamZ + viewR;
+  const ptsInView = (pts: ReadonlyArray<[number, number]>) => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const [x, z] of pts) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    }
+    return inView(minX, maxX, minZ, maxZ);
+  };
+  // Unified open world: park / water / pedestrian-street overlays come from the streamed chunks
+  const parks = mapInfo.areaParks ?? ACTIVE_MAP_DATA.parks;
+  const waters = mapInfo.areaWaters ?? ACTIVE_MAP_DATA.waters ?? [];
+  const plazas = mapInfo.areaPlazas ?? ACTIVE_MAP_DATA.pedestrianPlazas;
+
   // 1. Real Suwon Ingye-dong Parks (효원공원 etc.)
-  for (const park of ACTIVE_MAP_DATA.parks) {
-    if (park.pts.length < 3) continue;
+  for (const park of parks) {
+    if (park.pts.length < 3 || !ptsInView(park.pts)) continue;
     ctx.fillStyle = theme.park;
     ctx.beginPath();
     ctx.moveTo(toX(park.pts[0][0]), toY(park.pts[0][1]));
@@ -94,9 +117,9 @@ export function renderMapToContext(
   }
 
   // 1.2. Real OSM Water Bodies (광교 원천호수 등)
-  if (ACTIVE_MAP_DATA.waters) {
-    for (const wt of ACTIVE_MAP_DATA.waters) {
-      if (wt.pts.length < 3) continue;
+  if (waters.length > 0) {
+    for (const wt of waters) {
+      if (wt.pts.length < 3 || !ptsInView(wt.pts)) continue;
       ctx.fillStyle = theme.water;
       ctx.beginPath();
       ctx.moveTo(toX(wt.pts[0][0]), toY(wt.pts[0][1]));
@@ -111,8 +134,8 @@ export function renderMapToContext(
   // 1.5. Pedestrian Plazas (나혜석거리)
   ctx.lineCap = 'round';
   ctx.strokeStyle = isNight ? '#3d332a' : '#e9d8c8';
-  for (const pl of ACTIVE_MAP_DATA.pedestrianPlazas) {
-    if (pl.pts.length < 2) continue;
+  for (const pl of plazas) {
+    if (pl.pts.length < 2 || !ptsInView(pl.pts)) continue;
     ctx.lineWidth = Math.max(2.5, pl.width * scale);
     ctx.beginPath();
     ctx.moveTo(toX(pl.pts[0][0]), toY(pl.pts[0][1]));
@@ -124,7 +147,11 @@ export function renderMapToContext(
 
   // 2. Real Suwon Ingye-dong OSM Road Network (218 segments!)
   const osmNodes = ACTIVE_MAP_DATA.nodes;
-  const osmEdges = ACTIVE_MAP_DATA.edges;
+  const osmEdges = ACTIVE_MAP_DATA.edges.filter((e) => {
+    const na = osmNodes[e.a];
+    const nb = osmNodes[e.b];
+    return inView(Math.min(na.x, nb.x), Math.max(na.x, nb.x), Math.min(na.z, nb.z), Math.max(na.z, nb.z));
+  });
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -170,6 +197,7 @@ export function renderMapToContext(
 
   // 3. Real Suwon Building Polygon Footprints (322 OSM buildings!)
   for (const b of mapInfo.buildings) {
+    if (!inView(b.x - b.w, b.x + b.w, b.z - b.d, b.z + b.d)) continue;
     ctx.fillStyle =
       b.kind === 'shop'
         ? theme.bldgShop

@@ -3,6 +3,7 @@ import { SUWON_INGYE_DATA } from './suwonIngyeData';
 import { SUWON_HAENGGUNG_DATA } from './suwonHaenggungData';
 import { SUWON_STATION_DATA } from './suwonStationData';
 import { SUWON_GWANGGYO_DATA } from './suwonGwanggyoData';
+import { buildUnifiedSuwonDataset } from './suwonUnified';
 
 export type { SuwonDistrictId, SuwonMapDataset };
 
@@ -86,12 +87,41 @@ function resolveInitialDistrictId(): SuwonDistrictId {
   return 'ingye';
 }
 
+export type SuwonMapMode = 'unified' | 'legacy';
+
+/**
+ * 'unified' (default): one seamless Suwon open world (all 4 districts + the land between) with chunk streaming;
+ *   the selected district is only the spawn point.
+ * 'legacy' (?map=legacy): the old separate 820m district maps, switching reloads the page.
+ */
+function resolveMapMode(): SuwonMapMode {
+  if (typeof window === 'undefined') return 'unified';
+  try {
+    return new URLSearchParams(window.location.search).get('map') === 'legacy' ? 'legacy' : 'unified';
+  } catch {
+    return 'unified';
+  }
+}
+
+export const MAP_MODE: SuwonMapMode = resolveMapMode();
+export const IS_UNIFIED_MAP = MAP_MODE === 'unified';
 export const ACTIVE_DISTRICT_ID: SuwonDistrictId = resolveInitialDistrictId();
 export const ACTIVE_DISTRICT: SuwonDistrictMeta =
   SUWON_DISTRICTS.find((d) => d.id === ACTIVE_DISTRICT_ID) ?? SUWON_DISTRICTS[0];
-export const ACTIVE_MAP_DATA: SuwonMapDataset = ACTIVE_DISTRICT.data;
+export const ACTIVE_MAP_DATA: SuwonMapDataset = IS_UNIFIED_MAP
+  ? buildUnifiedSuwonDataset(ACTIVE_DISTRICT_ID)
+  : ACTIVE_DISTRICT.data;
 
-/** Saves the selected Suwon district and cleanly reloads the 3D OSM world into that area */
+/** Remembers the chosen district as the next spawn point (unified map: no reload needed) */
+export function rememberSuwonDistrict(nextId: SuwonDistrictId): void {
+  try {
+    window.localStorage.setItem(DISTRICT_STORAGE_KEY, nextId);
+  } catch {
+    // ignore
+  }
+}
+
+/** Legacy map mode: saves the selected Suwon district and cleanly reloads the 3D OSM world into that area */
 export function switchSuwonDistrict(nextId: SuwonDistrictId): void {
   if (nextId === ACTIVE_DISTRICT_ID) return;
   try {
@@ -101,5 +131,6 @@ export function switchSuwonDistrict(nextId: SuwonDistrictId): void {
   }
   const url = new URL(window.location.href);
   url.searchParams.set('district', nextId);
+  if (!IS_UNIFIED_MAP) url.searchParams.set('map', 'legacy');
   window.location.href = url.toString();
 }

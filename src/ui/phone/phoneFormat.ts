@@ -1,5 +1,6 @@
 import { CityMapInfo } from '../../world/CityWorld';
-import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
+import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA, IS_UNIFIED_MAP, SUWON_DISTRICTS } from '../../data/suwonDistricts';
+import { nearestLegacyDistrictId } from '../../data/suwonUnified';
 
 /** Pure label/formatting helpers shared by the phone screen renderers & sheet tabs. */
 export function getPhaseShortLabel(phase: string, cargoSlot: number | null, cookSec = 0): string {
@@ -34,9 +35,13 @@ export function getPhaseShortLabel(phase: string, cargoSlot: number | null, cook
 }
 
 export function resolveAreaName(px: number, pz: number, mapInfo: CityMapInfo): string {
+  // Unified open world: the base name is the district the rider is in / nearest to
+  const districtName = IS_UNIFIED_MAP
+    ? (SUWON_DISTRICTS.find((d) => d.id === nearestLegacyDistrictId(px, pz))?.shortName ?? ACTIVE_DISTRICT.shortName)
+    : ACTIVE_DISTRICT.shortName;
   const st = ACTIVE_MAP_DATA.meta.station;
-  if (Math.hypot(px - st.x, pz - st.z) < 68) return ACTIVE_DISTRICT.shortName;
-  let nearest = ACTIVE_DISTRICT.shortName;
+  if (Math.hypot(px - st.x, pz - st.z) < 68) return districtName;
+  let nearest = districtName;
   let bestDist = 95;
   for (const z of mapInfo.zones) {
     const d = Math.hypot(px - z.x, pz - z.z);

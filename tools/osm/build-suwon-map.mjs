@@ -2,9 +2,9 @@
 // Converts the cached raw Overpass dump (tools/osm/cache/suwon-raw.json) into the unified Suwon
 // open-world map used for chunk streaming:
 //
-//   public/map/suwon/world.json          always-loaded data: meta, road graph (nodes/edges/signals),
-//                                        bus stops, legacy district content (shops, residences, spawns...),
-//                                        chunk index
+//   src/data/openworld/suwonWorld.json   always-loaded data bundled into the game: meta, road graph
+//                                        (nodes/edges/signals), bus stops, legacy district content
+//                                        (shops, residences, spawns...), chunk index
 //   public/map/suwon/chunks/c_<ix>_<iz>.json   heavy per-200m-chunk geometry: buildings, parks,
 //                                        waters, water lines, pedestrian plazas
 //
@@ -31,6 +31,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
 const RAW = join(HERE, 'cache', 'suwon-raw.json');
 const OUT_DIR = join(ROOT, 'public', 'map', 'suwon');
+const WORLD_JSON = join(ROOT, 'src', 'data', 'openworld', 'suwonWorld.json');
 const LEGACY_DIR = join(ROOT, 'src', 'data');
 
 // ---------------------------------------------------------------- road classes (legacy-compatible)
@@ -616,7 +617,8 @@ async function main() {
     chunks: chunkIndex,
   };
   const worldBody = JSON.stringify(world);
-  await writeFile(join(OUT_DIR, 'world.json'), worldBody);
+  await mkdir(dirname(WORLD_JSON), { recursive: true });
+  await writeFile(WORLD_JSON, worldBody);
 
   stats.output = {
     worldJsonKB: Math.round(worldBody.length / 1024),

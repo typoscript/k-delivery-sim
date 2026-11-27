@@ -137,7 +137,7 @@ describe('buildChunkMeshes', () => {
   });
 
   it('builds the densest real Suwon chunk within budget', () => {
-    const world = JSON.parse(readFileSync('public/map/suwon/world.json', 'utf8')) as OpenWorldData;
+    const world = JSON.parse(readFileSync('src/data/openworld/suwonWorld.json', 'utf8')) as OpenWorldData;
     const heaviest = [...world.chunks].sort((a, b) => b.buildings - a.buildings)[0];
     const data = JSON.parse(readFileSync(`public/map/suwon/chunks/c_${heaviest.key}.json`, 'utf8')) as ChunkData;
     const t0 = performance.now();

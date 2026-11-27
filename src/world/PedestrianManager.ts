@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { CrosswalkAxis, PedestrianEdge, PedestrianGraph } from './PedestrianGraph';
 
 export type PedestrianFSMState =
@@ -81,10 +82,26 @@ const STARTLE_PANIC_RADIUS = 1.6; // ...unless the scooter charges in this close
 const SIDEWALK_YIELD_SEC = 1.6; // wait this long for a blocker ahead, then walk around it
 const DETOUR_SPEED = 1.1; // m/s sideways drift while walking around a blocker
 
+// Open-world population streaming: keep the crowd around the player on the 6km unified map
+export const PEDESTRIAN_INITIAL_SPAWN_RADIUS = 180; // initial spawns within this radius of the player spawn
+export const PEDESTRIAN_RECYCLE_DISTANCE = 220; // hidden agents farther than this get moved near the player
+export const PEDESTRIAN_RESPAWN_MIN_RADIUS = 60;
+export const PEDESTRIAN_RESPAWN_MAX_RADIUS = 180;
+const RESPAWN_PREFERRED_MIN_RADIUS = CULL_DISTANCE + 6; // prefer popping in just outside the visible range
+const RECYCLE_INTERVAL_SEC = 0.5;
+const MAX_RECYCLES_PER_TICK = 8;
+
+export interface PedestrianManagerOptions {
+  /** Centre for the initial crowd (default: ACTIVE_MAP_DATA.meta.playerSpawn) */
+  spawnCenter?: { x: number; z: number };
+}
+
 /**
  * Evaluates pedestrian crosswalk signal synchronized with TrafficSystem's 3-color cycle.
- * - Crossing along 'ns' (across EW road) is safe when NS vehicle signal is green.
- * - Crossing along 'ew' (across NS road) is safe when EW vehicle signal is green.
+ * `axis` is the vehicle phase moving parallel to the crossing (PedestrianGraph sets it via getSignalAxis),
+ * so pedestrians walk exactly while the traffic they cut across has red:
+ * - 'ns' (e.g. walking along Z across an EW road) is safe when the NS vehicle signal is green.
+ * - 'ew' (e.g. walking along X across a NS road) is safe when the EW vehicle signal is green.
  */
 export function evaluatePedestrianSignal(
   axis: CrosswalkAxis,
@@ -99,9 +116,10 @@ export function evaluatePedestrianSignal(
 
 /**
  * Independent Sidewalk & Signalized Crosswalk Pedestrian AI Manager.
- * - Navigates the 25-block PedestrianGraph using a 3-state FSM:
+ * - Navigates the OSM sidewalk PedestrianGraph using a 3-state FSM:
  *   WALKING (1.0~1.3 m/s) <-> WAITING_CROSSWALK (at yellow tactile pad) -> CROSSING (1.5x run when blinking!)
  * - 80m distance culling: hides 3D mesh beyond 80m while keeping lightweight coordinate updates running.
+ * - Open-world streaming: hidden agents > 220m from the player are recycled onto sidewalks 60~180m away.
  * - Immediately pauses tick updates & hides group when player enters underground corridors (y = -500).
  */
 export class PedestrianManager {
@@ -110,48 +128,42 @@ export class PedestrianManager {
   public readonly factory = new PedestrianFactory();
   public readonly agents: PedestrianAgent[] = [];
 
-  constructor(parent: THREE.Object3D, totalCount = 56) {
-    // Weight initial spawns slightly toward central blocks while covering all 25 blocks
-    const centralNodes = this.graph.nodes.filter(
-      (n) => Math.abs(n.x) <= 125 && Math.abs(n.z) <= 125
-    );
-    const allNodes = this.graph.nodes;
+  private recycleTimer = 0;
+  /** Total agents moved back near the player since construction (diagnostics / tests) */
+  public recycledCount = 0;
+
+  constructor(parent: THREE.Object3D, totalCount = 56, options: PedestrianManagerOptions = {}) {
+    // Spawn the crowd around the player spawn (on the unified map it can be kilometres from (0, 0)),
+    // ~35% close enough to be visible right away and the rest spread out to the streaming radius.
+    const center = options.spawnCenter ?? ACTIVE_MAP_DATA.meta.playerSpawn;
+    let nearPool = this.graph.nodesWithin(center.x, center.z, 0, CULL_DISTANCE);
+    let widePool = this.graph.nodesWithin(center.x, center.z, 0, PEDESTRIAN_INITIAL_SPAWN_RADIUS);
+    if (widePool.length === 0) {
+      // Spawn far off the sidewalk network (shouldn't happen) -> fall back to every connected node
+      widePool = this.graph.nodes.filter((n) => this.graph.getEdges(n.id).length > 0).map((n) => n.id);
+    }
+    if (nearPool.length === 0) nearPool = widePool;
 
     for (let i = 0; i < totalCount; i++) {
-      const pool = i < Math.floor(totalCount * 0.65) ? centralNodes : allNodes;
-      const startNode = pool[Math.floor(Math.random() * pool.length)];
-      const edges = this.graph.getEdges(startNode.id);
-      // Prefer starting on a sidewalk edge so spawns begin cleanly on raised sidewalks
-      const sidewalkEdges = edges.filter((e) => e.kind === 'sidewalk');
-      const edge =
-        sidewalkEdges.length > 0
-          ? sidewalkEdges[Math.floor(Math.random() * sidewalkEdges.length)]
-          : edges[0];
-      const nextNode = this.graph.getNode(edge.to);
-
-      const t = Math.random();
-      const sx = startNode.x + (nextNode.x - startNode.x) * t;
-      const sz = startNode.z + (nextNode.z - startNode.z) * t;
-      const heading = Math.atan2(nextNode.x - startNode.x, nextNode.z - startNode.z);
+      const pool = i < Math.floor(totalCount * 0.35) ? nearPool : widePool;
+      const startNodeId = pool[Math.floor(Math.random() * pool.length)];
 
       const rig = this.factory.createPedestrian();
-      rig.root.position.set(sx, SIDEWALK_Y, sz);
-      rig.root.rotation.y = heading;
       this.root.add(rig.root);
 
-      this.agents.push({
+      const agent: PedestrianAgent = {
         id: i + 1,
         rig,
         fsm: 'WALKING',
         resumeFsm: 'WALKING',
-        fromNodeId: startNode.id,
-        toNodeId: nextNode.id,
-        prevNodeId: startNode.id,
-        activeEdge: edge,
-        x: sx,
+        fromNodeId: startNodeId,
+        toNodeId: startNodeId,
+        prevNodeId: startNodeId,
+        activeEdge: this.graph.getEdges(startNodeId)[0],
+        x: 0,
         y: SIDEWALK_Y,
-        z: sz,
-        heading,
+        z: 0,
+        heading: 0,
         walkSpeed: 1.0 + Math.random() * 0.3, // 1.0 ~ 1.3 m/s
         currentSpeed: 0,
         visible: true,
@@ -164,10 +176,88 @@ export class PedestrianManager {
         hitCooldown: 0,
         yieldTimer: 0,
         startleCooldown: 0,
-      });
+      };
+      this.placeAgentOnNode(agent, startNodeId);
+      this.agents.push(agent);
     }
 
     parent.add(this.root);
+  }
+
+  /** Puts `a` part-way along a (preferably sidewalk) edge leaving `nodeId` and resets its FSM to WALKING */
+  private placeAgentOnNode(a: PedestrianAgent, nodeId: number): void {
+    const startNode = this.graph.getNode(nodeId);
+    const edges = this.graph.getEdges(nodeId);
+    // Prefer starting on a sidewalk edge so spawns begin cleanly on raised sidewalks
+    const sidewalkEdges = edges.filter((e) => e.kind === 'sidewalk');
+    const edge =
+      sidewalkEdges.length > 0 ? sidewalkEdges[Math.floor(Math.random() * sidewalkEdges.length)] : edges[0];
+    const nextNode = this.graph.getNode(edge.to);
+
+    // Start at most ~20m along the edge: OSM sidewalk edges can be ~1km long, and the agent should appear
+    // near the chosen node (inside the requested spawn ring), not somewhere down a long avenue
+    const t = Math.random() * Math.min(1, 20 / Math.max(1, edge.distance));
+    a.x = startNode.x + (nextNode.x - startNode.x) * t;
+    a.z = startNode.z + (nextNode.z - startNode.z) * t;
+    a.y = SIDEWALK_Y;
+    a.heading = Math.atan2(nextNode.x - startNode.x, nextNode.z - startNode.z);
+    a.fromNodeId = startNode.id;
+    a.prevNodeId = startNode.id;
+    a.toNodeId = nextNode.id;
+    a.activeEdge = edge;
+    a.fsm = 'WALKING';
+    a.resumeFsm = 'WALKING';
+    a.currentSpeed = 0;
+    a.reactionTimer = 0;
+    a.reactPhase = 0;
+    a.evadeRemaining = 0;
+    a.yieldTimer = 0;
+    a.startleCooldown = 0;
+    a.hitCooldown = 0;
+    a.rig.root.position.set(a.x, a.y, a.z);
+    a.rig.root.rotation.y = a.heading;
+  }
+
+  /**
+   * Open-world streaming: agents that are hidden and more than PEDESTRIAN_RECYCLE_DISTANCE from the player
+   * are moved to a random sidewalk node 60~180m away (preferably just outside the 80m visible range),
+   * so the crowd follows the player across the unified map. Returns how many agents moved.
+   */
+  public recycleFarAgents(playerX: number, playerZ: number): number {
+    const farSq = PEDESTRIAN_RECYCLE_DISTANCE * PEDESTRIAN_RECYCLE_DISTANCE;
+    let moved = 0;
+    for (const a of this.agents) {
+      if (moved >= MAX_RECYCLES_PER_TICK) break;
+      if (a.visible || a.fsm === 'FALLEN') continue;
+      const dx = a.x - playerX;
+      const dz = a.z - playerZ;
+      if (dx * dx + dz * dz <= farSq) continue;
+
+      let nodeId = this.graph.randomNodeWithin(
+        playerX,
+        playerZ,
+        RESPAWN_PREFERRED_MIN_RADIUS,
+        PEDESTRIAN_RESPAWN_MAX_RADIUS
+      );
+      if (nodeId < 0) {
+        nodeId = this.graph.randomNodeWithin(
+          playerX,
+          playerZ,
+          PEDESTRIAN_RESPAWN_MIN_RADIUS,
+          PEDESTRIAN_RESPAWN_MAX_RADIUS
+        );
+      }
+      if (nodeId < 0) break; // no sidewalks near the player (e.g. open field) -> keep agents where they are
+      this.placeAgentOnNode(a, nodeId);
+      // Stay hidden until the regular culling pass sees it within range
+      const ndx = a.x - playerX;
+      const ndz = a.z - playerZ;
+      a.visible = ndx * ndx + ndz * ndz <= CULL_DISTANCE_SQ;
+      a.rig.root.visible = a.visible;
+      moved++;
+    }
+    this.recycledCount += moved;
+    return moved;
   }
 
   private startleAudioCooldown = 0;
@@ -235,6 +325,11 @@ export class PedestrianManager {
     }
 
     const clampedDt = Math.min(dt, 0.05);
+    this.recycleTimer += clampedDt;
+    if (this.recycleTimer >= RECYCLE_INTERVAL_SEC) {
+      this.recycleTimer = 0;
+      this.recycleFarAgents(playerX, playerZ);
+    }
     if (this.startleAudioCooldown > 0) {
       this.startleAudioCooldown = Math.max(0, this.startleAudioCooldown - clampedDt);
     }

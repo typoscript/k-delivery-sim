@@ -5,13 +5,13 @@
 
 ```bash
 npm run map:fetch   # Overpass API에서 원본 다운로드 → tools/osm/cache/suwon-raw.json (git 제외, --force로 재다운로드)
-npm run map:build   # 원본 → public/map/suwon/ (world.json + chunks/c_<ix>_<iz>.json)
+npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map/suwon/chunks/c_<ix>_<iz>.json
 ```
 
 ## 출력
 | 파일 | 내용 | 로딩 |
 |---|---|---|
-| `public/map/suwon/world.json` | 메타(원점·범위·청크 격자), 도로 그래프(nodes/edges/신호), 버스정류장, 기존 4개 구역의 가게·배달지·주유소·정비소·스폰 위치(월드 좌표로 이동), 청크 목록 | 항상 |
+| `src/data/openworld/suwonWorld.json` | 메타(원점·범위·청크 격자), 도로 그래프(nodes/edges/신호), 버스정류장, 기존 4개 구역의 가게·배달지·주유소·정비소·스폰 위치(월드 좌표로 이동), 청크 목록 — 게임 번들에 포함 | 항상 |
 | `public/map/suwon/chunks/c_<ix>_<iz>.json` | 200m 청크별 건물·공원·수면·하천선·보행광장 | 플레이어 주변만 |
 
 ## 규칙 (기존 구역 데이터와 호환)
@@ -22,4 +22,4 @@ npm run map:build   # 원본 → public/map/suwon/ (world.json + chunks/c_<ix>_<
 - 도로는 가장 큰 연결 요소만 유지(AI·내비가 모든 도로에 도달 가능), 3m 미만 구간은 병합
 - 같은 원본이면 출력이 항상 동일(결정적)
 
-생성 파일(`public/map/`)은 직접 수정하지 말고 스크립트를 고친 뒤 `npm run map:build`로 다시 만듭니다.
+생성 파일(`src/data/openworld/`, `public/map/`)은 직접 수정하지 말고 스크립트를 고친 뒤 `npm run map:build`로 다시 만듭니다.

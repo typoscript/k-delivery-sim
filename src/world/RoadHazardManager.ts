@@ -24,6 +24,7 @@ import {
   PedestrianCollisionEvent,
   ScooterProximityInfo,
 } from './PedestrianManager';
+import { PointGrid } from './PedestrianGraph';
 
 export interface SpeedCameraTriggerEvent {
   cameraId: string;
@@ -140,13 +141,44 @@ export const PATROL_SPEED_LIMIT_KMH = 60;
 const POPOUT_GLOBAL_COOLDOWN_SEC = 18.0;
 const POPOUT_COLLISION_RADIUS = 1.14;
 
+// --- Open-world scaling ---
+/** Road coverage (km^2 of occupied 100m cells) above which a map counts as the large unified open world */
+export const LARGE_MAP_COVERAGE_KM2 = 3.0;
+/** Moving units (police, rivals) farther than this from the player get respawned near the player */
+export const HAZARD_RECYCLE_DISTANCE = 300;
+export const HAZARD_RESPAWN_MIN_RADIUS = 120;
+export const HAZARD_RESPAWN_MAX_RADIUS = 250;
+const HAZARD_RECYCLE_INTERVAL_SEC = 2.0;
+/** Large map only: static props (cameras, parked cars, construction) beyond this are hidden */
+const STATIC_PROP_VISIBLE_DIST = 420;
+const STATIC_VISIBILITY_INTERVAL_SEC = 0.5;
+
+interface PlacementRule {
+  /** Count & minimum spacing on legacy-size (~0.8km) district maps, unchanged from the original game */
+  legacyCount: number;
+  legacySpacing: number;
+  /** Density & spacing on the large unified map */
+  perKm2: number;
+  largeSpacing: number;
+}
+
+const CAMERA_RULE: PlacementRule = { legacyCount: 6, legacySpacing: 95, perKm2: 1.5, largeSpacing: 320 };
+const PARKED_RULE: PlacementRule = { legacyCount: 6, legacySpacing: 68, perKm2: 3.0, largeSpacing: 160 };
+const CONSTRUCTION_RULE: PlacementRule = { legacyCount: 3, legacySpacing: 110, perKm2: 0.6, largeSpacing: 600 };
+
+/** Underpasses / tunnels / overpasses: no double-parked trucks or road works there */
+const GRADE_SEPARATED_NAME = /지하차도|터널|고가/;
+
 /**
- * Suwon Ingye-dong Roadside Enforcement, Construction & Urban Delivery Hazards Manager:
- * 1. 6 Fixed Speed/Red-Light Enforcement Cameras (50 km/h, 80m navi warning, ₩40,000 fine)
+ * Suwon Roadside Enforcement, Construction & Urban Delivery Hazards Manager:
+ * 1. Fixed Speed Enforcement Cameras (50 km/h, 80m navi warning, ₩40,000 fine)
  * 2. 2 Patrolling Gyeonggi Southern Police Cars ("경기남부경찰 POLICE 112", live >60km/h enforcement)
- * 3. 6 Illegally Double-Parked K-택배 Trucks & Sedans + Blind-Spot Pedestrian Pop-Outs
- * 4. 3 Road Construction Zones (traffic cones, barricade, blinking amber strobe)
+ * 3. Illegally Double-Parked K-택배 Trucks & Sedans + Blind-Spot Pedestrian Pop-Outs
+ * 4. Road Construction Zones (traffic cones, barricade, blinking amber strobe)
  * 5. 4 Rival AI Delivery Scooter Riders roaming real Suwon OSM roads!
+ * Legacy district maps keep 6 cameras / 6 parked / 3 construction zones. The large unified map scales the
+ * static counts with road coverage (see *_RULE), hides props > 420m away, and recycles police / rivals
+ * that drift > 300m from the player onto roads 120~250m away.
  */
 export class RoadHazardManager {
   public readonly root = new THREE.Group();
@@ -166,6 +198,17 @@ export class RoadHazardManager {
   private readonly rivalRiders: RivalRiderUnit[] = [];
   private readonly pedFactory = new PedestrianFactory();
   private globalPopOutCooldown = 3.0;
+  /** Spatial index of OSM road nodes that have edges (all) and of nodes touching a major road */
+  private readonly nodeGrid: PointGrid;
+  private readonly majorNodeGrid: PointGrid;
+  /** km^2 of 100m cells containing road nodes (legacy districts ~0.35-0.6, unified Suwon ~19) */
+  public readonly roadCoverageKm2: number;
+  public readonly isLargeMap: boolean;
+  private readonly staticProps: Array<{ group: THREE.Object3D; x: number; z: number }> = [];
+  private recycleTimer = 0;
+  private staticVisTimer = STATIC_VISIBILITY_INTERVAL_SEC;
+  /** Total police/rival respawns near the player (diagnostics / tests) */
+  public recycledCount = 0;
   private lastWarnedCameraId: string | null = null;
   private overSpeedBeepTimer = 0;
 
@@ -176,17 +219,43 @@ export class RoadHazardManager {
       this.adj[e.a].push({ to: e.b, dist: e.dist, width: e.width, isMajor: e.isMajor });
       this.adj[e.b].push({ to: e.a, dist: e.dist, width: e.width, isMajor: e.isMajor });
     }
+    const xs = new Float64Array(nodes.length);
+    const zs = new Float64Array(nodes.length);
+    const isMajorNode = new Uint8Array(nodes.length);
     for (const n of nodes) {
+      xs[n.id] = n.x;
+      zs[n.id] = n.z;
       if (this.adj[n.id].some((ed) => ed.isMajor)) {
         this.majorNodeIds.push(n.id);
+        isMajorNode[n.id] = 1;
       }
     }
+    this.nodeGrid = new PointGrid(xs, zs, nodes.length, 100, (id) => this.adj[id].length > 0);
+    this.majorNodeGrid = new PointGrid(xs, zs, nodes.length, 100, (id) => isMajorNode[id] === 1);
+    this.roadCoverageKm2 = this.nodeGrid.occupiedCellCount * 0.01;
+    this.isLargeMap = this.roadCoverageKm2 > LARGE_MAP_COVERAGE_KM2;
 
     this.buildSpeedCameras();
     this.buildParkedHazards();
     this.buildPolicePatrols();
     this.buildConstructionZones();
     this.buildRivalRiders();
+
+    if (this.isLargeMap) {
+      // Unified open world: start the moving units around the player instead of spread over 6km of city
+      const spawn = ACTIVE_MAP_DATA.meta.playerSpawn;
+      this.patrolCars.forEach((p, i) => {
+        if (this.respawnMovingUnit(p, spawn.x, spawn.z, 60, HAZARD_RESPAWN_MAX_RADIUS, true, 0.25)) {
+          Object.assign(this.patrolMarkers[i], { x: p.x, z: p.z, heading: p.heading });
+        }
+      });
+      this.rivalRiders.forEach((r, i) => {
+        if (this.respawnMovingUnit(r, spawn.x, spawn.z, 40, HAZARD_RESPAWN_MAX_RADIUS, false, 0.22)) {
+          Object.assign(this.rivalRiderMarkers[i], { x: r.x, z: r.z, heading: r.heading });
+        }
+      });
+      this.updateStaticPropVisibility(spawn.x, spawn.z);
+    }
     parent.add(this.root);
   }
 
@@ -209,6 +278,136 @@ export class RoadHazardManager {
       });
     }
     return list;
+  }
+
+  /** Static hazard counts on the active map (for diagnostics / tests) */
+  public get placementCounts(): { cameras: number; parked: number; construction: number } {
+    return {
+      cameras: this.cameras.length,
+      parked: this.parkedHazards.length,
+      construction: this.constructionZones.length,
+    };
+  }
+
+  /** Current positions of the moving units (police first, then rivals) */
+  public get movingUnitPositions(): Array<{ id: string; x: number; z: number }> {
+    return [
+      ...this.patrolCars.map((p) => ({ id: p.id, x: p.x, z: p.z })),
+      ...this.rivalRiders.map((r) => ({ id: r.id, x: r.x, z: r.z })),
+    ];
+  }
+
+  private placementLimits(rule: PlacementRule): { count: number; spacing: number } {
+    if (!this.isLargeMap) return { count: rule.legacyCount, spacing: rule.legacySpacing };
+    return {
+      count: Math.max(rule.legacyCount, Math.round(this.roadCoverageKm2 * rule.perKm2)),
+      spacing: rule.largeSpacing,
+    };
+  }
+
+  private registerStaticProp(group: THREE.Object3D, x: number, z: number): void {
+    if (this.isLargeMap) this.staticProps.push({ group, x, z });
+  }
+
+  /**
+   * Picks a road edge whose start node lies minR~maxR from (x, z), away from the other moving units.
+   * preferMajor: try nodes on major roads first and leave along a major edge when possible.
+   */
+  private pickSpawnEdge(
+    x: number,
+    z: number,
+    minR: number,
+    maxR: number,
+    preferMajor: boolean,
+    self: { x: number; z: number }
+  ): { from: number; edge: OsmAdjEdge } | null {
+    const others = [...this.patrolCars, ...this.rivalRiders].filter((u) => u !== self);
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    const clear = (id: number) => {
+      const n = nodes[id];
+      return !others.some((o) => Math.abs(o.x - n.x) < 14 && Math.abs(o.z - n.z) < 14);
+    };
+    const grids = preferMajor ? [this.majorNodeGrid, this.nodeGrid] : [this.nodeGrid];
+    for (const grid of grids) {
+      const id = grid.randomWithin(x, z, minR, maxR, (nid) => this.adj[nid].some((e) => e.dist >= 8) && clear(nid));
+      if (id < 0) continue;
+      let outs = this.adj[id].filter((e) => e.dist >= 8);
+      if (preferMajor) {
+        const maj = outs.filter((e) => e.isMajor);
+        if (maj.length > 0) outs = maj;
+      }
+      return { from: id, edge: outs[Math.floor(Math.random() * outs.length)] };
+    }
+    return null;
+  }
+
+  /** Moves a police car / rival rider onto a fresh edge near (x, z). Returns false when no road qualifies. */
+  private respawnMovingUnit(
+    u: PolicePatrolUnit | RivalRiderUnit,
+    x: number,
+    z: number,
+    minR: number,
+    maxR: number,
+    preferMajor: boolean,
+    laneFrac: number
+  ): boolean {
+    const pick = this.pickSpawnEdge(x, z, minR, maxR, preferMajor, u);
+    if (!pick) return false;
+    const { from, edge } = pick;
+    u.fromNode = from;
+    u.toNode = edge.to;
+    u.edgeDist = edge.dist;
+    u.edgeWidth = edge.width;
+    u.progress = Math.min(edge.dist * 0.25, Math.max(0, edge.dist - 0.2));
+    u.blendX = 0;
+    u.blendZ = 0;
+    u.speed = u.cruiseSpeed * 0.7;
+    const pose = this.computeEdgePose(from, edge.to, u.progress, edge.dist, edge.width, laneFrac);
+    u.x = pose.x;
+    u.z = pose.z;
+    u.heading = pose.heading;
+    u.group.position.set(u.x, 0, u.z);
+    u.group.rotation.y = u.heading;
+    return true;
+  }
+
+  /** Respawns police / rivals that drifted > HAZARD_RECYCLE_DISTANCE away to 120~250m from the player */
+  public recycleMovingUnits(playerX: number, playerZ: number): number {
+    const farSq = HAZARD_RECYCLE_DISTANCE * HAZARD_RECYCLE_DISTANCE;
+    let moved = 0;
+    const isFar = (u: { x: number; z: number }) =>
+      (u.x - playerX) * (u.x - playerX) + (u.z - playerZ) * (u.z - playerZ) > farSq;
+    this.patrolCars.forEach((p, i) => {
+      if (!isFar(p)) return;
+      if (this.respawnMovingUnit(p, playerX, playerZ, HAZARD_RESPAWN_MIN_RADIUS, HAZARD_RESPAWN_MAX_RADIUS, true, 0.25)) {
+        p.sirenTimer = 0;
+        this.patrolMarkers[i].x = p.x;
+        this.patrolMarkers[i].z = p.z;
+        this.patrolMarkers[i].heading = p.heading;
+        this.patrolMarkers[i].sirenActive = false;
+        moved++;
+      }
+    });
+    this.rivalRiders.forEach((r, i) => {
+      if (!isFar(r)) return;
+      if (this.respawnMovingUnit(r, playerX, playerZ, HAZARD_RESPAWN_MIN_RADIUS, HAZARD_RESPAWN_MAX_RADIUS, false, 0.22)) {
+        this.rivalRiderMarkers[i].x = r.x;
+        this.rivalRiderMarkers[i].z = r.z;
+        this.rivalRiderMarkers[i].heading = r.heading;
+        moved++;
+      }
+    });
+    this.recycledCount += moved;
+    return moved;
+  }
+
+  private updateStaticPropVisibility(playerX: number, playerZ: number): void {
+    const maxSq = STATIC_PROP_VISIBLE_DIST * STATIC_PROP_VISIBLE_DIST;
+    for (const p of this.staticProps) {
+      const dx = p.x - playerX;
+      const dz = p.z - playerZ;
+      p.group.visible = dx * dx + dz * dz <= maxSq;
+    }
   }
 
   private computeEdgePose(
@@ -313,13 +512,14 @@ export class RoadHazardManager {
     const housingMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
     const signMat = new THREE.MeshBasicMaterial({ map: this.createCameraSignTexture() });
 
+    const { count: maxCameras, spacing: cameraSpacing } = this.placementLimits(CAMERA_RULE);
     for (const e of majorEdges) {
-      if (this.cameras.length >= 6) break;
+      if (this.cameras.length >= maxCameras) break;
       const na = nodes[e.a];
       const nb = nodes[e.b];
       const mx = (na.x + nb.x) * 0.5;
       const mz = (na.z + nb.z) * 0.5;
-      if (this.cameras.some((c) => Math.hypot(c.x - mx, c.z - mz) < 95)) continue;
+      if (this.cameras.some((c) => Math.hypot(c.x - mx, c.z - mz) < cameraSpacing)) continue;
 
       const angle = Math.atan2(nb.x - na.x, nb.z - na.z);
       const axis: 'ns' | 'ew' = Math.abs(Math.cos(angle)) >= Math.abs(Math.sin(angle)) ? 'ns' : 'ew';
@@ -357,6 +557,7 @@ export class RoadHazardManager {
 
       g.add(pole, arm, camBox, sign, led, flash);
       this.root.add(g);
+      this.registerStaticProp(g, mx, mz);
 
       this.cameras.push({
         id,
@@ -407,8 +608,10 @@ export class RoadHazardManager {
       .filter((e) => e.width >= 8.4 && e.dist >= 24)
       .sort((a, b) => b.dist - a.dist);
 
+    const { count: maxParked, spacing: parkedSpacing } = this.placementLimits(PARKED_RULE);
     for (const e of candidates) {
-      if (this.parkedHazards.length >= 6) break;
+      if (this.parkedHazards.length >= maxParked) break;
+      if (this.isLargeMap && GRADE_SEPARATED_NAME.test(e.name)) continue;
       const na = nodes[e.a];
       const nb = nodes[e.b];
       const dx = nb.x - na.x;
@@ -425,7 +628,7 @@ export class RoadHazardManager {
 
       if (Math.hypot(mx - spawn.x, mz - spawn.z) < 42) continue;
       if (this.cameras.some((c) => Math.hypot(c.x - mx, c.z - mz) < 28)) continue;
-      if (this.parkedHazards.some((h) => Math.hypot(h.x - mx, h.z - mz) < 68)) continue;
+      if (this.parkedHazards.some((h) => Math.hypot(h.x - mx, h.z - mz) < parkedSpacing)) continue;
 
       const isTruck = this.parkedHazards.length % 2 === 0;
       const name = isTruck ? '불법주정차 K-택배 탑차' : '비상등 불법주정차 승용차';
@@ -475,6 +678,7 @@ export class RoadHazardManager {
         }
       }
       this.root.add(g);
+      this.registerStaticProp(g, mx, mz);
 
       // Collision box
       this.obstacles.push({
@@ -683,8 +887,10 @@ export class RoadHazardManager {
       .filter((e) => e.isMajor && e.dist >= 32)
       .sort((a, b) => b.dist - a.dist);
 
+    const { count: maxZones, spacing: zoneSpacing } = this.placementLimits(CONSTRUCTION_RULE);
     for (const e of candidates) {
-      if (this.constructionZones.length >= 3) break;
+      if (this.constructionZones.length >= maxZones) break;
+      if (this.isLargeMap && GRADE_SEPARATED_NAME.test(e.name)) continue;
       const na = nodes[e.a];
       const nb = nodes[e.b];
       const dx = nb.x - na.x;
@@ -700,7 +906,7 @@ export class RoadHazardManager {
       if (Math.hypot(cx - spawn.x, cz - spawn.z) < 55) continue;
       if (this.cameras.some((c) => Math.hypot(c.x - cx, c.z - cz) < 35)) continue;
       if (this.parkedHazards.some((h) => Math.hypot(h.x - cx, h.z - cz) < 35)) continue;
-      if (this.constructionZones.some((z) => Math.hypot(z.x - cx, z.z - cz) < 110)) continue;
+      if (this.constructionZones.some((z) => Math.hypot(z.x - cx, z.z - cz) < zoneSpacing)) continue;
 
       const g = new THREE.Group();
       g.position.set(cx, 0, cz);
@@ -737,6 +943,7 @@ export class RoadHazardManager {
       strobe.position.set(0, 1.32, -3.5);
       g.add(board, strobe);
       this.root.add(g);
+      this.registerStaticProp(g, cx, cz);
 
       this.obstacles.push({
         minX: cx - 1.5,
@@ -846,7 +1053,9 @@ export class RoadHazardManager {
     onPopOutWarning?: (ev: PopOutWarningEvent) => void,
     onPopOutPedestrianHit?: (ev: PedestrianCollisionEvent) => void,
     onCameraApproachBeep?: (isOverSpeed: boolean) => void,
-    onPolicePatrolCite?: (ev: SpeedCameraTriggerEvent) => void
+    onPolicePatrolCite?: (ev: SpeedCameraTriggerEvent) => void,
+    /** On-foot player position (defaults to the scooter); moving units / prop culling follow it */
+    playerPos?: { x: number; z: number }
   ): void {
     if (inCorridor) {
       this.upcomingCamera = null;
@@ -854,6 +1063,22 @@ export class RoadHazardManager {
     }
 
     const clampedDt = Math.min(dt, 0.05);
+    const playerX = playerPos?.x ?? scooter.x;
+    const playerZ = playerPos?.z ?? scooter.z;
+
+    // Open world: keep police / rivals around the player and hide far-away static props
+    this.recycleTimer += clampedDt;
+    if (this.recycleTimer >= HAZARD_RECYCLE_INTERVAL_SEC) {
+      this.recycleTimer = 0;
+      this.recycleMovingUnits(playerX, playerZ);
+    }
+    if (this.staticProps.length > 0) {
+      this.staticVisTimer += clampedDt;
+      if (this.staticVisTimer >= STATIC_VISIBILITY_INTERVAL_SEC) {
+        this.staticVisTimer = 0;
+        this.updateStaticPropVisibility(playerX, playerZ);
+      }
+    }
     const speedKmh = Math.abs(scooter.speedMps) * 3.6;
     const scFwdX = Math.sin(scooter.heading);
     const scFwdZ = Math.cos(scooter.heading);

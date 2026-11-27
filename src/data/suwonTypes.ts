@@ -89,6 +89,8 @@ export interface SuwonMapDataset {
     station: { name: string; x: number; z: number; badgeChar?: string };
     scooterSpawn: { x: number; z: number; heading: number };
     playerSpawn: { x: number; z: number; heading: number };
+    /** True for the unified Suwon open world (buildings/parks/waters stream in per chunk instead) */
+    unified?: boolean;
   };
   nodes: OsmGraphNode[];
   edges: OsmGraphEdge[];
@@ -100,4 +102,6 @@ export interface SuwonMapDataset {
   residences: OsmDeliverySpot[];
   busStops: OsmBusStopData[];
   serviceSpots: { gas: OsmServiceSpot; repair: OsmServiceSpot };
+  /** Unified open world only: every district's gas station & repair shop (serviceSpots = spawn district's) */
+  serviceSpotList?: Array<{ districtId: SuwonDistrictId; gas: OsmServiceSpot; repair: OsmServiceSpot }>;
 }

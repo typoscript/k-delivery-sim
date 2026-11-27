@@ -1,4 +1,5 @@
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { getSignalAxis } from './TrafficRules';
 
 export type PedestrianNodeKind = 'corner_tactile' | 'sidewalk_mid';
 export type PedestrianEdgeKind = 'sidewalk' | 'crosswalk';
@@ -16,8 +17,94 @@ export interface PedestrianNode {
 export interface PedestrianEdge {
   to: number;
   kind: PedestrianEdgeKind;
-  crossingAxis?: CrosswalkAxis; // 'ns' crosses EW road along Z; 'ew' crosses NS road along X
+  /**
+   * Vehicle signal phase pedestrians on this crosswalk walk with: the phase of traffic travelling PARALLEL
+   * to the crossing direction (= getSignalAxis(junction, crossing direction)), so walk lights stay in sync
+   * with car signals at oblique junctions too. On a grid: 'ns' = walking along Z across an EW road.
+   */
+  crossingAxis?: CrosswalkAxis;
   distance: number;
+}
+
+
+/**
+ * Uniform grid bucket index of 2D points (ids) for fast radius / ring queries on the large unified map.
+ * Points are bucketed once; `within` only scans the cells overlapping the query circle.
+ */
+export class PointGrid {
+  private readonly cells = new Map<number, number[]>();
+
+  constructor(
+    private readonly xs: ArrayLike<number>,
+    private readonly zs: ArrayLike<number>,
+    count: number,
+    public readonly cellSize = 100,
+    include?: (id: number) => boolean
+  ) {
+    for (let id = 0; id < count; id++) {
+      if (include && !include(id)) continue;
+      const key = this.key(Math.floor(xs[id] / cellSize), Math.floor(zs[id] / cellSize));
+      let bucket = this.cells.get(key);
+      if (!bucket) {
+        bucket = [];
+        this.cells.set(key, bucket);
+      }
+      bucket.push(id);
+    }
+  }
+
+  /** Number of non-empty cells (cellSize^2 each) — a cheap measure of how much ground the points cover */
+  public get occupiedCellCount(): number {
+    return this.cells.size;
+  }
+
+  private key(ix: number, iz: number): number {
+    return (ix + 32768) * 65536 + (iz + 32768);
+  }
+
+  /** Ids with minR <= distance((x, z)) <= maxR, appended to `out` (unordered) */
+  public within(x: number, z: number, minR: number, maxR: number, out: number[] = []): number[] {
+    const cs = this.cellSize;
+    const minSq = minR > 0 ? minR * minR : -1;
+    const maxSq = maxR * maxR;
+    const ix0 = Math.floor((x - maxR) / cs);
+    const ix1 = Math.floor((x + maxR) / cs);
+    const iz0 = Math.floor((z - maxR) / cs);
+    const iz1 = Math.floor((z + maxR) / cs);
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iz = iz0; iz <= iz1; iz++) {
+        const bucket = this.cells.get(this.key(ix, iz));
+        if (!bucket) continue;
+        for (const id of bucket) {
+          const dx = this.xs[id] - x;
+          const dz = this.zs[id] - z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq <= maxSq && dSq >= minSq) out.push(id);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Random id in the ring [minR, maxR] around (x, z) passing `accept`, or -1 when none */
+  public randomWithin(
+    x: number,
+    z: number,
+    minR: number,
+    maxR: number,
+    accept?: (id: number) => boolean,
+    rng: () => number = Math.random
+  ): number {
+    const pool = this.within(x, z, minR, maxR);
+    // Partial Fisher-Yates: random order without scanning the whole pool when most candidates pass
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const id = pool[j];
+      pool[j] = pool[i];
+      if (!accept || accept(id)) return id;
+    }
+    return -1;
+  }
 }
 
 /**
@@ -28,8 +115,13 @@ export interface PedestrianEdge {
 export class PedestrianGraph {
   public readonly nodes: PedestrianNode[] = [];
   public readonly adjacency: PedestrianEdge[][] = [];
+  /** 100m grid buckets of sidewalk node ids (see nodesWithin / randomNodeWithin) */
+  public readonly grid: PointGrid;
+  /** Wall-clock construction time in ms (for profiling the large unified map) */
+  public readonly buildMs: number;
 
   constructor() {
+    const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const osmNodes = ACTIVE_MAP_DATA.nodes;
     const osmEdges = ACTIVE_MAP_DATA.edges;
 
@@ -74,19 +166,20 @@ export class PedestrianGraph {
         junctionSidewalkNodes[e.b].push(idB);
       }
 
-      // Crosswalk across road at ends (signalized if junction has traffic signals)
-      const crossAxis: CrosswalkAxis = Math.abs(rz) >= Math.abs(rx) ? 'ns' : 'ew';
+      // Crosswalk across road at ends (signalized if junction has traffic signals).
+      // Crossing direction is the road normal: walk with the phase of traffic moving parallel to it,
+      // i.e. while the cars on this road segment have red.
       this.addBidirectionalEdge(
         pairA[0],
         pairA[1],
         na.isSignal ? 'crosswalk' : 'sidewalk',
-        na.isSignal ? crossAxis : undefined
+        na.isSignal ? getSignalAxis(e.a, rx, rz) : undefined
       );
       this.addBidirectionalEdge(
         pairB[0],
         pairB[1],
         nb.isSignal ? 'crosswalk' : 'sidewalk',
-        nb.isSignal ? crossAxis : undefined
+        nb.isSignal ? getSignalAxis(e.b, rx, rz) : undefined
       );
     }
 
@@ -103,17 +196,47 @@ export class PedestrianGraph {
             // Avoid duplicate edges
             if (this.adjacency[a.id].some((ed) => ed.to === b.id)) continue;
             const crossesRoad = d > 9.0 && isSig;
-            const axis: CrosswalkAxis = Math.abs(b.z - a.z) >= Math.abs(b.x - a.x) ? 'ns' : 'ew';
             this.addBidirectionalEdge(
               a.id,
               b.id,
               crossesRoad ? 'crosswalk' : 'sidewalk',
-              crossesRoad ? axis : undefined
+              crossesRoad ? getSignalAxis(j, b.x - a.x, b.z - a.z) : undefined
             );
           }
         }
       }
     }
+
+    // Spatial index over nodes that have at least one edge (isolated nodes are useless spawn points)
+    const n = this.nodes.length;
+    const xs = new Float64Array(n);
+    const zs = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      xs[i] = this.nodes[i].x;
+      zs[i] = this.nodes[i].z;
+    }
+    this.grid = new PointGrid(xs, zs, n, 100, (id) => this.adjacency[id].length > 0);
+    const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    this.buildMs = t1 - t0;
+  }
+
+  /** Ids of connected sidewalk nodes whose distance to (x, z) lies in [minR, maxR] */
+  public nodesWithin(x: number, z: number, minR: number, maxR: number): number[] {
+    return this.grid.within(x, z, minR, maxR);
+  }
+
+  /**
+   * Random connected sidewalk node in the ring [minR, maxR] around (x, z); `accept` can veto candidates.
+   * Returns -1 if none qualifies.
+   */
+  public randomNodeWithin(
+    x: number,
+    z: number,
+    minR: number,
+    maxR: number,
+    accept?: (id: number) => boolean
+  ): number {
+    return this.grid.randomWithin(x, z, minR, maxR, accept);
   }
 
   private addNode(x: number, z: number, kind: PedestrianNodeKind): number {

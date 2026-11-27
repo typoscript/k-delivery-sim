@@ -32,7 +32,8 @@ import { VisorRainOverlay } from './ui/VisorRainOverlay';
 import { OnboardingAndSettings } from './ui/OnboardingAndSettings';
 import { DistrictSelectorUi } from './ui/DistrictSelectorUi';
 import { GameSettings, collidesWithWorld } from './types';
-import { ACTIVE_DISTRICT } from './data/suwonDistricts';
+import { ACTIVE_DISTRICT, IS_UNIFIED_MAP, SuwonDistrictId } from './data/suwonDistricts';
+import { SUWON_OPEN_WORLD, nearestLegacyDistrictId } from './data/suwonUnified';
 import { GameContext } from './game/GameContext';
 import { installKeyboardInput } from './game/keyboardInput';
 import { startGameLoop } from './game/gameLoop';
@@ -126,7 +127,30 @@ const applyGameSettings = (s: GameSettings) => {
   renderer.shadowMap.needsUpdate = true;
 };
 
-const districtUi = new DistrictSelectorUi();
+/** Unified open world: [P] district list moves the rider there instantly (missions, cargo & career kept) */
+const teleportToDistrict = (id: SuwonDistrictId) => {
+  if (playerCtrl.state.inCorridor) {
+    hud.showToast('🏢 건물 안에서는 다른 구역으로 이동할 수 없습니다', 2600);
+    return;
+  }
+  const d = SUWON_OPEN_WORLD.legacyDistricts.find((x) => x.id === id);
+  if (!d) return;
+  scooterPhysics.placeAt(d.scooterSpawn.x, d.scooterSpawn.z, d.scooterSpawn.heading);
+  playerCtrl.teleportTo(d.playerSpawn.x, 0, d.playerSpawn.z, d.playerSpawn.heading, false);
+  camController.onFootYaw = d.playerSpawn.heading;
+  camController.resetLook();
+  hud.stowPhoneToPocket();
+  scooterMesh.setPhoneMounted(false);
+  delivery.setReferencePosition(d.playerSpawn.x, d.playerSpawn.z);
+  delivery.invalidateNavCache();
+  world.updateStreaming(d.playerSpawn.x, d.playerSpawn.z);
+  hud.showToast(`${d.badgeLabel.replace(' ▾', '')}(으)로 이동했습니다! 진행 중인 배달은 그대로 유지됩니다`, 3600);
+};
+
+const districtUi = new DistrictSelectorUi({
+  onTeleport: teleportToDistrict,
+  getCurrentId: () => nearestLegacyDistrictId(playerCtrl.state.x, playerCtrl.state.z),
+});
 
 const onboardingSettings = new OnboardingAndSettings({
   onApplySettings: (s) => {
@@ -231,7 +255,7 @@ const exitCorridorToStreet = () => {
       const leftZ = -Math.sin(s.heading);
       let rx = s.x + leftX * 1.45;
       let rz = s.z + leftZ * 1.45;
-      if (collidesWithWorld(rx, rz, 0.5, world.obstacles)) {
+      if (collidesWithWorld(rx, rz, 0.5, world.getCollisionObstacles())) {
         rx = s.x - leftX * 1.45;
         rz = s.z - leftZ * 1.45;
       }
@@ -1154,9 +1178,15 @@ window.addEventListener('resize', () => {
 });
 
 hud.showToast(
-  `${ACTIVE_DISTRICT.icon} ${ACTIVE_DISTRICT.shortName} 출근 완료! [Tab]→[V] 콜 수락 · [P]로 수원 구역 변경 가능`,
+  IS_UNIFIED_MAP
+    ? `🗺️ 수원 통합 오픈월드 · ${ACTIVE_DISTRICT.shortName} 출근 완료! 도시 전체를 달릴 수 있어요 · [P] 구역 바로 이동`
+    : `${ACTIVE_DISTRICT.icon} ${ACTIVE_DISTRICT.shortName} 출근 완료! [Tab]→[V] 콜 수락 · [P]로 수원 구역 변경 가능`,
   5200
 );
+if (IS_UNIFIED_MAP) {
+  // Keep the HUD district badge / phone area name in sync with where the rider actually is
+  window.setInterval(() => districtUi.refreshCurrent(), 1000);
+}
 
 startGameLoop(gameCtx, {
   pressed,
@@ -1164,3 +1194,8 @@ startGameLoop(gameCtx, {
   isPlayerNearCargoBox,
   isNpcHoldingFoodBag: () => npcTookFoodBag,
 });
+
+// Dev-only handle for automated playtests (stripped from production builds)
+if (import.meta.env.DEV) {
+  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, traffic, roadHazards, delivery };
+}

@@ -183,6 +183,14 @@ export class ScooterPhysics {
     this.blinkerTurnAccum = 0;
   }
 
+  /** Parks the scooter at a new spot (district teleport); keeps fuel, damage, lights and model like reset() */
+  public placeAt(x: number, z: number, heading: number): void {
+    this.reset();
+    this.state.x = x;
+    this.state.z = z;
+    this.state.heading = heading;
+  }
+
   public addFuel(percent: number): number {
     this.state.fuel = clamp(this.state.fuel + percent, 0, 100);
     this.state.lowFuelWarning = this.state.fuel <= 10;

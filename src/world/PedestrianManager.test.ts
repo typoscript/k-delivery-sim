@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { PedestrianManager, ScooterProximityInfo } from './PedestrianManager';
+import {
+  PEDESTRIAN_INITIAL_SPAWN_RADIUS,
+  PEDESTRIAN_RECYCLE_DISTANCE,
+  PEDESTRIAN_RESPAWN_MAX_RADIUS,
+  PEDESTRIAN_RESPAWN_MIN_RADIUS,
+  PedestrianManager,
+  ScooterProximityInfo,
+} from './PedestrianManager';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { SignalStateSnapshot } from './TrafficSystem';
 
 const SIGNAL: SignalStateSnapshot = { ns: 'green', ew: 'red', remainingSec: 30 };
@@ -98,5 +106,51 @@ describe('PedestrianManager startle reaction', () => {
       };
     });
     expect(entries).toBe(1);
+  });
+});
+
+describe('PedestrianManager open-world streaming', () => {
+  const spawn = ACTIVE_MAP_DATA.meta.playerSpawn;
+
+  it('spawns the initial crowd around the player spawn', () => {
+    const mgr = new PedestrianManager(new THREE.Group());
+    for (const a of mgr.agents) {
+      expect(Math.hypot(a.x - spawn.x, a.z - spawn.z)).toBeLessThanOrEqual(PEDESTRIAN_INITIAL_SPAWN_RADIUS + 21); // <= 20m along the first edge
+    }
+  });
+
+  it('recycles hidden far-away agents to 60~180m around a player who moved far away', () => {
+    const mgr = new PedestrianManager(new THREE.Group());
+    // Teleport the player ~2km away onto a sidewalk node
+    const far = mgr.graph.randomNodeWithin(spawn.x, spawn.z, 1800, 2400);
+    expect(far).toBeGreaterThanOrEqual(0);
+    const p = mgr.graph.getNode(far);
+    const noScooter: ScooterProximityInfo = { x: p.x, z: p.z, heading: 0, speedMps: 0, isRiding: false, crashed: false };
+    for (let t = 0; t < 5; t += DT) {
+      mgr.update(DT, SIGNAL, p.x, p.z, p.x, p.z, false, noScooter);
+    }
+    expect(mgr.recycledCount).toBe(mgr.agents.length);
+    for (const a of mgr.agents) {
+      const d = Math.hypot(a.x - p.x, a.z - p.z);
+      // respawned on a node 60~180m away (<= 20m along its edge), then walked for at most ~5s
+      expect(d).toBeGreaterThan(PEDESTRIAN_RESPAWN_MIN_RADIUS - 27);
+      expect(d).toBeLessThan(PEDESTRIAN_RESPAWN_MAX_RADIUS + 27);
+      expect(['WALKING', 'WAITING_CROSSWALK', 'CROSSING']).toContain(a.fsm);
+    }
+    // Nobody pops in right next to the player (preferred ring starts just outside the 80m view range)
+    expect(mgr.visibleCount).toBeLessThanOrEqual(Math.ceil(mgr.agents.length * 0.25));
+  });
+
+  it('never recycles visible agents or ones within the keep radius', () => {
+    const mgr = new PedestrianManager(new THREE.Group());
+    const before = mgr.agents.map((a) => [a.x, a.z]);
+    // Player stands at spawn: all agents are within 180m <= keep radius
+    mgr.recycleFarAgents(spawn.x, spawn.z);
+    expect(mgr.recycledCount).toBe(0);
+    mgr.agents.forEach((a, i) => {
+      expect(a.x).toBe(before[i][0]);
+      expect(a.z).toBe(before[i][1]);
+    });
+    expect(PEDESTRIAN_RECYCLE_DISTANCE).toBeGreaterThan(PEDESTRIAN_INITIAL_SPAWN_RADIUS);
   });
 });
