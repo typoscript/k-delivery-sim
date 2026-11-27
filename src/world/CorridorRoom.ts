@@ -1,18 +1,12 @@
 import * as THREE from 'three';
-import { InteriorStyle, pickInteriorStyle } from './interiorThemes';
+import { InteriorStyle } from './interiorThemes';
 import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
 import { ResidenceKind, clamp } from '../types';
 import {
-  APT_LIGHT_INTENSITY,
-  APT_PROP_SLOTS,
   UnitDoorSlot,
   VILLA_FLOOR_Y,
-  VILLA_PROP_SLOTS,
   VILLA_STAIR_FLIGHTS,
   buildCustomerNpc,
-  buildInteriorProp,
-  createPlaqueTexture,
-  createTileTexture,
 } from './corridor/corridorParts';
 import { buildApartmentCorridor } from './corridor/apartmentCorridor';
 import { buildWalkupVillaStairwell } from './corridor/villaStairwell';
@@ -32,6 +26,29 @@ export interface ElevatorEvents {
   onArrivedTargetFloor?: (floor: number) => void;
   onArrivedGroundFloor?: () => void;
 }
+
+import {
+  applyInteriorStyle as applyInteriorStyleFn,
+  configureForUnit as configureForUnitFn,
+} from './corridor/unitSetup';
+import {
+  redrawElevatorLedDisplay as redrawElevatorLedDisplayFn,
+  isInsideElevatorCabin as isInsideElevatorCabinFn,
+  isElevatorDoorsOpen as isElevatorDoorsOpenFn,
+  startElevatorRideUp as startElevatorRideUpFn,
+  openElevatorForExit as openElevatorForExitFn,
+  startElevatorRideDown as startElevatorRideDownFn,
+} from './corridor/elevator';
+import {
+  placeFoodOnTargetMat as placeFoodOnTargetMatFn,
+  triggerIntercomRing as triggerIntercomRingFn,
+  openTargetDoorForNpc as openTargetDoorForNpcFn,
+  triggerNpcReceiveFood as triggerNpcReceiveFoodFn,
+  retreatNpcSlightly as retreatNpcSlightlyFn,
+} from './corridor/doorNpc';
+import {
+  updateVisual as updateVisualFn,
+} from './corridor/corridorFrame';
 
 /**
  * Isolated Underground Modular Indoor Delivery Prefab (y = -500).
@@ -56,23 +73,36 @@ export class CorridorRoom {
   /** @internal corridor/* */
   readonly villaDoors: UnitDoorSlot[] = [];
 
-  private readonly targetHighlightRing: THREE.Mesh;
-  private readonly placedFoodBag: THREE.Group;
+  /** @internal corridor/* */
+  readonly targetHighlightRing: THREE.Mesh;
+  /** @internal corridor/* */
+  readonly placedFoodBag: THREE.Group;
 
   // Low-poly 3D Customer NPC for MEET_FACE deliveries
-  private readonly npcGroup = new THREE.Group();
-  private readonly npcRightArmPivot = new THREE.Group();
-  private readonly npcHeldBag: THREE.Group;
+  /** @internal corridor/* */
+  readonly npcGroup = new THREE.Group();
+  /** @internal corridor/* */
+  readonly npcRightArmPivot = new THREE.Group();
+  /** @internal corridor/* */
+  readonly npcHeldBag: THREE.Group;
 
   // Door swing & NPC handoff animation state
-  private targetDoorOpenAngle = 0; // 0 rad (closed) -> 70° (1.2217 rad open!)
-  private currentDoorOpenAngle = 0;
-  private npcVisible = false;
-  private npcStepTarget = 0; // 0 (inside) -> 1 (doorway)
-  private npcStepCur = 0;
-  private npcArmReachTarget = 0; // 0 (down) -> 1 (extended toward rider)
-  private npcArmReachCur = 0;
-  private bellFlashTimer = 0;
+  /** @internal corridor/* */
+  targetDoorOpenAngle = 0; // 0 rad (closed) -> 70° (1.2217 rad open!)
+  /** @internal corridor/* */
+  currentDoorOpenAngle = 0;
+  /** @internal corridor/* */
+  npcVisible = false;
+  /** @internal corridor/* */
+  npcStepTarget = 0; // 0 (inside) -> 1 (doorway)
+  /** @internal corridor/* */
+  npcStepCur = 0;
+  /** @internal corridor/* */
+  npcArmReachTarget = 0; // 0 (down) -> 1 (extended toward rider)
+  /** @internal corridor/* */
+  npcArmReachCur = 0;
+  /** @internal corridor/* */
+  bellFlashTimer = 0;
 
   public isVillaMode = false;
 
@@ -102,7 +132,8 @@ export class CorridorRoom {
   /** @internal corridor/* */
   readonly villaFixtureMat = new THREE.MeshBasicMaterial({ color: 0xfff7d6 });
   /** Decorative props + building name sign of the current visit (rebuilt per building) */
-  private readonly styleGroup = new THREE.Group();
+  /** @internal corridor/* */
+  readonly styleGroup = new THREE.Group();
   /** Theme of the current visit (for tests / debugging) */
   public currentThemeId = '';
   public targetDoorIndex = 1;
@@ -112,10 +143,14 @@ export class CorridorRoom {
   public elevatorPhase: ElevatorPhase = 'idle_1f';
   public elevatorCurrentFloor = 1;
   public elevatorTargetFloor = 14;
-  private elevatorStepTimer = 0;
-  private elevatorSecPerFloor = 0.25;
-  private elevDoorOpenCur = 0; // 0 = closed, 1 = fully open
-  private elevDoorOpenTarget = 0;
+  /** @internal corridor/* */
+  elevatorStepTimer = 0;
+  /** @internal corridor/* */
+  elevatorSecPerFloor = 0.25;
+  /** @internal corridor/* */
+  elevDoorOpenCur = 0; // 0 = closed, 1 = fully open
+  /** @internal corridor/* */
+  elevDoorOpenTarget = 0;
   /** @internal corridor/* */
   elevDoorL!: THREE.Mesh;
   /** @internal corridor/* */
@@ -130,7 +165,8 @@ export class CorridorRoom {
   elevLedCtx!: CanvasRenderingContext2D;
   /** @internal corridor/* */
   elevLedTex!: THREE.CanvasTexture;
-  private elevRideVibeY = 0;
+  /** @internal corridor/* */
+  elevRideVibeY = 0;
 
   // Player spawns INSIDE the 3D apartment elevator cabin at 1F (facing doors & button panel!)
   public readonly elevatorSpawn = { x: 0, y: CORRIDOR_ORIGIN_Y, z: -9.2, heading: 0 };
@@ -176,85 +212,15 @@ export class CorridorRoom {
     scene.add(this.root);
   }
 
-  private getActiveDoors(): UnitDoorSlot[] {
+  /** @internal corridor/* */
+  getActiveDoors(): UnitDoorSlot[] {
     return this.isVillaMode ? this.villaDoors : this.aptDoors;
   }
 
   /** Recolours walls, floor, ceiling, doors and lights to the building's theme and rebuilds its props + sign */
-  private applyInteriorStyle(style: InteriorStyle, buildingName: string | undefined, unitNumber: string): void {
-    const t = style.theme;
-    this.currentThemeId = t.id;
-    const floorTex = createTileTexture(t.floorBase, t.floorGrout, this.isVillaMode ? 3 : 4, this.isVillaMode ? 2 : 12);
-    if (this.isVillaMode) {
-      this.villaWallMat.color.setHex(t.wall);
-      this.villaCeilingMat.color.setHex(t.ceiling);
-      this.villaDadoMat.color.setHex(t.dado ?? t.trim);
-      this.villaRailMat.color.setHex(t.rail ?? t.trim);
-      this.villaFixtureMat.color.setHex(t.lightColor);
-      this.villaFloorMat.map?.dispose();
-      this.villaFloorMat.map = floorTex;
-      this.villaFloorMat.needsUpdate = true;
-    } else {
-      this.aptWallMat.color.setHex(t.wall);
-      this.aptTrimMat.color.setHex(t.trim);
-      this.aptCeilingMat.color.setHex(t.ceiling);
-      this.aptFixtureMat.color.setHex(t.lightColor);
-      for (const l of this.aptLights) {
-        l.color.setHex(t.lightColor);
-        l.intensity = APT_LIGHT_INTENSITY * t.lightMul;
-      }
-      this.aptFloorMat.map?.dispose();
-      this.aptFloorMat.map = floorTex;
-      this.aptFloorMat.needsUpdate = true;
-    }
-    for (const d of this.getActiveDoors()) {
-      d.panelMat.color.setHex(t.door);
-      d.carpetMat.color.setHex(t.carpet);
-    }
-
-    // Rebuild props and the building name sign for this visit
-    this.styleGroup.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      m.geometry.dispose();
-      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
-        (mat as THREE.MeshBasicMaterial).map?.dispose();
-        mat.dispose();
-      }
-    });
-    this.styleGroup.clear();
-    const slots = this.isVillaMode ? VILLA_PROP_SLOTS : APT_PROP_SLOTS;
-    style.props.forEach((kind, i) => {
-      const slot = slots[i % slots.length];
-      const prop = buildInteriorProp(kind);
-      prop.position.set(slot.x, slot.y, slot.z);
-      prop.rotation.y = slot.rotY;
-      this.styleGroup.add(prop);
-    });
-    if (buildingName) {
-      const floorNo = Math.floor(parseInt(unitNumber.match(/(\d+)/)?.[1] ?? '0', 10) / 100);
-      const sign = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.2, 0.5),
-        new THREE.MeshBasicMaterial({
-          map: createPlaqueTexture(
-            this.isVillaMode ? `🏠 ${buildingName}` : `${buildingName} · ${floorNo}F`,
-            '#0f172a',
-            '#f8fafc',
-            460
-          ),
-        })
-      );
-      if (this.isVillaMode) {
-        // 1F landing, right wall beside the entrance (the left wall has the mailbox and stair notice)
-        sign.rotation.y = -Math.PI / 2;
-        sign.position.set(2.17, 2.05, -8.6);
-      } else {
-        // Far end of the corridor, facing the rider stepping out of the elevator
-        sign.rotation.y = Math.PI;
-        sign.position.set(0, 2.45, 7.97);
-      }
-      this.styleGroup.add(sign);
-    }
+  /** @internal corridor/* */
+  applyInteriorStyle(style: InteriorStyle, buildingName: string | undefined, unitNumber: string): void {
+    applyInteriorStyleFn(this, style, buildingName, unitNumber);
   }
 
   /**
@@ -266,173 +232,36 @@ export class CorridorRoom {
     residenceKind: ResidenceKind = 'apartment',
     building?: { id: string; name: string }
   ): void {
-    this.isVillaMode = residenceKind === 'walkup_villa';
-    this.aptGroup.visible = !this.isVillaMode;
-    this.villaGroup.visible = this.isVillaMode;
-    this.applyInteriorStyle(pickInteriorStyle(residenceKind, building?.id ?? targetUnitNumber), building?.name, targetUnitNumber);
-
-    const numMatch = targetUnitNumber.match(/(\d+)/);
-    const num = numMatch ? parseInt(numMatch[1], 10) : this.isVillaMode ? 302 : 1402;
-    const floor = Math.floor(num / 100);
-    const unitNum = num % 100;
-
-    this.foodPlacedOnMat = false;
-    this.placedFoodBag.visible = false;
-
-    // Reset all doors closed and NPC state
-    this.targetDoorOpenAngle = 0;
-    this.currentDoorOpenAngle = 0;
-    this.npcVisible = false;
-    this.npcStepTarget = 0;
-    this.npcStepCur = 0;
-    this.npcArmReachTarget = 0;
-    this.npcArmReachCur = 0;
-    this.bellFlashTimer = 0;
-    this.npcGroup.visible = false;
-    this.npcHeldBag.visible = false;
-    this.npcRightArmPivot.rotation.x = 0;
-
-    const doors = this.getActiveDoors();
-
-    if (this.isVillaMode) {
-      // Villa has 6 fixed doors: index 0..1 = 2F (201/202), 2..3 = 3F (301/302), 4..5 = 4F (401/402)
-      const clampedFloor = clamp(floor, 2, 4);
-      const sideIdx = unitNum % 2 === 0 ? 1 : 0;
-      this.targetDoorIndex = (clampedFloor - 2) * 2 + sideIdx;
-
-      for (let i = 0; i < doors.length; i++) {
-        doors[i].doorPivot.rotation.y = 0;
-        const f = 2 + Math.floor(i / 2);
-        const u = (i % 2) + 1;
-        const label = `${f}0${u}호`;
-        doors[i].unitNumber = label;
-        const isTarget = i === this.targetDoorIndex;
-        doors[i].bellLedMat.emissive.setHex(isTarget ? 0x22c55e : 0x38bdf8);
-        doors[i].bellLedMat.emissiveIntensity = isTarget ? 1.5 : 0.35;
-
-        const oldMap = doors[i].plaqueMat.map;
-        doors[i].plaqueMat.map = createPlaqueTexture(
-          label,
-          isTarget ? '#065f46' : '#1e293b',
-          isTarget ? '#a7f3d0' : '#f8fafc'
-        );
-        doors[i].plaqueMat.needsUpdate = true;
-        if (oldMap) oldMap.dispose();
-      }
-    } else {
-      const unitIdx = clamp(unitNum - 1, 0, 3);
-      this.targetDoorIndex = unitIdx;
-
-      // Reset real 3D Apartment Elevator Cabin at 1F ready to ride up to target floor!
-      this.elevatorTargetFloor = clamp(floor, 2, 20);
-      this.elevatorCurrentFloor = 1;
-      this.elevatorPhase = 'idle_1f';
-      this.elevatorStepTimer = 0;
-      const floorsDelta = Math.max(1, this.elevatorTargetFloor - 1);
-      // Total ride time smoothly scaled between ~2.0s (low floors) and ~3.4s (high floors)
-      this.elevatorSecPerFloor = clamp(2.8 / floorsDelta, 0.18, 0.55);
-      this.elevDoorOpenCur = 0;
-      this.elevDoorOpenTarget = 0;
-      this.elevRideVibeY = 0;
-      this.elevDoorL.position.x = -0.46;
-      this.elevDoorR.position.x = 0.46;
-      this.elevBtnGlowMat.emissiveIntensity = 0.3;
-      this.elevCallBtnMat.emissiveIntensity = 0.4;
-      this.redrawElevatorLedDisplay(1, 'idle');
-
-      for (let i = 0; i < doors.length; i++) {
-        doors[i].doorPivot.rotation.y = 0;
-        const label = `${floor}0${i + 1}호`;
-        doors[i].unitNumber = label;
-        const isTarget = i === this.targetDoorIndex;
-        doors[i].bellLedMat.emissive.setHex(isTarget ? 0x22c55e : 0x38bdf8);
-        doors[i].bellLedMat.emissiveIntensity = isTarget ? 1.4 : 0.35;
-
-        const oldMap = doors[i].plaqueMat.map;
-        doors[i].plaqueMat.map = createPlaqueTexture(
-          label,
-          isTarget ? '#065f46' : '#1e293b',
-          isTarget ? '#a7f3d0' : '#f8fafc'
-        );
-        doors[i].plaqueMat.needsUpdate = true;
-        if (oldMap) oldMap.dispose();
-      }
-    }
-
-    const target = doors[this.targetDoorIndex];
-    target.group.add(this.npcGroup);
-    this.npcGroup.position.set(0.05, 0, -0.78);
-    this.npcGroup.rotation.set(0, 0, 0);
-
-    this.targetHighlightRing.position.set(target.matX, target.y + 0.032, target.matZ);
-    this.targetHighlightRing.visible = true;
+    configureForUnitFn(this, targetUnitNumber, residenceKind, building);
   }
 
   /** Redraws the live glowing red/amber LED floor indicator inside & outside the 3D apartment elevator */
   /** @internal corridor/* */
   redrawElevatorLedDisplay(floor: number, dir: 'up' | 'down' | 'idle'): void {
-    const ctx = this.elevLedCtx;
-    ctx.fillStyle = '#070b14';
-    ctx.fillRect(0, 0, 256, 96);
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(3, 3, 250, 90);
-
-    const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '●';
-    ctx.fillStyle = dir === 'up' ? '#22c55e' : dir === 'down' ? '#f97316' : '#f59e0b';
-    ctx.font = '900 44px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(arrow, 22, 49);
-
-    ctx.fillStyle = '#ef4444';
-    ctx.font = '900 54px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(`${floor}F`, 234, 51);
-    this.elevLedTex.needsUpdate = true;
+    redrawElevatorLedDisplayFn(this, floor, dir);
   }
 
   public isInsideElevatorCabin(px: number, pz: number): boolean {
-    if (this.isVillaMode) return false;
-    return pz < -8.0 && Math.abs(px) <= 1.18;
+    return isInsideElevatorCabinFn(this, px, pz);
   }
 
   public isElevatorDoorsOpen(): boolean {
-    return this.elevDoorOpenCur > 0.65;
+    return isElevatorDoorsOpenFn(this);
   }
 
   /** Player presses floor button inside the 3D elevator cabin at 1F -> doors close, rides up to target floor! */
   public startElevatorRideUp(): boolean {
-    if (this.isVillaMode || this.elevatorPhase !== 'idle_1f') return false;
-    this.elevatorPhase = 'moving_up';
-    this.elevatorStepTimer = 0;
-    this.elevDoorOpenTarget = 0;
-    this.elevBtnGlowMat.emissiveIntensity = 3.2;
-    this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'up');
-    return true;
+    return startElevatorRideUpFn(this);
   }
 
   /** Player presses corridor call button after delivery -> elevator doors slide open! */
   public openElevatorForExit(): boolean {
-    if (this.isVillaMode) return false;
-    if (this.elevatorPhase === 'doors_open_exit' && this.elevDoorOpenTarget > 0.5) return false;
-    this.elevatorPhase = 'doors_open_exit';
-    this.elevDoorOpenTarget = 1;
-    this.elevCallBtnMat.emissiveIntensity = 2.8;
-    return true;
+    return openElevatorForExitFn(this);
   }
 
   /** Player presses 1F button inside the 3D elevator cabin -> doors close, rides down to 1F! */
   public startElevatorRideDown(): boolean {
-    if (this.isVillaMode) return false;
-    if (this.elevatorPhase === 'moving_down') return false;
-    this.elevatorPhase = 'moving_down';
-    this.elevatorStepTimer = 0;
-    this.elevDoorOpenTarget = 0;
-    this.elevBtnGlowMat.emissiveIntensity = 3.2;
-    this.elevCallBtnMat.emissiveIntensity = 0.35;
-    this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'down');
-    return true;
+    return startElevatorRideDownFn(this);
   }
 
   public getSpawnPoint(): { x: number; y: number; z: number; heading: number } {
@@ -477,38 +306,27 @@ export class CorridorRoom {
   }
 
   public placeFoodOnTargetMat(): void {
-    const target = this.getActiveDoors()[this.targetDoorIndex];
-    this.foodPlacedOnMat = true;
-    this.placedFoodBag.position.set(target.matX, target.y + 0.18, target.matZ);
-    this.placedFoodBag.rotation.y = target.facingX > 0 ? Math.PI / 2 : -Math.PI / 2;
-    this.placedFoodBag.visible = true;
-    this.targetHighlightRing.visible = false;
+    placeFoodOnTargetMatFn(this);
   }
 
   /** Triggered when player presses [E] at intercom doorbell for MEET_FACE delivery */
   public triggerIntercomRing(): void {
-    this.bellFlashTimer = 1.6;
-    this.targetHighlightRing.visible = false;
+    triggerIntercomRingFn(this);
   }
 
   /** Smoothly pivots target door inward to 70° and brings 3D NPC to doorway */
   public openTargetDoorForNpc(): void {
-    this.targetDoorOpenAngle = (70 * Math.PI) / 180;
-    this.npcVisible = true;
-    this.npcGroup.visible = true;
-    this.npcStepTarget = 1;
+    openTargetDoorForNpcFn(this);
   }
 
   /** NPC extends right arm forward and receives the 3D takeout food bag from the rider */
   public triggerNpcReceiveFood(): void {
-    this.npcArmReachTarget = 1;
-    this.npcHeldBag.visible = true;
+    triggerNpcReceiveFoodFn(this);
   }
 
   /** NPC steps slightly back inside after thanking the rider */
   public retreatNpcSlightly(): void {
-    this.npcArmReachTarget = 0.25;
-    this.npcStepTarget = 0.45;
+    retreatNpcSlightlyFn(this);
   }
 
   public getTargetDoorMat(): { x: number; y: number; z: number; unitNumber: string } {
@@ -565,88 +383,6 @@ export class CorridorRoom {
     playerZ = 0,
     events?: ElevatorEvents
   ): void {
-    if (!this.root.visible) return;
-    const step = Math.min(1, dt * 5.2);
-
-    // 1. Live 3D Apartment Elevator Ride & Sliding Steel Doors
-    if (!this.isVillaMode) {
-      if (this.elevatorPhase === 'moving_up') {
-        this.elevRideVibeY = Math.sin(elapsedTime * 34) * 0.0045;
-        this.elevatorStepTimer += dt;
-        if (this.elevatorStepTimer >= this.elevatorSecPerFloor) {
-          this.elevatorStepTimer -= this.elevatorSecPerFloor;
-          this.elevatorCurrentFloor = Math.min(this.elevatorTargetFloor, this.elevatorCurrentFloor + 1);
-          if (this.elevatorCurrentFloor >= this.elevatorTargetFloor) {
-            this.elevatorPhase = 'arrived_floor';
-            this.elevRideVibeY = 0;
-            this.elevDoorOpenTarget = 1;
-            this.elevBtnGlowMat.emissiveIntensity = 0.25;
-            this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'idle');
-            events?.onDoorSlide?.(true);
-            events?.onArrivedTargetFloor?.(this.elevatorCurrentFloor);
-          } else {
-            this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'up');
-            events?.onFloorTick?.(this.elevatorCurrentFloor);
-          }
-        }
-      } else if (this.elevatorPhase === 'moving_down') {
-        this.elevRideVibeY = Math.sin(elapsedTime * 34) * 0.0045;
-        this.elevatorStepTimer += dt;
-        if (this.elevatorStepTimer >= this.elevatorSecPerFloor) {
-          this.elevatorStepTimer -= this.elevatorSecPerFloor;
-          this.elevatorCurrentFloor = Math.max(1, this.elevatorCurrentFloor - 1);
-          if (this.elevatorCurrentFloor <= 1) {
-            this.elevatorPhase = 'idle_1f';
-            this.elevRideVibeY = 0;
-            this.elevBtnGlowMat.emissiveIntensity = 0.25;
-            this.redrawElevatorLedDisplay(1, 'idle');
-            events?.onArrivedGroundFloor?.();
-          } else {
-            this.redrawElevatorLedDisplay(this.elevatorCurrentFloor, 'down');
-            events?.onFloorTick?.(this.elevatorCurrentFloor);
-          }
-        }
-      } else {
-        this.elevRideVibeY = 0;
-        // Gently auto-close elevator doors behind the player once they walk out into the corridor!
-        if (this.elevatorPhase === 'arrived_floor' && this.elevDoorOpenTarget > 0.5 && playerZ > -5.2) {
-          this.elevDoorOpenTarget = 0;
-          events?.onDoorSlide?.(false);
-        }
-      }
-
-      // Smoothly animate double stainless-steel sliding elevator doors
-      const doorStep = Math.min(1, dt * 3.6);
-      this.elevDoorOpenCur += (this.elevDoorOpenTarget - this.elevDoorOpenCur) * doorStep;
-      const slideOffset = 0.46 + this.elevDoorOpenCur * 0.84;
-      this.elevDoorL.position.x = -slideOffset;
-      this.elevDoorR.position.x = slideOffset;
-    }
-
-    if (this.targetHighlightRing.visible) {
-      const s = 1 + Math.sin(elapsedTime * 4.5) * 0.08;
-      this.targetHighlightRing.scale.set(s, s, 1);
-    }
-
-    const targetDoor = this.getActiveDoors()[this.targetDoorIndex];
-    if (targetDoor) {
-      this.currentDoorOpenAngle += (this.targetDoorOpenAngle - this.currentDoorOpenAngle) * step;
-      targetDoor.doorPivot.rotation.y = this.currentDoorOpenAngle;
-
-      if (this.bellFlashTimer > 0) {
-        this.bellFlashTimer = Math.max(0, this.bellFlashTimer - dt);
-        const blink = Math.floor(elapsedTime * 10) % 2 === 0;
-        targetDoor.bellLedMat.emissive.setHex(blink ? 0xfacc15 : 0x22c55e);
-        targetDoor.bellLedMat.emissiveIntensity = blink ? 3.5 : 1.0;
-      }
-    }
-
-    if (this.npcVisible) {
-      this.npcStepCur += (this.npcStepTarget - this.npcStepCur) * Math.min(1, dt * 4.5);
-      this.npcArmReachCur += (this.npcArmReachTarget - this.npcArmReachCur) * Math.min(1, dt * 7.0);
-
-      this.npcGroup.position.z = -0.82 + this.npcStepCur * 0.66;
-      this.npcRightArmPivot.rotation.x = -this.npcArmReachCur * 1.18;
-    }
+    updateVisualFn(this, elapsedTime, dt, playerZ, events);
   }
 }
