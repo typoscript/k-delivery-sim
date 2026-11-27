@@ -271,7 +271,9 @@ export class Hud {
 
     // Update Rider Trust Rating badge (★ 5.0 -> drops -1.0 per pedestrian accident)
     const rating = delivery.riderRating;
-    this.ratingBadge.textContent = `★ ${rating.toFixed(1)}`;
+    const rep = delivery.getReputation();
+    this.ratingBadge.textContent = `★ ${rating.toFixed(1)} · ${rep.icon}`;
+    this.ratingBadge.title = `신뢰 평점 ${rating.toFixed(1)} · 최근 별점 ${rep.recentStars ?? '-'} → ${rep.label}: ${rep.description}`;
     this.ratingBadge.className =
       rating <= 2.5 ? 'rating-pill danger' : rating < 4.5 ? 'rating-pill warn' : 'rating-pill';
 

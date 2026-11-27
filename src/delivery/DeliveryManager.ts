@@ -54,6 +54,7 @@ import {
 } from './deliveryTypes';
 import { OrderSurcharges, buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { MissionRoutePlanner } from './missionRoute';
+import { Reputation, computeReputation } from './reputation';
 import { computeSettlementPay } from './settlementPay';
 import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent, stepFoodCondition } from './cargoCare';
 export class DeliveryManager {
@@ -268,6 +269,19 @@ export class DeliveryManager {
     return this.career.reviews;
   }
 
+  /** Rider reputation from the newest review stars and the trust rating (decides call quality) */
+  public getReputation(): Reputation {
+    // Called every frame by the dispatcher: recompute only when the reviews or the rating changed
+    const newest = this.career.reviews[0];
+    const key = `${this.career.reviews.length}:${newest?.orderNumber ?? ''}:${newest?.createdAt ?? ''}:${this.riderRating}`;
+    if (this.reputationCache?.key !== key) {
+      this.reputationCache = { key, rep: computeReputation(this.career.reviews.map((r) => r.stars), this.riderRating) };
+    }
+    return this.reputationCache.rep;
+  }
+
+  private reputationCache: { key: string; rep: Reputation } | null = null;
+
   public getAverageReviewStars(): number | null {
     const list = this.career.reviews;
     if (list.length === 0) return null;
@@ -395,7 +409,10 @@ export class DeliveryManager {
           shop,
           customer,
           surcharges: this.orderSurcharges(),
-          special: type === 'SINGLE' ? rollSpecialOrder(this.isNightMode, this.demandPhase.isPeak) : undefined,
+          special:
+            type === 'SINGLE'
+              ? rollSpecialOrder(this.isNightMode, this.demandPhase.isPeak, Math.random, this.getReputation().specialChanceMul)
+              : undefined,
           regularCustomer: this.isRegularCustomer(customer.id),
         })
       );

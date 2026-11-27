@@ -89,7 +89,8 @@ export class OrderDispatchManager {
     modalBlocking: boolean
   ): void {
     const clampedDt = Math.min(dt, 0.05);
-    this.offerIntervalMul = delivery.demandPhase.offerIntervalMul;
+    // Rush hour and a good rider reputation both bring calls faster
+    this.offerIntervalMul = delivery.demandPhase.offerIntervalMul * delivery.getReputation().offerIntervalMul;
 
     // Pause dispatch generation indoors (underground corridor)
     if (inCorridor) {
@@ -240,7 +241,10 @@ export class OrderDispatchManager {
           shop,
           customer,
           surcharges: { rainBonus, nightBonus, peakBonus },
-          special: type === 'SINGLE' ? rollSpecialOrder(delivery.isNightMode, delivery.demandPhase.isPeak) : undefined,
+          special:
+            type === 'SINGLE'
+              ? rollSpecialOrder(delivery.isNightMode, delivery.demandPhase.isPeak, Math.random, delivery.getReputation().specialChanceMul)
+              : undefined,
           regularCustomer: delivery.isRegularCustomer(customer.id),
         })
       );

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GameContext } from './GameContext';
 import { setWeatherMode } from './clockSync';
+import { REPUTATION_ORDER } from '../delivery/reputation';
 import { getInstructionMeta } from '../delivery/DeliveryManager';
 import { validateDeliveryPhotoFrame } from '../camera/PhotoProofValidator';
 import { BikeGarageSave } from '../vehicle/ScooterModels';
@@ -147,7 +148,20 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
   const finalizeCorridorSettlement = () => {
     renderer.render(scene, camera);
     const photoDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
+    const repBefore = delivery.getReputation();
     const result = delivery.completePhotoSettlement();
+    const repAfter = delivery.getReputation();
+    if (result && repAfter.tier !== repBefore.tier) {
+      const up = REPUTATION_ORDER.indexOf(repAfter.tier) > REPUTATION_ORDER.indexOf(repBefore.tier);
+      window.setTimeout(
+        () =>
+          hud.showToast(
+            `${repAfter.icon} ${up ? '평판이 올랐어요' : '평판이 내려갔어요'}: ${repAfter.label} · ${repAfter.description}`,
+            5200
+          ),
+        1200
+      );
+    }
     if (result) {
       audio.playChime('complete');
       if (result.tierPromotedTo) {

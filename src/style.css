@@ -3199,6 +3199,27 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+.reputation-strip {
+  margin: 6px 0;
+  padding: 6px 9px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.reputation-strip.top,
+.reputation-strip.good {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.reputation-strip.low {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
 .clock-pill {
   font-size: 11.5px;
   font-weight: 800;

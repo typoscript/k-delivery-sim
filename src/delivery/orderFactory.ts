@@ -87,8 +87,14 @@ export const SPECIAL_ORDER_CHANCE = 0.14;
  * Rolls a special order for a 한집배달 call: none most of the time; urgent deliveries mostly at night,
  * group orders mostly during the lunch / dinner rush.
  */
-export function rollSpecialOrder(isNight: boolean, isPeak: boolean, rand: () => number = Math.random): SpecialOrderKind | undefined {
-  if (rand() >= SPECIAL_ORDER_CHANCE) return undefined;
+export function rollSpecialOrder(
+  isNight: boolean,
+  isPeak: boolean,
+  rand: () => number = Math.random,
+  /** Rider reputation multiplier on the base chance */
+  chanceMul = 1
+): SpecialOrderKind | undefined {
+  if (rand() >= SPECIAL_ORDER_CHANCE * chanceMul) return undefined;
   const urgentWeight = isNight ? 3 : 1;
   const groupWeight = isPeak ? 3 : 1;
   return rand() * (urgentWeight + groupWeight) < urgentWeight ? 'urgent' : 'group';

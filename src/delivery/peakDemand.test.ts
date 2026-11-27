@@ -44,3 +44,23 @@ describe('rush-hour demand (game clock)', () => {
     expect(offers.at(-1)).toBeGreaterThanOrEqual(PEAK_SURCHARGE_BONUS);
   });
 });
+
+describe('rider reputation and calls', () => {
+  it('a top reputation brings calls faster, a low one slower', () => {
+    const delivery = new DeliveryManager(locations);
+    const dispatch = new OrderDispatchManager(locations, { onOfferArrived: () => {}, onOfferExpired: () => {} });
+    delivery.setDemandPhase(demandPhaseAt(15 * 60));
+    dispatch.step(0.05, delivery, false, false);
+    const normal = dispatch.nextOfferDelaySec();
+    const review = (stars: number) => ({ stars }) as (typeof delivery.career.reviews)[number];
+    delivery.career.reviews = [5, 5, 5, 5, 5].map(review);
+    dispatch.step(0.05, delivery, false, false);
+    expect(delivery.getReputation().tier).toBe('top');
+    expect(dispatch.nextOfferDelaySec()).toBeLessThan(normal);
+    delivery.career.reviews = [2, 2, 3, 2].map(review);
+    dispatch.step(0.05, delivery, false, false);
+    expect(delivery.getReputation().tier).toBe('low');
+    expect(dispatch.nextOfferDelaySec()).toBeGreaterThan(normal);
+  });
+});
+

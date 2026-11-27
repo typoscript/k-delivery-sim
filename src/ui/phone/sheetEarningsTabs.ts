@@ -74,6 +74,7 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
 export function renderReviewsTab(delivery: DeliveryManager): string {
   const reviews = delivery.getRecentReviews();
   const avg = delivery.getAverageReviewStars();
+  const rep = delivery.getReputation();
   const regularShops = delivery.getRegularShops();
 
   const regularChipsHtml =
@@ -119,6 +120,7 @@ export function renderReviewsTab(delivery: DeliveryManager): string {
         <div class="rev-sum-stat">⭐ 단골 매장 <b>${regularShops.length}곳</b></div>
       </div>
     </div>
+    <div class="reputation-strip ${rep.tier}">${rep.icon} <b>${rep.label}</b> · ${rep.description}</div>
     <div class="regular-shops-strip">
       <div class="reg-strip-title">⭐ 나의 단골 매장 우대 <span class="reg-perk-note">조리 대기 단축 · 즉시 수령</span></div>
       <div class="reg-strip-chips">${regularChipsHtml}</div>
