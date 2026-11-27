@@ -54,6 +54,8 @@ export interface PedestrianAgent {
   hitCooldown: number;
   /** Seconds spent politely waiting for a player / parked scooter blocking the sidewalk ahead */
   yieldTimer: number;
+  /** After recovering from a startle, ignore the same scooter for a while (prevents startle loops) */
+  startleCooldown: number;
 }
 
 const SIDEWALK_Y = 0.16;
@@ -72,6 +74,10 @@ const COLLISION_DIST = PEDESTRIAN_SPHERE_RADIUS + SCOOTER_SPHERE_RADIUS; // 1.14
 const FALL_RECOVERY_SEC = 6.0;
 const STARTLE_HOLD_SEC = 1.15;
 const EVADE_STEP_DIST = 0.62;
+const STARTLE_MIN_CLOSING_MPS = 1.2; // scooter must be moving TOWARD the pedestrian faster than a walk to be scary
+const STARTLE_RELEASE_RADIUS = PEDESTRIAN_STARTLE_RADIUS + 1.0; // hysteresis: calm down only once clearly away
+const STARTLE_COOLDOWN_SEC = 4.0; // no re-startle right after recovering (walk-around logic handles a parked bike)
+const STARTLE_PANIC_RADIUS = 1.6; // ...unless the scooter charges in this close at speed
 const SIDEWALK_YIELD_SEC = 1.6; // wait this long for a blocker ahead, then walk around it
 const DETOUR_SPEED = 1.1; // m/s sideways drift while walking around a blocker
 
@@ -157,6 +163,7 @@ export class PedestrianManager {
         evadeDirZ: 0,
         hitCooldown: 0,
         yieldTimer: 0,
+        startleCooldown: 0,
       });
     }
 
@@ -326,9 +333,19 @@ export class PedestrianManager {
       const sdz = scooter.z - a.z;
       const distScooter = Math.hypot(sdx, sdz);
 
-      // Trigger startled avoidance when riding scooter approaches within 3.5m (forward or lateral)
+      // Only a scooter actually MOVING TOWARD the pedestrian is a threat. A stopped / idling / departing
+      // scooter is not, otherwise the sidestep pushes the pedestrian just outside the radius, it resumes
+      // walking back inside, and gets startled again in an endless startle -> walk -> startle loop.
+      if (a.startleCooldown > 0) a.startleCooldown = Math.max(0, a.startleCooldown - clampedDt);
+      const scVelX = Math.sin(scooter.heading) * scooter.speedMps;
+      const scVelZ = Math.cos(scooter.heading) * scooter.speedMps;
+      // Component of scooter velocity pointing at the pedestrian (scooter -> ped = -sd)
+      const closingSpeed = distScooter > 0.01 ? -(sdx * scVelX + sdz * scVelZ) / distScooter : 0;
+      const scooterActive = isVisible && scooter.isRiding && !scooter.crashed;
+
+      // Trigger startled avoidance when a riding scooter approaches within 3.5m (forward or lateral)
       let scooterThreatNear = false;
-      if (isVisible && scooter.isRiding && !scooter.crashed && distScooter <= PEDESTRIAN_STARTLE_RADIUS) {
+      if (scooterActive && distScooter <= PEDESTRIAN_STARTLE_RADIUS && closingSpeed >= STARTLE_MIN_CLOSING_MPS) {
         const pedFx = Math.sin(a.heading);
         const pedFz = Math.cos(a.heading);
         const toScooterDot = distScooter > 0.01 ? (sdx * pedFx + sdz * pedFz) / distScooter : 1;
@@ -337,6 +354,13 @@ export class PedestrianManager {
           scooterThreatNear = true;
         }
       }
+      // Right after recovering, only a scooter charging in very close can re-trigger a startle
+      if (scooterThreatNear && a.fsm !== 'STARTLED' && a.startleCooldown > 0 && distScooter > STARTLE_PANIC_RADIUS) {
+        scooterThreatNear = false;
+      }
+      // While already startled, stay alert until the scooter is clearly away or no longer approaching
+      const scooterStillThreat =
+        scooterActive && distScooter <= STARTLE_RELEASE_RADIUS && closingSpeed > STARTLE_MIN_CLOSING_MPS * 0.5;
 
       if (scooterThreatNear) {
         if (a.fsm !== 'STARTLED') {
@@ -380,8 +404,9 @@ export class PedestrianManager {
           a.evadeRemaining -= step;
         }
 
-        if (a.reactionTimer <= 0 && !scooterThreatNear) {
+        if (a.reactionTimer <= 0 && !scooterStillThreat) {
           a.fsm = a.resumeFsm;
+          a.startleCooldown = STARTLE_COOLDOWN_SEC;
         }
 
         if (isVisible) {
