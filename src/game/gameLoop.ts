@@ -1,3 +1,4 @@
+import { PerfMonitor } from './PerfMonitor';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
 import { PedestrianCollisionEvent } from '../world/PedestrianManager';
 import { ScooterInput } from '../vehicle/ScooterPhysics';
@@ -35,6 +36,18 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
 
   let lastTime = performance.now();
   let elapsed = 0;
+
+  // F9 / ?perf=1 profiler overlay, `window.__perf.benchmark()` for A/B measurements
+  const perf = new PerfMonitor(renderer);
+  perf.setSun(world.sunLight);
+  perf.setSceneInfo((): Record<string, string | number> => {
+    const st = world.streamingStats;
+    const p = playerCtrl.state;
+    return st
+      ? { 청크: st.built, 건물: st.buildings, 충돌체: st.colliders, 위치: `${Math.round(p.x)},${Math.round(p.z)}` }
+      : { 위치: `${Math.round(p.x)},${Math.round(p.z)}` };
+  });
+  (window as unknown as { __perf: PerfMonitor }).__perf = perf;
   // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
   // callbacks roughly halves GPU/CPU load (and laptop heat) with no visible difference.
   // 1.5ms of slack so a 60Hz display's slightly early callbacks are never dropped.
@@ -45,6 +58,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     requestAnimationFrame(animate);
     if (now - lastFrameAt < MIN_FRAME_MS) return;
     lastFrameAt = now;
+    perf.beginFrame(now);
 
     const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
     lastTime = now;
@@ -63,6 +77,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       );
       delivery.setReferencePosition(playerCtrl.state.x, playerCtrl.state.z);
       world.updateLobbyDoors(dt);
+      perf.lap('streaming');
       traffic.step(
         dt,
         elapsed,
@@ -113,6 +128,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
         crashed: scooterPhysics.state.crashed,
       };
 
+      perf.lap('traffic');
       pedestrians.update(
         dt,
         traffic.signalState,
@@ -128,6 +144,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
         }
       );
 
+      perf.lap('pedestrians');
       roadHazards.step(
         dt,
         elapsed,
@@ -196,6 +213,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       });
     }
 
+    perf.lap('hazards');
     const allObstacles = inCorridor
       ? []
       : [...world.getCollisionObstacles(), ...traffic.getCarObstacleBoxes(), ...roadHazards.getAllObstacleBoxes()];
@@ -262,6 +280,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       );
     }
 
+    perf.lap('physics');
     // Step active mission delivery countdowns, peak-time cooking timers, cargo physics & live customer chat!
     delivery.stepTimers(dt, (readyMission) => {
       audio.playFoodReadyDingDong();
@@ -297,6 +316,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       roadNavigator
     );
 
+    perf.lap('delivery/nav');
     // Outdoor Entrance Ground Marker + Shop Pickup Trays + 3-Slot Scooter Visuals
     // (Navigation path is shown ONLY on the smartphone GPS screen, never on the 3D road!)
     if (!inCorridor) {
@@ -351,6 +371,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       modalUi.updateCameraProofStatus(proofStatus);
     }
 
+    perf.lap('visuals');
     // Weather local rain particles (InstancedMesh), 1st-person helmet visor droplets, wet asphalt & audio!
     weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
     visorRain.update(dt, weather.rainIntensity, inCorridor, scooterPhysics.state.speed, isRiding);
@@ -367,6 +388,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     voiceNav.updateSpeedCameraAlert(roadHazards.upcomingCamera, isRiding, inCorridor);
     voiceNav.updateTurnGuidance(navPlan.guidance, navFocusKey, isRiding, inCorridor);
 
+    perf.lap('weather/audio');
     // Step smartphone battery drain & handlebar-mount wireless charging (2x faster with fast_charger upgrade!)
     const chargeSpeedMul = getUpgradeEffects(delivery.career.upgrades).chargeSpeedMul;
     hud.phoneMap.stepBattery(
@@ -445,13 +467,21 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       }
     );
 
+    perf.lap('hud/phone');
     // Only render scooter mirrors when outdoors & riding
-    if (!inCorridor && isRiding) {
+    if (!inCorridor && isRiding && !perf.flags.skipMirrors) {
+      perf.gpuBegin('mirrors');
       scooterMesh.renderMirrors(renderer, scene, scooterPhysics.state);
+      perf.gpuEnd();
     }
+    perf.lap('mirrors');
 
     void CORRIDOR_ORIGIN_Y;
+    perf.gpuBegin('main');
     renderer.render(scene, camera);
+    perf.gpuEnd();
+    perf.lap('render');
+    perf.endFrame();
   }
 
   requestAnimationFrame(animate);

@@ -408,6 +408,11 @@ export class CityWorld {
     return this.collisionCache;
   }
 
+  /** The shadow-casting sun (profiler A/B benchmark toggles its shadows) */
+  public get sunLight(): THREE.DirectionalLight {
+    return this.dirLight;
+  }
+
   /** Streaming diagnostics (unified city only) */
   public get streamingStats(): ChunkStreamerStats | null {
     return this.streamer ? this.streamer.stats : null;
