@@ -4,7 +4,7 @@
 import { DeliveryLocation, FoodTempType } from '../types';
 import { RoutePoint, TurnGuidance } from '../world/RoadNavigator';
 import { CustomerReview, RiderTierSpec } from './RiderCareer';
-import type { AchievementSpec, AchievementStatus, DayRecord } from './careerHistory';
+import type { AchievementSpec, AchievementStatus, DayRecord, WeekSummary } from './careerHistory';
 import { ShiftGoalSpec, ShiftGoalStatus } from './ShiftDay';
 
 export const MAX_CONCURRENT_ORDERS = 3;
@@ -49,6 +49,8 @@ export interface ShiftRecap {
   newAtClockOut: AchievementSpec[];
   /** Locked achievement closest to done */
   next: AchievementStatus | null;
+  /** Weekly statement when this day closes a week (every 7th day) */
+  week: WeekSummary | null;
 }
 
 export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';

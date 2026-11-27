@@ -5116,3 +5116,71 @@ body.phone-3d-hover canvas {
 .dispatch-banner.urgent .db-progress-fill {
   background: #ef4444;
 }
+
+/* Weekly statement (clock-out on every 7th day) and the career tab's week card */
+.weekly-statement .week-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 64px;
+  padding: 4px 2px;
+}
+.week-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+.week-bar-col span {
+  font-size: 9px;
+  color: #94a3b8;
+}
+.week-bar {
+  width: 100%;
+  max-width: 22px;
+  border-radius: 4px 4px 0 0;
+  background: #34d399;
+}
+.week-bar.best {
+  background: #facc15;
+}
+.week-bar.neg {
+  background: #f87171;
+}
+.weekly-statement .neg {
+  color: #f87171;
+}
+.career-week-card {
+  flex-shrink: 0;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(250, 204, 21, 0.14);
+  border: 1px solid rgba(234, 179, 8, 0.5);
+}
+.career-week-card .cw-title {
+  font-size: 11px;
+  font-weight: 900;
+}
+.career-week-card .cw-title span {
+  font-weight: 700;
+  color: #64748b;
+}
+.career-week-card .cw-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-weight: 700;
+  margin-top: 3px;
+}
+.career-week-card .cw-row b.neg {
+  color: #dc2626;
+}
+.career-week-card .cw-sub {
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+  margin-top: 2px;
+}

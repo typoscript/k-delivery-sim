@@ -14,6 +14,7 @@ import {
 } from '../../delivery/DeliveryManager';
 import { BikeGarageSave, SCOOTER_MODEL_LIST, SCOOTER_PAINT_LIST } from '../../vehicle/ScooterModels';
 import { CustomerReview, RIDER_UPGRADE_LIST, RiderCareerSave } from '../../delivery/RiderCareer';
+import type { WeekSummary } from '../../delivery/careerHistory';
 import { LineTone, ledgerExpenseLines, ledgerIncomeLines, lineValue, settlementLines } from '../receiptLines';
 
 // ---------------------------------------------------------------- cargo box
@@ -205,6 +206,32 @@ export function garageUpgradeListHtml(career: RiderCareerSave): string {
 
 // ---------------------------------------------------------------- daily statement
 
+/** Weekly statement (every 7th day): totals, best day, a bar per day and the week's achievements */
+export function weeklyStatementHtml(w: WeekSummary): string {
+  const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString()}`;
+  const maxAbs = Math.max(1, ...w.days.map((d) => Math.abs(d.net)));
+  const bars = [];
+  for (let day = w.firstDay; day <= w.lastDay; day++) {
+    const d = w.days.find((x) => x.day === day);
+    const h = d ? Math.max(4, Math.round((Math.abs(d.net) / maxAbs) * 100)) : 0;
+    bars.push(
+      `<div class="week-bar-col" title="${day}일차 ${d ? won(d.net) : '쉰 날'}"><div class="week-bar ${d && d.net < 0 ? 'neg' : ''} ${d === w.bestDay ? 'best' : ''}" style="height:${h}%"></div><span>${day}</span></div>`
+    );
+  }
+  const ach = w.achievements.length > 0 ? w.achievements.map((a) => `<span class="recap-ach">${a.icon} ${a.title}</span>`).join('') : '<span class="recap-none">이번 주 새 업적 없음</span>';
+  return `
+      <div class="rep-section weekly-statement">
+        <div class="rep-sec-title">📆 ${w.week}주차 주간 정산 (${w.firstDay}~${w.lastDay}일차)</div>
+        <div class="week-chart">${bars.join('')}</div>
+        <div class="rep-line"><span>주간 순수익 (${w.days.length}일 근무)</span><span class="${w.net < 0 ? 'neg' : ''}">${won(w.net)}</span></div>
+        <div class="rep-line"><span>주간 배달</span><span>${w.deliveries}건</span></div>
+        <div class="rep-line"><span>수입 / 지출</span><span>${won(w.income)} / ${won(-w.expenses)}</span></div>
+        <div class="rep-line"><span>💰 가장 많이 번 날</span><span>${w.bestDay ? `${w.bestDay.day}일차 ${won(w.bestDay.net)}` : '-'}</span></div>
+        <div class="rep-line"><span>⭐ 평균 별점 · 🛡️ 무사고</span><span>${w.avgStars !== null ? `★ ${w.avgStars.toFixed(1)}` : '★ -'} · ${w.safeDays}일</span></div>
+        <div class="recap-ach-row"><span class="recap-ach-label">🏆 이번 주 업적</span>${ach}</div>
+      </div>`;
+}
+
 /** Clock-out recap: net profit vs the previous day, accident-free streak, achievements of the day */
 export function shiftRecapHtml(r: ClockOutResult): string {
   const net = r.ledger.netProfit;
@@ -277,6 +304,7 @@ export function dailyReportHtml(ledger: DailyFinanceLedger, clockOut?: ClockOutR
       </div>
       ${goalsHtml}
       ${clockOut ? shiftRecapHtml(clockOut) : ''}
+      ${clockOut?.recap.week ? weeklyStatementHtml(clockOut.recap.week) : ''}
       <div class="rep-section">
         <div class="rep-line inc"><span>💼 누적 영구 저장 지갑 잔고 (${ledger.riderTier.icon} 누적 ${ledger.lifetimeCompleted}건)</span><span>₩${ledger.walletBalance.toLocaleString()}</span></div>
       </div>

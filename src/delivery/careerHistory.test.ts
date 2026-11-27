@@ -12,6 +12,8 @@ import {
   newlyUnlocked,
   nextAchievement,
   previousDay,
+  weekOfDay,
+  weekSummary,
   parseCountMap,
   parseDayHistory,
   safeDayStreak,
@@ -115,4 +117,19 @@ describe('career history', () => {
     expect(nextAchievement(st)?.id).toBe('d50'); // 45/50 beats 2/20 stairs
     expect(nextAchievement(st.map((a) => ({ ...a, unlocked: true })))).toBeNull();
   });
+
+  it('sums a week (days 8~14 are week 2) and picks its best day', () => {
+    expect([1, 7, 8, 14, 15].map(weekOfDay)).toEqual([1, 1, 2, 2, 3]);
+    const h = [day(6, 9, 999), { ...day(8, 3, 10000), avgStars: 4 }, day(9, 2, -3000, 1), { ...day(12, 5, 25000), avgStars: 5 }, day(15, 9, 999)];
+    const w = weekSummary(h, 14, [
+      { id: 'x', icon: '', title: 'in week', desc: '', target: 1, current: 1, unlocked: true, unlockedDay: 9 },
+      { id: 'y', icon: '', title: 'before', desc: '', target: 1, current: 1, unlocked: true, unlockedDay: 3 },
+    ]);
+    expect(w).toMatchObject({ week: 2, firstDay: 8, lastDay: 14, deliveries: 10, net: 32000, avgStars: 4.5, safeDays: 2 });
+    expect(w.days.map((d) => d.day)).toEqual([8, 9, 12]);
+    expect(w.bestDay?.day).toBe(12);
+    expect(w.achievements.map((a) => a.id)).toEqual(['x']);
+    expect(weekSummary([], 3)).toMatchObject({ week: 1, days: [], net: 0, bestDay: null, avgStars: null });
+  });
 });
+

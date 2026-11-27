@@ -227,6 +227,23 @@ describe('DeliveryManager mission flow', () => {
     expect(res2.recap.previous).toMatchObject({ day: 1, net: res.ledger.netProfit });
     expect(res2.recap.safeStreak).toBe(2);
     expect(res2.recap.achievementsToday.map((a) => a.id)).not.toContain('first');
+    expect(res2.recap.week).toBeNull();
+  });
+
+  it('the 7th clock-out closes the week with a weekly statement', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    let last = null;
+    for (let d = 1; d <= 7; d++) {
+      deliver(dm, accept(dm).order.id);
+      last = dm.clockOut()!;
+      if (d < 7) expect(last.recap.week).toBeNull();
+    }
+    const w = last!.recap.week!;
+    expect(w).toMatchObject({ week: 1, firstDay: 1, lastDay: 7, deliveries: 7 });
+    expect(w.days).toHaveLength(7);
+    expect(w.net).toBe(dm.getDayHistory().reduce((a, d) => a + d.net, 0));
+    // day 8 starts week 2 with nothing finished yet
+    expect(dm.getWeekSummary()).toMatchObject({ week: 2, days: [] });
   });
 
   it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {

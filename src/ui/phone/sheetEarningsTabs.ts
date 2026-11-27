@@ -185,10 +185,24 @@ export function renderCareerTab(delivery: DeliveryManager): string {
       <div><b>${best ? won(best.net) : '-'}</b><span>최고 하루${best ? ` (${best.day}일차)` : ''}</span></div>
       <div><b>${streak}일</b><span>무사고 연속</span></div>
     </div>
+    ${weekCardHtml(delivery)}
     <div class="career-section-title">📈 최근 7일 순수익</div>
     ${chartHtml}
     ${rowsHtml ? `<div class="career-day-list">${rowsHtml}</div>` : ''}
     <div class="career-section-title">🏆 업적 (${unlockedCnt}/${achievements.length})</div>
     <div class="career-ach-grid">${achHtml}</div>
   `;
+}
+
+/** "이번 주" progress card: days finished this week, net so far, best day; the statement comes on day 7 */
+function weekCardHtml(delivery: DeliveryManager): string {
+  const w = delivery.getWeekSummary();
+  const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString()}`;
+  const left = w.lastDay - delivery.shiftDay;
+  return `
+    <div class="career-week-card">
+      <div class="cw-title">📆 이번 주 · ${w.week}주차 <span>${w.firstDay}~${w.lastDay}일차</span></div>
+      <div class="cw-row"><span>마친 근무일 ${w.days.length}일 · 배달 ${w.deliveries}건</span><b class="${w.net < 0 ? 'neg' : ''}">${won(w.net)}</b></div>
+      <div class="cw-sub">${left === 0 ? '오늘 퇴근하면 주간 정산서가 나와요' : `${w.lastDay}일차 퇴근 때 주간 정산서가 나와요 (${left}일 남음)`}${w.bestDay ? ` · 최고 ${w.bestDay.day}일차 ${won(w.bestDay.net)}` : ''}</div>
+    </div>`;
 }

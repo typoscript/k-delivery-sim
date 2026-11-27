@@ -127,6 +127,11 @@ describe('modal views', () => {
     expect(html).toContain('첫 근무일 기록이에요');
     expect(html).toContain('🛵 첫 배달'); // unlocked today
     expect(dailyReportHtml(res.ledger)).not.toContain('일차 기록'); // mid-day statement: no recap
+    expect(html).not.toContain('주간 정산'); // day 1 is not a week end
+    const weekly = dailyReportHtml(res.ledger, { ...res, recap: { ...res.recap, week: { week: 1, firstDay: 1, lastDay: 7, days: [], deliveries: 12, income: 90000, expenses: 8000, net: 82000, bestDay: null, avgStars: 4.6, safeDays: 5, achievements: [] } } });
+    expect(weekly).toContain('1주차 주간 정산');
+    expect(weekly).toContain('₩82,000');
+    expect(weekly.match(/week-bar-col/g)).toHaveLength(7);
     const worse = { ...res, recap: { ...res.recap, previous: { ...res.ledger, day: 7, deliveries: 9, income: 0, expenses: 0, net: res.ledger.netProfit + 5000, avgStars: null, goalsMet: 0, goalsTotal: 4, accidents: 0 } } };
     expect(shiftRecapHtml(worse)).toContain('▼ ₩5,000');
   });

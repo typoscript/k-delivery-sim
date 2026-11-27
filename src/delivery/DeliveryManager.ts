@@ -63,8 +63,11 @@ import {
   AchievementSpec,
   AchievementStatus,
   DayRecord,
+  DAYS_PER_WEEK,
+  WeekSummary,
   nextAchievement,
   previousDay,
+  weekSummary,
   safeDayStreak,
   STAR_COUNT_COUNTER,
   STAR_SUM_COUNTER,
@@ -194,6 +197,11 @@ export class DeliveryManager {
     return this.progress.history;
   }
 
+  /** The current week so far (finished days of this week) */
+  public getWeekSummary(): WeekSummary {
+    return weekSummary(this.progress.history, this.shiftDay, this.getAchievements());
+  }
+
   public getAchievements(): AchievementStatus[] {
     return this.progress.achievements(this.lifetimeCompleted);
   }
@@ -244,6 +252,7 @@ export class DeliveryManager {
       achievementsToday: statuses.filter((a) => a.unlockedDay === day),
       newAtClockOut,
       next: nextAchievement(statuses),
+      week: day % DAYS_PER_WEEK === 0 ? weekSummary(this.progress.history, day, statuses) : null,
     };
 
     this.shiftDay = day + 1;

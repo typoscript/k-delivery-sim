@@ -209,3 +209,52 @@ export function parseCountMap(raw: unknown): Record<string, number> {
   }
   return out;
 }
+
+/** Working days per week (weekly statement every 7th day) */
+export const DAYS_PER_WEEK = 7;
+
+export const weekOfDay = (day: number) => Math.ceil(Math.max(1, day) / DAYS_PER_WEEK);
+
+export interface WeekSummary {
+  week: number;
+  firstDay: number;
+  lastDay: number;
+  /** Finished days of the week (oldest first; days not worked are missing) */
+  days: DayRecord[];
+  deliveries: number;
+  income: number;
+  expenses: number;
+  net: number;
+  bestDay: DayRecord | null;
+  /** Average of the days' review averages (days with reviews only) */
+  avgStars: number | null;
+  /** Days with 3+ deliveries and no pedestrian accident */
+  safeDays: number;
+  /** Achievements unlocked during the week */
+  achievements: AchievementStatus[];
+}
+
+/** Totals of the week that contains `day` */
+export function weekSummary(history: readonly DayRecord[], day: number, achievements: readonly AchievementStatus[] = []): WeekSummary {
+  const week = weekOfDay(day);
+  const firstDay = (week - 1) * DAYS_PER_WEEK + 1;
+  const lastDay = week * DAYS_PER_WEEK;
+  const days = history.filter((d) => d.day >= firstDay && d.day <= lastDay).sort((a, b) => a.day - b.day);
+  const sum = (f: (d: DayRecord) => number) => days.reduce((acc, d) => acc + f(d), 0);
+  const starred = days.filter((d) => d.avgStars !== null);
+  return {
+    week,
+    firstDay,
+    lastDay,
+    days,
+    deliveries: sum((d) => d.deliveries),
+    income: sum((d) => d.income),
+    expenses: sum((d) => d.expenses),
+    net: sum((d) => d.net),
+    bestDay: bestDay(days),
+    avgStars: starred.length > 0 ? Math.round((starred.reduce((a, d) => a + (d.avgStars ?? 0), 0) / starred.length) * 10) / 10 : null,
+    safeDays: days.filter((d) => d.deliveries >= 3 && d.accidents === 0).length,
+    achievements: achievements.filter((a) => a.unlockedDay !== undefined && a.unlockedDay >= firstDay && a.unlockedDay <= lastDay),
+  };
+}
+
