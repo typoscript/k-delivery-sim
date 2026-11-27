@@ -596,5 +596,5 @@ if (IS_UNIFIED_MAP && new URLSearchParams(window.location.search).get('bench') =
 
 // Dev-only handle for automated playtests (stripped from production builds)
 if (import.meta.env.DEV) {
-  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, camController, clock: gameCtx.clock, weatherSchedule: gameCtx.weatherSchedule, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
+  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, camController, clock: gameCtx.clock, weatherSchedule: gameCtx.weatherSchedule, corridorRoom, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
 }

@@ -70,7 +70,10 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
         weather.update(0, 0, 0, 0, true, world.isNight);
         audio.updateWeatherAudio(0, true);
 
-        corridorRoom.configureForUnit(m.order.unitNumber, m.order.customer.residenceKind ?? 'apartment');
+        corridorRoom.configureForUnit(m.order.unitNumber, m.order.customer.residenceKind ?? 'apartment', {
+          id: m.order.customer.id,
+          name: m.order.customer.name,
+        });
         corridorRoom.root.visible = true;
 
         delivery.enterCorridor(missionId);

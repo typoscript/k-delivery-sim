@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { InteriorPropKind, InteriorStyle, pickInteriorStyle } from './interiorThemes';
 import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
 import { ResidenceKind, clamp } from '../types';
 
@@ -30,6 +31,9 @@ interface UnitDoorSlot {
   plaqueMesh: THREE.Mesh;
   bellLedMat: THREE.MeshStandardMaterial;
   plaqueMat: THREE.MeshStandardMaterial;
+  /** Door leaf and doormat materials (recoloured per building theme) */
+  panelMat: THREE.MeshStandardMaterial;
+  carpetMat: THREE.MeshStandardMaterial;
   unitNumber: string;
 }
 
@@ -41,6 +45,17 @@ const VILLA_STAIR_FLIGHTS = [
 ] as const;
 
 const VILLA_FLOOR_Y = [0.0, 2.2, 4.4, 6.6] as const; // index 0=1F, 1=2F, 2=3F, 3=4F
+const APT_LIGHT_INTENSITY = 9.5;
+
+/** Spots where decorative props may stand (against walls, clear of doors, elevator and stairs) */
+const APT_PROP_SLOTS = [
+  { x: -2.3, y: 0, z: 7.3, rotY: 0 },
+  { x: 2.3, y: 0, z: 1.2, rotY: Math.PI },
+] as const;
+const VILLA_PROP_SLOTS = [
+  { x: 1.85, y: 0, z: -9.6, rotY: Math.PI },
+  { x: -1.85, y: 2.2, z: -0.65, rotY: 0 },
+] as const;
 
 /**
  * Isolated Underground Modular Indoor Delivery Prefab (y = -500).
@@ -80,6 +95,24 @@ export class CorridorRoom {
   private bellFlashTimer = 0;
 
   public isVillaMode = false;
+
+  // Per-building interior theme (interiorThemes.ts): shared materials recoloured on each visit
+  private readonly aptWallMat = new THREE.MeshStandardMaterial({ color: 0xedeae4, roughness: 0.85 });
+  private readonly aptTrimMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.6 });
+  private readonly aptFloorMat = new THREE.MeshStandardMaterial({ roughness: 0.65 });
+  private readonly aptCeilingMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.9 });
+  private readonly aptFixtureMat = new THREE.MeshBasicMaterial({ color: 0xfffbeb });
+  private readonly aptLights: THREE.PointLight[] = [];
+  private readonly villaWallMat = new THREE.MeshStandardMaterial({ color: 0xeae5da, roughness: 0.9 });
+  private readonly villaDadoMat = new THREE.MeshStandardMaterial({ color: 0x7a9b8e, roughness: 0.85 });
+  private readonly villaRailMat = new THREE.MeshStandardMaterial({ color: 0x1f5c4e, metalness: 0.45, roughness: 0.48 });
+  private readonly villaCeilingMat = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.92 });
+  private readonly villaFloorMat = new THREE.MeshStandardMaterial({ roughness: 0.72 });
+  private readonly villaFixtureMat = new THREE.MeshBasicMaterial({ color: 0xfff7d6 });
+  /** Decorative props + building name sign of the current visit (rebuilt per building) */
+  private readonly styleGroup = new THREE.Group();
+  /** Theme of the current visit (for tests / debugging) */
+  public currentThemeId = '';
   public targetDoorIndex = 1;
   public foodPlacedOnMat = false;
 
@@ -112,6 +145,7 @@ export class CorridorRoom {
 
     this.root.add(this.aptGroup);
     this.root.add(this.villaGroup);
+    this.root.add(this.styleGroup);
 
     this.buildApartmentCorridor();
     this.buildWalkupVillaStairwell();
@@ -157,36 +191,29 @@ export class CorridorRoom {
     this.aptGroup.add(ambient);
 
     for (const lz of [-5.2, 0.0, 5.2]) {
-      const pLight = new THREE.PointLight(0xfff1d6, 9.5, 12, 1.5);
+      const pLight = new THREE.PointLight(0xfff1d6, APT_LIGHT_INTENSITY, 12, 1.5);
       pLight.position.set(0, height - 0.35, lz);
       this.aptGroup.add(pLight);
+      this.aptLights.push(pLight);
 
-      const fixture = new THREE.Mesh(
-        new THREE.BoxGeometry(0.9, 0.08, 0.35),
-        new THREE.MeshBasicMaterial({ color: 0xfffbeb })
-      );
+      const fixture = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.35), this.aptFixtureMat);
       fixture.position.set(0, height - 0.05, lz);
       this.aptGroup.add(fixture);
     }
 
     const floorTex = this.createTileTexture('#d6d3cd', 'rgba(100,116,139,0.28)', 4, 12);
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(width, length),
-      new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.65 })
-    );
+    this.aptFloorMat.map = floorTex;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, length), this.aptFloorMat);
     floor.rotation.x = -Math.PI / 2;
     this.aptGroup.add(floor);
 
-    const ceiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(width, length),
-      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.9 })
-    );
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(width, length), this.aptCeilingMat);
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = height;
     this.aptGroup.add(ceiling);
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0xedeae4, roughness: 0.85 });
-    const trimMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.6 });
+    const wallMat = this.aptWallMat;
+    const trimMat = this.aptTrimMat;
 
     const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(length, height), wallMat);
     leftWall.rotation.y = Math.PI / 2;
@@ -412,14 +439,15 @@ export class CorridorRoom {
 
     // Classic Korean villa stairwell materials: terrazzo floor, cream plaster + jade green wainscot
     const terrazzoTex = this.createTileTexture('#c8c2b8', 'rgba(71,85,105,0.34)', 3, 2);
-    const terrazzoMat = new THREE.MeshStandardMaterial({ map: terrazzoTex, roughness: 0.72 });
+    const terrazzoMat = this.villaFloorMat;
+    terrazzoMat.map = terrazzoTex;
     const stairStepMat = new THREE.MeshStandardMaterial({ color: 0xbeb7ac, roughness: 0.78 });
     const nosingMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.55 });
-    const upperWallMat = new THREE.MeshStandardMaterial({ color: 0xeae5da, roughness: 0.9 });
-    const dadoWallMat = new THREE.MeshStandardMaterial({ color: 0x7a9b8e, roughness: 0.85 });
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x1f5c4e, metalness: 0.45, roughness: 0.48 });
-    const ceilingMat = new THREE.MeshStandardMaterial({ color: 0xd8dce2, roughness: 0.92 });
-    const fixtureMat = new THREE.MeshBasicMaterial({ color: 0xfff7d6 });
+    const upperWallMat = this.villaWallMat;
+    const dadoWallMat = this.villaDadoMat;
+    const railMat = this.villaRailMat;
+    const ceilingMat = this.villaCeilingMat;
+    const fixtureMat = this.villaFixtureMat;
 
     // Enclosing side walls & end walls
     const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(totalLen, maxWallH), upperWallMat);
@@ -681,6 +709,8 @@ export class CorridorRoom {
       plaqueMesh: plaque,
       bellLedMat,
       plaqueMat,
+      panelMat: doorPanelMat,
+      carpetMat: matCarpet,
       unitNumber: defaultUnit,
     };
   }
@@ -749,31 +779,121 @@ export class CorridorRoom {
     return tex;
   }
 
-  private createPlaqueTexture(text: string, bg: string, fg: string): THREE.CanvasTexture {
+  /** Text plaque texture; the font shrinks so long names (building signs) fit the width */
+  private createPlaqueTexture(text: string, bg: string, fg: string, width = 256): THREE.CanvasTexture {
+    const h = 104;
     const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 104;
+    c.width = width;
+    c.height = h;
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, 256, 104);
+    ctx.fillRect(0, 0, width, h);
     ctx.strokeStyle = 'rgba(255,255,255,0.4)';
     ctx.lineWidth = 5;
-    ctx.strokeRect(4, 4, 248, 96);
+    ctx.strokeRect(4, 4, width - 8, h - 8);
     ctx.fillStyle = fg;
     ctx.font = 'bold 42px sans-serif';
+    const measured = ctx.measureText(text).width;
+    const size = measured > 0 ? Math.max(18, Math.min(42, (42 * (width - 28)) / measured)) : 42;
+    ctx.font = `bold ${Math.floor(size)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 128, 54);
+    ctx.fillText(text, width / 2, 54);
     const tex = new THREE.CanvasTexture(c);
     tex.needsUpdate = true;
     return tex;
   }
 
-  /** Configures either the Apartment Corridor or Walk-up Villa Stairwell for the target unit */
-  public configureForUnit(targetUnitNumber: string, residenceKind: ResidenceKind = 'apartment'): void {
+  /** Recolours walls, floor, ceiling, doors and lights to the building's theme and rebuilds its props + sign */
+  private applyInteriorStyle(style: InteriorStyle, buildingName: string | undefined, unitNumber: string): void {
+    const t = style.theme;
+    this.currentThemeId = t.id;
+    const floorTex = this.createTileTexture(t.floorBase, t.floorGrout, this.isVillaMode ? 3 : 4, this.isVillaMode ? 2 : 12);
+    if (this.isVillaMode) {
+      this.villaWallMat.color.setHex(t.wall);
+      this.villaCeilingMat.color.setHex(t.ceiling);
+      this.villaDadoMat.color.setHex(t.dado ?? t.trim);
+      this.villaRailMat.color.setHex(t.rail ?? t.trim);
+      this.villaFixtureMat.color.setHex(t.lightColor);
+      this.villaFloorMat.map?.dispose();
+      this.villaFloorMat.map = floorTex;
+      this.villaFloorMat.needsUpdate = true;
+    } else {
+      this.aptWallMat.color.setHex(t.wall);
+      this.aptTrimMat.color.setHex(t.trim);
+      this.aptCeilingMat.color.setHex(t.ceiling);
+      this.aptFixtureMat.color.setHex(t.lightColor);
+      for (const l of this.aptLights) {
+        l.color.setHex(t.lightColor);
+        l.intensity = APT_LIGHT_INTENSITY * t.lightMul;
+      }
+      this.aptFloorMat.map?.dispose();
+      this.aptFloorMat.map = floorTex;
+      this.aptFloorMat.needsUpdate = true;
+    }
+    for (const d of this.getActiveDoors()) {
+      d.panelMat.color.setHex(t.door);
+      d.carpetMat.color.setHex(t.carpet);
+    }
+
+    // Rebuild props and the building name sign for this visit
+    this.styleGroup.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry.dispose();
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        (mat as THREE.MeshBasicMaterial).map?.dispose();
+        mat.dispose();
+      }
+    });
+    this.styleGroup.clear();
+    const slots = this.isVillaMode ? VILLA_PROP_SLOTS : APT_PROP_SLOTS;
+    style.props.forEach((kind, i) => {
+      const slot = slots[i % slots.length];
+      const prop = buildInteriorProp(kind);
+      prop.position.set(slot.x, slot.y, slot.z);
+      prop.rotation.y = slot.rotY;
+      this.styleGroup.add(prop);
+    });
+    if (buildingName) {
+      const floorNo = Math.floor(parseInt(unitNumber.match(/(\d+)/)?.[1] ?? '0', 10) / 100);
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.2, 0.5),
+        new THREE.MeshBasicMaterial({
+          map: this.createPlaqueTexture(
+            this.isVillaMode ? `🏠 ${buildingName}` : `${buildingName} · ${floorNo}F`,
+            '#0f172a',
+            '#f8fafc',
+            460
+          ),
+        })
+      );
+      if (this.isVillaMode) {
+        // 1F landing, right wall beside the entrance (the left wall has the mailbox and stair notice)
+        sign.rotation.y = -Math.PI / 2;
+        sign.position.set(2.17, 2.05, -8.6);
+      } else {
+        // Far end of the corridor, facing the rider stepping out of the elevator
+        sign.rotation.y = Math.PI;
+        sign.position.set(0, 2.45, 7.97);
+      }
+      this.styleGroup.add(sign);
+    }
+  }
+
+  /**
+   * Sets up the shared interior for one delivery: layout (apartment / officetel corridor or villa stairwell),
+   * the building's own theme and props (by its id), its name sign, and the target unit door.
+   */
+  public configureForUnit(
+    targetUnitNumber: string,
+    residenceKind: ResidenceKind = 'apartment',
+    building?: { id: string; name: string }
+  ): void {
     this.isVillaMode = residenceKind === 'walkup_villa';
     this.aptGroup.visible = !this.isVillaMode;
     this.villaGroup.visible = this.isVillaMode;
+    this.applyInteriorStyle(pickInteriorStyle(residenceKind, building?.id ?? targetUnitNumber), building?.name, targetUnitNumber);
 
     const numMatch = targetUnitNumber.match(/(\d+)/);
     const num = numMatch ? parseInt(numMatch[1], 10) : this.isVillaMode ? 302 : 1402;
@@ -1152,4 +1272,65 @@ export class CorridorRoom {
       this.npcRightArmPivot.rotation.x = -this.npcArmReachCur * 1.18;
     }
   }
+}
+
+/** Small low-poly corridor props (lit by the corridor lights; ~1 draw call per part) */
+function buildInteriorProp(kind: InteriorPropKind): THREE.Group {
+  const g = new THREE.Group();
+  const mat = (color: number, rough = 0.7, metal = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+    return mesh;
+  };
+  switch (kind) {
+    case 'plant': {
+      add(new THREE.CylinderGeometry(0.2, 0.16, 0.42, 10), mat(0xb45309), 0, 0.21, 0);
+      add(new THREE.SphereGeometry(0.36, 10, 8), mat(0x3f7d3a, 0.85), 0, 0.72, 0);
+      add(new THREE.SphereGeometry(0.24, 8, 6), mat(0x4d9447, 0.85), 0.12, 1.02, 0.05);
+      break;
+    }
+    case 'stroller': {
+      const frame = mat(0x1f2937, 0.5, 0.4);
+      add(new THREE.BoxGeometry(0.42, 0.34, 0.7), mat(0x60a5fa), 0, 0.62, 0);
+      add(new THREE.CylinderGeometry(0.22, 0.22, 0.44, 12, 1, false, 0, Math.PI), mat(0x3b82f6), 0, 0.82, -0.2).rotation.z = Math.PI / 2;
+      for (const [x, z] of [[-0.2, -0.28], [0.2, -0.28], [-0.2, 0.28], [0.2, 0.28]]) {
+        add(new THREE.TorusGeometry(0.09, 0.025, 6, 12), frame, x, 0.11, z).rotation.y = Math.PI / 2;
+      }
+      add(new THREE.BoxGeometry(0.04, 0.6, 0.04), frame, 0, 0.9, 0.36);
+      break;
+    }
+    case 'bicycle': {
+      const frame = mat(0xdc2626, 0.45, 0.3);
+      const tire = mat(0x111827, 0.9);
+      add(new THREE.TorusGeometry(0.3, 0.035, 6, 18), tire, 0, 0.32, -0.5).rotation.y = Math.PI / 2;
+      add(new THREE.TorusGeometry(0.3, 0.035, 6, 18), tire, 0, 0.32, 0.5).rotation.y = Math.PI / 2;
+      add(new THREE.BoxGeometry(0.04, 0.04, 0.95), frame, 0, 0.55, 0);
+      add(new THREE.BoxGeometry(0.04, 0.42, 0.04), frame, 0, 0.62, -0.2);
+      add(new THREE.BoxGeometry(0.16, 0.05, 0.26), mat(0x111827), 0, 0.86, -0.2);
+      add(new THREE.BoxGeometry(0.5, 0.04, 0.04), frame, 0, 0.9, 0.45);
+      break;
+    }
+    case 'shoe_rack': {
+      add(new THREE.BoxGeometry(0.34, 0.9, 1.0), mat(0xd6b98c, 0.8), 0, 0.45, 0);
+      add(new THREE.BoxGeometry(0.18, 0.08, 0.28), mat(0x1f2937), 0.16, 0.05, 0.62);
+      add(new THREE.BoxGeometry(0.18, 0.08, 0.28), mat(0xf8fafc), 0.16, 0.05, 0.88);
+      break;
+    }
+    case 'parcels': {
+      const box = mat(0xc49a6c, 0.9);
+      add(new THREE.BoxGeometry(0.5, 0.36, 0.42), box, 0, 0.18, 0);
+      add(new THREE.BoxGeometry(0.38, 0.28, 0.34), box, 0.04, 0.5, 0.02).rotation.y = 0.3;
+      add(new THREE.BoxGeometry(0.3, 0.2, 0.3), mat(0xe5d3b3, 0.9), -0.05, 0.1, 0.42);
+      break;
+    }
+    case 'umbrella_stand': {
+      add(new THREE.CylinderGeometry(0.16, 0.14, 0.5, 12), mat(0x64748b, 0.4, 0.5), 0, 0.25, 0);
+      add(new THREE.CylinderGeometry(0.015, 0.015, 0.9, 6), mat(0x1d4ed8), 0.05, 0.6, 0.02).rotation.z = 0.1;
+      add(new THREE.CylinderGeometry(0.015, 0.015, 0.9, 6), mat(0xbe123c), -0.04, 0.6, -0.03).rotation.z = -0.12;
+      break;
+    }
+  }
+  return g;
 }
