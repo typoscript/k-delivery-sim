@@ -41,6 +41,7 @@ import { installCrashFeedback } from './game/crashFeedback';
 import { installKeyboardInput } from './game/keyboardInput';
 import { startGameLoop } from './game/gameLoop';
 import { GameClock } from './game/GameClock';
+import { WeatherSchedule } from './game/WeatherSchedule';
 import { applyGameClock } from './game/clockSync';
 import { GraphicsRuntime } from './game/GraphicsRuntime';
 import { runBenchmarkSuite } from './game/BenchmarkSuite';
@@ -500,6 +501,7 @@ const gameCtx: GameContext = {
   handheldFoodBag3D,
   // Resume the saved working day's time (a new rider starts at 10:40, just before the lunch rush)
   clock: new GameClock(delivery.shiftClockMinute),
+  weatherSchedule: new WeatherSchedule(weather.mode),
 };
 // Save the shift clock regularly and when the page is hidden / closed so a reload resumes the same time
 window.setInterval(() => delivery.persistCareer(), 15000);
@@ -559,6 +561,9 @@ const runSuite = async () => {
         applyGameClock(gameCtx, false);
       },
       setWeather: (mode) => {
+        // Benchmark scenes pin the weather: keep the automatic schedule from changing it mid-run
+        gameCtx.weatherSchedule.override(mode);
+        gameCtx.weatherSchedule.remainingMin = Number.POSITIVE_INFINITY;
         weather.setMode(mode);
         world.setWeather(mode);
         delivery.setWeatherRaining(mode === 'rain');

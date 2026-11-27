@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GameContext } from './GameContext';
+import { setWeatherMode } from './clockSync';
 import { getInstructionMeta } from '../delivery/DeliveryManager';
 import { validateDeliveryPhotoFrame } from '../camera/PhotoProofValidator';
 import { BikeGarageSave } from '../vehicle/ScooterModels';
@@ -562,19 +563,8 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
   };
 
   const handleCycleWeather = () => {
-    const next = weather.cycleMode();
-    world.setWeather(next);
-    delivery.setWeatherRaining(next === 'rain');
-    if (next === 'rain' && !scooterPhysics.state.headlights) {
-      scooterPhysics.state.headlights = true;
-    }
-    const msg =
-      next === 'rain'
-        ? '🌧️ 비(우천) 모드! 빗길 맨홀·횡단보도 슬립 주의 · 신규 콜 우천 할증 +₩1,500!'
-        : next === 'cloudy'
-          ? '☁️ 흐림 모드 (조명 톤 다운)'
-          : '☀️ 맑음 모드 (건조 노면)';
-    hud.showToast(msg, 3800);
+    const order = ['clear', 'cloudy', 'rain'] as const;
+    setWeatherMode(ctx, order[(order.indexOf(weather.mode) + 1) % order.length], 'manual');
   };
 
 

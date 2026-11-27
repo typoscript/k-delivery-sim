@@ -23,6 +23,7 @@ import { VisorRainOverlay } from '../ui/VisorRainOverlay';
 import { OnboardingAndSettings } from '../ui/OnboardingAndSettings';
 import { DistrictSelectorUi } from '../ui/DistrictSelectorUi';
 import { GameClock } from './GameClock';
+import { WeatherSchedule } from './WeatherSchedule';
 
 /** Shared game systems created once in main.ts and handed to the input handler and game loop */
 export interface GameContext {
@@ -54,4 +55,6 @@ export interface GameContext {
   handheldFoodBag3D: HandheldFoodBag3D;
   /** In-game time of day: lighting, night surcharge and rush-hour demand */
   clock: GameClock;
+  /** Weather that changes on its own with game time (U key overrides for a while) */
+  weatherSchedule: WeatherSchedule;
 }
