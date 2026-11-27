@@ -232,7 +232,7 @@ export function weeklyStatementHtml(w: WeekSummary, goals: readonly WeekGoalStat
         ${goals
           .map(
             (g) =>
-              `<div class="rep-line ${g.met ? 'inc' : ''}"><span>${g.met ? '✅' : '⬜'} ${g.icon} ${g.title} · ${weekGoalProgressText(g)}</span><span>${g.met ? `+₩${g.bonus.toLocaleString()}` : '미달성'}</span></div>`
+              `<div class="rep-line ${g.met ? 'inc' : ''}"><span>${g.met ? '✅' : '⬜'} ${g.icon} ${g.title}<small class="rep-progress">${weekGoalProgressText(g)}</small></span><span>${g.met ? `+₩${g.bonus.toLocaleString()}` : '미달성'}</span></div>`
           )
           .join('')}
         ${goals.length > 0 ? `<div class="rep-line sub ${bonus > 0 ? 'inc' : ''}"><span>📆 주간 목표 보너스 (지갑 반영)</span><span>+₩${bonus.toLocaleString()}</span></div>` : ''}

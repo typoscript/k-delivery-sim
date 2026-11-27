@@ -2178,6 +2178,8 @@ kbd {
 .service-card,
 .report-card {
   width: min(410px, 92vw);
+  /* Long statements (weekly summary on the 7th day) scroll inside the card; header and OK button stay visible */
+  max-height: calc(100vh - 32px);
   padding: 20px;
   border-radius: 22px;
   background: #0f172a;
@@ -2383,6 +2385,9 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .rep-hero {
@@ -2435,6 +2440,20 @@ kbd {
   justify-content: space-between;
   font-variant-numeric: tabular-nums;
   color: #e2e8f0;
+}
+
+.rep-line > span:last-child {
+  flex-shrink: 0;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* Progress under a goal title (weekly goals) */
+.rep-line .rep-progress {
+  display: block;
+  margin-left: 22px;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .rep-line.sub {

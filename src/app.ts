@@ -464,8 +464,11 @@ const hud = new Hud(
       audio.playShiftEndCadence();
       modalUi.openDailyReportModal(res.ledger, res);
       const bonus = res.awardedAtClockOut.reduce((a, g) => a + g.bonus, 0);
+      const weekly = res.recap.weeklyBonus;
       hud.showToast(
-        `🏁 ${res.day}일차 퇴근 완료${bonus > 0 ? ` · 🛡️ 무사고 보너스 +₩${bonus.toLocaleString()}` : ''} · ${res.nextDay}일차 ${gameCtx.clock.label} 출근!`,
+        `🏁 ${res.day}일차 퇴근 완료${bonus > 0 ? ` · 🎯 목표 보너스 +₩${bonus.toLocaleString()}` : ''}${
+          weekly > 0 ? ` · 📅 주간 보너스 +₩${weekly.toLocaleString()}` : ''
+        } · ${res.nextDay}일차 ${gameCtx.clock.label} 출근!`,
         5200
       );
       voiceNav.speak(`${res.day}일차 근무를 마쳤습니다. 수고하셨습니다.`);
