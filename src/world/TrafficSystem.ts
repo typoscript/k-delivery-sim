@@ -11,6 +11,7 @@ import {
   getSignalAxis,
   laneBlendDecay,
   signalSpeedCap,
+  signalNodesNear,
 } from './TrafficRules';
 
 export type SignalColor = 'green' | 'yellow' | 'red';
@@ -128,6 +129,7 @@ export class TrafficSystem {
   private prevPlayerX = ACTIVE_MAP_DATA.meta.scooterSpawn.x;
   private prevPlayerZ = ACTIVE_MAP_DATA.meta.scooterSpawn.z;
   private violationCooldown = 0;
+  private readonly nearSignals: number[] = [];
   private recycleTimer = 0;
 
   private readonly frontRay = new THREE.Ray();
@@ -517,8 +519,9 @@ export class TrafficSystem {
       const moveX = playerX - this.prevPlayerX;
       const moveZ = playerZ - this.prevPlayerZ;
       if (Math.hypot(moveX, moveZ) > 0.05) {
-        for (const sn of ACTIVE_MAP_DATA.nodes) {
-          if (!sn.isSignal) continue;
+        this.nearSignals.length = 0;
+        for (const id of signalNodesNear(playerX, playerZ, 8.0, this.nearSignals)) {
+          const sn = ACTIVE_MAP_DATA.nodes[id];
           const prevD = Math.hypot(this.prevPlayerX - sn.x, this.prevPlayerZ - sn.z);
           const curD = Math.hypot(playerX - sn.x, playerZ - sn.z);
           if (prevD > 8.0 && curD <= 8.0) {

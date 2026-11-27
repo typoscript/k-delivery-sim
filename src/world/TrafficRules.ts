@@ -94,6 +94,46 @@ export function signalSpeedCap(
   return Math.sqrt(2 * comfortDecel * Math.max(0, stopDist - 0.4));
 }
 
+const SIGNAL_CELL = 64;
+let signalCells: Map<number, number[]> | null = null;
+const signalCellKey = (ix: number, iz: number) => (ix + 32768) * 65536 + (iz + 32768);
+
+/**
+ * Ids of signalized nodes within `radius` of (x, z), appended to `out`. Uses a lazily built grid so
+ * per-frame checks don't scan every node of the (multi-km) open world.
+ */
+export function signalNodesNear(x: number, z: number, radius: number, out: number[] = []): number[] {
+  const nodes = ACTIVE_MAP_DATA.nodes;
+  if (!signalCells) {
+    signalCells = new Map();
+    for (const n of nodes) {
+      if (!n.isSignal) continue;
+      const k = signalCellKey(Math.floor(n.x / SIGNAL_CELL), Math.floor(n.z / SIGNAL_CELL));
+      let list = signalCells.get(k);
+      if (!list) signalCells.set(k, (list = []));
+      list.push(n.id);
+    }
+  }
+  const r2 = radius * radius;
+  const ix0 = Math.floor((x - radius) / SIGNAL_CELL);
+  const ix1 = Math.floor((x + radius) / SIGNAL_CELL);
+  const iz0 = Math.floor((z - radius) / SIGNAL_CELL);
+  const iz1 = Math.floor((z + radius) / SIGNAL_CELL);
+  for (let ix = ix0; ix <= ix1; ix++) {
+    for (let iz = iz0; iz <= iz1; iz++) {
+      const list = signalCells.get(signalCellKey(ix, iz));
+      if (!list) continue;
+      for (const id of list) {
+        const n = nodes[id];
+        const dx = n.x - x;
+        const dz = n.z - z;
+        if (dx * dx + dz * dz <= r2) out.push(id);
+      }
+    }
+  }
+  return out;
+}
+
 /** Unit direction of graph edge from -> to */
 export function edgeDirection(fromId: number, toId: number): { fx: number; fz: number } {
   const a = ACTIVE_MAP_DATA.nodes[fromId];

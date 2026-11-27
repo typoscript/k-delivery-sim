@@ -412,7 +412,7 @@ export function renderMapToContext(
     c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
 
   for (const sn of ACTIVE_MAP_DATA.nodes) {
-    if (!sn.isSignal) continue;
+    if (!sn.isSignal || !inView(sn.x, sn.x, sn.z, sn.z)) continue;
     const mx = toX(sn.x);
     const my = toY(sn.z);
     ctx.fillStyle = sigHex(signalState.ns);

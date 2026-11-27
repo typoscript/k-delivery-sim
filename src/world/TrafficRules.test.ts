@@ -6,6 +6,7 @@ import {
   getSignalAxis,
   laneBlendDecay,
   signalSpeedCap,
+  signalNodesNear,
 } from './TrafficRules';
 
 describe('signalSpeedCap', () => {
@@ -69,5 +70,22 @@ describe('edgeDirection & laneBlendDecay', () => {
   it('decays the lane blend by 1/e every LANE_BLEND_DISTANCE metres travelled', () => {
     expect(laneBlendDecay(0)).toBe(1);
     expect(laneBlendDecay(LANE_BLEND_DISTANCE)).toBeCloseTo(Math.exp(-1), 6);
+  });
+});
+
+describe('signalNodesNear', () => {
+  it('finds exactly the signalized nodes a full scan finds', () => {
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    const out: number[] = [];
+    for (let i = 0; i < nodes.length; i += 37) {
+      const x = nodes[i].x + 5;
+      const z = nodes[i].z - 3;
+      for (const r of [8, 60]) {
+        out.length = 0;
+        const grid = signalNodesNear(x, z, r, out).sort((a, b) => a - b);
+        const brute = nodes.filter((n) => n.isSignal && Math.hypot(n.x - x, n.z - z) <= r).map((n) => n.id);
+        expect(grid).toEqual(brute.sort((a, b) => a - b));
+      }
+    }
   });
 });
