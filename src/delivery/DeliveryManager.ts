@@ -25,9 +25,7 @@ import {
 
 export * from './deliveryTypes';
 import {
-  SPECIAL_ORDERS,
   ActiveMission,
-  CARGO_SLOT_COUNT,
   ClockOutResult,
   CompletedMissionRecord,
   CustomerChatEvent,
@@ -36,7 +34,6 @@ import {
   INITIAL_RIDER_RATING,
   INTERACT_ZONE_RADIUS,
   MAX_CONCURRENT_ORDERS,
-  MissionPhase,
   NIGHT_SURCHARGE_BONUS,
   NavigationPlan,
   PEDESTRIAN_ACCIDENT_FINE,
@@ -53,11 +50,39 @@ import {
   OrderSurcharges,
   buildDeliveryOrder,
   createActiveMission,
-  kitchenDelayChance,
   pickOrderNumber,
   rollSpecialOrder,
 } from './orderFactory';
 import { MissionRoutePlanner } from './missionRoute';
+import {
+  activeMissionOf,
+  getCargoSlotMission,
+  getCargoSlotOccupiedFlags,
+  getCarryingMission,
+  getCorridorMission,
+  getFirstEmptyCargoSlot,
+  getLoadedCargoCount,
+  getMissionById,
+  getMissionNearCustomerLobby,
+  getMissionNearShopPickup,
+  getNearestResidenceWithin,
+  isCargoLoaded,
+  isCarryingFood,
+  loadedCargo,
+} from './missionQueries';
+import {
+  cancelMission,
+  collectReadyPickup,
+  completePosPickup,
+  enterCorridor,
+  finishAfterCorridorExit,
+  loadFoodIntoCargoSlot,
+  placeFoodAtDoor,
+  startKnockDelivery,
+  startMeetFaceDelivery,
+  unloadFoodFromCargoSlot,
+  unlockLobbyDoor,
+} from './missionSteps';
 import { Reputation } from './reputation';
 import {
   AchievementSpec,
@@ -115,7 +140,8 @@ export class DeliveryManager {
   /** Today's goal counters / claimed goals and the career progress (history, achievements) built on them */
   private readonly progress: ShiftProgress;
   /** Regular shops and customers, reviews and reputation */
-  private readonly records: RiderRecords;
+  /** @internal missionSteps / missionQueries */
+  readonly records: RiderRecords;
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
@@ -126,7 +152,8 @@ export class DeliveryManager {
   public pedestrianAccidentCount = 0;
 
   private readonly shops: DeliveryLocation[];
-  private readonly residences: DeliveryLocation[];
+  /** @internal missionSteps / missionQueries */
+  readonly residences: DeliveryLocation[];
   private orderSeq = 1;
 
   /** Cached / throttled route plan (recomputed when missions change or the rider moves or turns) */
@@ -314,78 +341,43 @@ export class DeliveryManager {
 
   /** Backward-compatible primary mission accessor (carried / corridor / pinned / first active) */
   public get activeMission(): ActiveMission | null {
-    return (
-      this.getCorridorMission() ??
-      this.getCarryingMission() ??
-      (this.selectedMissionId
-        ? this.activeMissions.find((m) => m.order.id === this.selectedMissionId) ?? null
-        : null) ??
-      this.activeMissions[0] ??
-      null
-    );
+    return activeMissionOf(this);
   }
 
   public getMissionById(id: string | null): ActiveMission | null {
-    if (!id) return null;
-    return this.activeMissions.find((m) => m.order.id === id) ?? null;
+    return getMissionById(this, id);
   }
 
   public getCorridorMission(): ActiveMission | null {
-    return (
-      this.activeMissions.find(
-        (m) =>
-          m.phase === 'in_corridor' ||
-          m.phase === 'photo_mode' ||
-          m.phase === 'knock_waiting' ||
-          m.phase === 'meet_waiting' ||
-          m.phase === 'corridor_exit'
-      ) ?? null
-    );
+    return getCorridorMission(this);
   }
 
   public getCarryingMission(): ActiveMission | null {
-    return (
-      this.activeMissions.find(
-        (m) =>
-          m.phase === 'carrying_to_box' ||
-          m.phase === 'carrying_to_lobby' ||
-          m.phase === 'lobby_unlocked' ||
-          m.phase === 'in_corridor'
-      ) ?? null
-    );
+    return getCarryingMission(this);
   }
 
   public isCarryingFood(): boolean {
-    return this.getCarryingMission() !== null;
+    return isCarryingFood(this);
   }
 
   public isCargoLoaded(): boolean {
-    return this.cargoSlots.some((id) => id !== null);
+    return isCargoLoaded(this);
   }
 
   public getLoadedCargoCount(): number {
-    let count = 0;
-    for (const id of this.cargoSlots) {
-      if (id !== null) count++;
-    }
-    return count;
+    return getLoadedCargoCount(this);
   }
 
   public getCargoSlotOccupiedFlags(): [boolean, boolean, boolean] {
-    return [this.cargoSlots[0] !== null, this.cargoSlots[1] !== null, this.cargoSlots[2] !== null];
+    return getCargoSlotOccupiedFlags(this);
   }
 
   public getCargoSlotMission(slotIndex: number): ActiveMission | null {
-    if (slotIndex < 0 || slotIndex >= CARGO_SLOT_COUNT) return null;
-    const id = this.cargoSlots[slotIndex];
-    return id ? this.getMissionById(id) : null;
+    return getCargoSlotMission(this, slotIndex);
   }
 
   public getFirstEmptyCargoSlot(): number {
-    for (let i = 0; i < CARGO_SLOT_COUNT; i++) {
-      if (this.cargoSlots[i] === null) return i;
-    }
-    return -1;
+    return getFirstEmptyCargoSlot(this);
   }
 
   public canAcceptMoreOrders(): boolean {
@@ -535,7 +527,8 @@ export class DeliveryManager {
     );
   }
 
-  private replenishAvailableOrders(): void {
+  /** @internal missionSteps / missionQueries */
+  replenishAvailableOrders(): void {
     const usedPairs = new Set<string>([
       ...this.activeMissions.map((m) => `${m.order.shop.id}-${m.order.customer.id}`),
       ...this.availableOrders.map((o) => `${o.shop.id}-${o.customer.id}`),
@@ -557,31 +550,7 @@ export class DeliveryManager {
   }
 
   public cancelMission(orderId: string): ActiveMission | null {
-    const idx = this.activeMissions.findIndex((m) => m.order.id === orderId);
-    if (idx === -1) return null;
-    const m = this.activeMissions[idx];
-    if (
-      m.phase === 'in_corridor' ||
-      m.phase === 'photo_mode' ||
-      m.phase === 'knock_waiting' ||
-      m.phase === 'meet_waiting' ||
-      m.phase === 'corridor_exit'
-    ) {
-      return null;
-    }
-
-    if (m.cargoSlot !== null && this.cargoSlots[m.cargoSlot] === orderId) {
-      this.cargoSlots[m.cargoSlot] = null;
-    }
-    this.activeMissions.splice(idx, 1);
-    if (this.selectedMissionId === orderId) {
-      this.selectedMissionId = null;
-    }
-    if (this.availableOrders.length < 3) {
-      this.replenishAvailableOrders();
-    }
-    this.invalidateNavCache();
-    return m;
+    return cancelMission(this, orderId);
   }
 
   /**
@@ -590,150 +559,42 @@ export class DeliveryManager {
    * (leaving rider completely free to move, ride, or use smartphone until ready!).
    */
   public completePosPickup(missionId: string, forceCookingDelay?: boolean): PosPickupResult | null {
-    if (this.isCarryingFood()) return null;
-    const m = this.getMissionById(missionId);
-    if (!m || m.phase !== 'to_pickup') return null;
-
-    const sameShopCount = this.activeMissions.filter((x) => x.order.shop.id === m.order.shop.id).length;
-    const delayProb = kitchenDelayChance(m.order.shop.id, sameShopCount);
-    const special = m.order.special ? SPECIAL_ORDERS[m.order.special] : null;
-    // Group orders always take a while at the counter (a big batch is still being packed)
-    const hasDelay =
-      forceCookingDelay !== undefined ? forceCookingDelay : (special?.extraWaitSec ?? 0) > 0 || Math.random() < delayProb;
-
-    // Regular Store Perk: >= 2 previous pickups at this shop grants priority fast-track cooking!
-    const { count: nextCount, isRegularPerk, justBecameRegular } = this.records.recordShopPickup(m.order.shop);
-    this.persistCareer();
-
-    if (hasDelay) {
-      // 5 ~ 10 seconds random, longer while kitchens are slammed in a lunch / dinner rush
-      const rawWaitSec =
-        Math.round((5 + Math.floor(Math.random() * 6)) * this.demandPhase.cookingMul) + (special?.extraWaitSec ?? 0);
-      if (isRegularPerk && rawWaitSec <= 6) {
-        // Regular store owner prioritized your order -> instant handoff!
-        m.phase = 'carrying_to_box';
-        m.pickedUp = true;
-        this.invalidateNavCache();
-        return {
-          mission: m,
-          status: 'picked_up',
-          waitSec: 0,
-          isRegularPerk: true,
-          savedWaitSec: rawWaitSec,
-          shopPickupCount: nextCount,
-          justBecameRegular,
-        };
-      }
-      const waitSec = isRegularPerk ? Math.max(2, Math.round(rawWaitSec * 0.45)) : rawWaitSec;
-      const savedWaitSec = rawWaitSec - waitSec;
-      m.phase = 'cooking_wait';
-      m.cookingDurationSec = waitSec;
-      m.cookingRemainingSec = waitSec;
-      this.invalidateNavCache();
-      return {
-        mission: m,
-        status: 'cooking',
-        waitSec,
-        isRegularPerk,
-        savedWaitSec,
-        shopPickupCount: nextCount,
-        justBecameRegular,
-      };
-    }
-
-    m.phase = 'carrying_to_box';
-    m.pickedUp = true;
-    this.invalidateNavCache();
-    return {
-      mission: m,
-      status: 'picked_up',
-      waitSec: 0,
-      isRegularPerk,
-      savedWaitSec: 0,
-      shopPickupCount: nextCount,
-      justBecameRegular,
-    };
+    return completePosPickup(this, missionId, forceCookingDelay);
   }
 
   /** Collects the spawned 3D takeout food bag from the shop pickup tray into the rider's left hand */
   public collectReadyPickup(missionId: string): ActiveMission | null {
-    if (this.isCarryingFood()) return null;
-    const m = this.getMissionById(missionId);
-    if (!m || m.phase !== 'pickup_ready') return null;
-    m.phase = 'carrying_to_box';
-    m.pickedUp = true;
-    this.invalidateNavCache();
-    return m;
+    return collectReadyPickup(this, missionId);
   }
 
   /** Load currently held food bag (`carrying_to_box` or `carrying_to_lobby`) into a specific cargo slot (0..2) */
   public loadFoodIntoCargoSlot(slotIndex: number): ActiveMission | null {
-    if (slotIndex < 0 || slotIndex >= CARGO_SLOT_COUNT) return null;
-    if (this.cargoSlots[slotIndex] !== null) return null;
-    const carrying = this.getCarryingMission();
-    if (!carrying) return null;
-    if (carrying.phase !== 'carrying_to_box' && carrying.phase !== 'carrying_to_lobby') {
-      return null;
-    }
-
-    this.cargoSlots[slotIndex] = carrying.order.id;
-    carrying.cargoSlot = slotIndex;
-    carrying.phase = 'cargo_loaded';
-    this.invalidateNavCache();
-    return carrying;
+    return loadFoodIntoCargoSlot(this, slotIndex);
   }
 
   /** Unload a specific cargo slot (0..2) into the rider's left hand (`carrying_to_lobby`) */
   public unloadFoodFromCargoSlot(slotIndex: number): ActiveMission | null {
-    if (slotIndex < 0 || slotIndex >= CARGO_SLOT_COUNT) return null;
-    if (this.isCarryingFood()) return null;
-    const id = this.cargoSlots[slotIndex];
-    if (!id) return null;
-    const m = this.getMissionById(id);
-    if (!m || m.phase !== 'cargo_loaded') return null;
-
-    this.cargoSlots[slotIndex] = null;
-    m.cargoSlot = null;
-    m.phase = 'carrying_to_lobby';
-    this.invalidateNavCache();
-    return m;
+    return unloadFoodFromCargoSlot(this, slotIndex);
   }
 
   public unlockLobbyDoor(missionId: string): ActiveMission | null {
-    const m = this.getMissionById(missionId);
-    if (!m || m.phase !== 'carrying_to_lobby') return null;
-    m.phase = 'lobby_unlocked';
-    this.invalidateNavCache();
-    return m;
+    return unlockLobbyDoor(this, missionId);
   }
 
   public enterCorridor(missionId: string): ActiveMission | null {
-    const m = this.getMissionById(missionId);
-    if (!m || m.phase !== 'lobby_unlocked') return null;
-    m.phase = 'in_corridor';
-    this.invalidateNavCache();
-    return m;
+    return enterCorridor(this, missionId);
   }
 
   public placeFoodAtDoor(): ActiveMission | null {
-    const m = this.getCorridorMission();
-    if (!m || m.phase !== 'in_corridor') return null;
-    m.phase = 'photo_mode';
-    return m;
+    return placeFoodAtDoor(this);
   }
 
   public startKnockDelivery(): ActiveMission | null {
-    const m = this.getCorridorMission();
-    if (!m || m.phase !== 'in_corridor') return null;
-    m.phase = 'knock_waiting';
-    return m;
+    return startKnockDelivery(this);
   }
 
   public startMeetFaceDelivery(): ActiveMission | null {
-    const m = this.getCorridorMission();
-    if (!m || m.phase !== 'in_corridor') return null;
-    m.phase = 'meet_waiting';
-    return m;
+    return startMeetFaceDelivery(this);
   }
 
   /** Called when photo shutter is pressed (PHOTO_DOOR) or after knock/face-to-face completion! */
@@ -831,61 +692,22 @@ export class DeliveryManager {
   }
 
   public finishAfterCorridorExit(): void {
-    const finished = this.activeMissions.find((m) => m.phase === 'corridor_exit');
-    if (finished) {
-      if (this.selectedMissionId === finished.order.id) {
-        this.selectedMissionId = null;
-      }
-      this.activeMissions = this.activeMissions.filter((m) => m.order.id !== finished.order.id);
-    }
-    this.replenishAvailableOrders();
-    this.invalidateNavCache();
+    finishAfterCorridorExit(this);
   }
 
   /** Returns the highest-priority shop mission near the player's outdoor pickup counter (pickup_ready > to_pickup > cooking_wait) */
   public getMissionNearShopPickup(x: number, z: number): ActiveMission | null {
-    const priority = (phase: MissionPhase) =>
-      phase === 'pickup_ready' ? 3 : phase === 'to_pickup' ? 2 : phase === 'cooking_wait' ? 1 : 0;
-
-    let best: ActiveMission | null = null;
-    let bestPri = 0;
-    let bestDist = INTERACT_ZONE_RADIUS;
-    for (const m of this.activeMissions) {
-      const pri = priority(m.phase);
-      if (pri === 0) continue;
-      const d = Math.hypot(x - m.order.shop.x, z - m.order.shop.z);
-      if (d <= INTERACT_ZONE_RADIUS) {
-        if (pri > bestPri || (pri === bestPri && d < bestDist)) {
-          best = m;
-          bestPri = pri;
-          bestDist = d;
-        }
-      }
-    }
-    return best;
+    return getMissionNearShopPickup(this, x, z);
   }
 
   /** Returns the carried mission if player is near its target customer lobby */
   public getMissionNearCustomerLobby(x: number, z: number): ActiveMission | null {
-    const carrying = this.getCarryingMission();
-    if (!carrying) return null;
-    if (carrying.phase !== 'carrying_to_lobby' && carrying.phase !== 'lobby_unlocked') return null;
-    const c = carrying.order.customer;
-    return Math.hypot(x - c.x, z - c.z) <= INTERACT_ZONE_RADIUS ? carrying : null;
+    return getMissionNearCustomerLobby(this, x, z);
   }
 
   /** Helper: checks if player is standing right in front of any residential lobby (to warn about wrong bag) */
   public getNearestResidenceWithin(x: number, z: number, radius = INTERACT_ZONE_RADIUS): DeliveryLocation | null {
-    let best: DeliveryLocation | null = null;
-    let bestD = radius;
-    for (const r of this.residences) {
-      const d = Math.hypot(x - r.x, z - r.z);
-      if (d <= bestD) {
-        best = r;
-        bestD = d;
-      }
-    }
-    return best;
+    return getNearestResidenceWithin(this, x, z, radius);
   }
 
   private spillWarnCooldown = 0;
@@ -893,12 +715,7 @@ export class DeliveryManager {
 
   /** Food in the top box (loaded missions) */
   private loadedCargo(): ActiveMission[] {
-    const out: ActiveMission[] = [];
-    for (const id of this.cargoSlots) {
-      const m = id ? this.getMissionById(id) : null;
-      if (m && m.phase === 'cargo_loaded') out.push(m);
-    }
-    return out;
+    return loadedCargo(this);
   }
 
   /** Steps food temperature and top-box spill damage (see cargoCare.stepFoodCondition) */
