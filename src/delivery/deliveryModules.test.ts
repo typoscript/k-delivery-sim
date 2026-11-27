@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeliveryOrder, pickOrderNumber, rollSpecialOrder, singleDistanceBonus } from './orderFactory';
+import {
+  BUSY_KITCHEN_SHOPS,
+  buildDeliveryOrder,
+  createActiveMission,
+  kitchenDelayChance,
+  pickOrderNumber,
+  rollSpecialOrder,
+  singleDistanceBonus,
+} from './orderFactory';
+import { settlementGoalCounters } from './shiftProgress';
+import { RiderRecords, ratingAfterReview, reviewInputFor } from './riderRecords';
+import { buildDailyLedger } from './dailyLedger';
+import { emptyLedger } from './ShiftDay';
+import { RIDER_TIERS, RiderCareerSave } from './RiderCareer';
 import { computeSettlementPay } from './settlementPay';
 import { applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent } from './cargoCare';
 import { ActiveMission, ALTTLE_FLAT_FEE, REGULAR_CUSTOMER_TIP, SINGLE_FLAT_FEE, SPECIAL_ORDERS, VILLA_STAIR_BONUS } from './deliveryTypes';
@@ -122,5 +135,88 @@ describe('special orders and regular customers', () => {
     const order = buildDeliveryOrder({ id: 'r', orderNumber: 'A-03', type: 'SINGLE', shop, customer: home, surcharges, regularCustomer: true });
     expect(computeSettlementPay(mission({ order }), 0).regularCustomerTip).toBe(REGULAR_CUSTOMER_TIP);
     expect(computeSettlementPay(mission({ order, foodIntegrity: 60 }), 0).regularCustomerTip).toBe(0);
+  });
+});
+
+describe('split DeliveryManager helpers', () => {
+  it('a delivery bumps exactly the goal counters it qualifies for', () => {
+    const zero = { peakBonus: 0, rainBonus: 0, nightBonus: 0, specialBonus: 0 };
+    // villa customer, 100% food, ~360m away
+    expect(settlementGoalCounters(mission(), zero, () => 'ingye')).toEqual(['villa', 'perfect', 'district:ingye']);
+    const urgentFar = mission({ foodIntegrity: 80 });
+    urgentFar.order = { ...urgentFar.order, special: 'urgent', regularCustomer: true, distanceMeters: 1500, customer: { ...home, residenceKind: 'apartment' } };
+    expect(settlementGoalCounters(urgentFar, { peakBonus: 1000, rainBonus: 1500, nightBonus: 1200, specialBonus: 3000 }, () => 'gwanggyo')).toEqual([
+      'peak',
+      'rain',
+      'night',
+      'urgentOnTime',
+      'regular',
+      'far',
+      'district:gwanggyo',
+    ]);
+    // a late urgent delivery (no special bonus) does not count as on time
+    expect(settlementGoalCounters(urgentFar, zero, () => 'x')).not.toContain('urgentOnTime');
+  });
+
+  it('trust rating moves 0.1 per review within its bounds', () => {
+    expect(ratingAfterReview(4.5, 95, 4)).toBe(4.6);
+    expect(ratingAfterReview(4.5, 50, 5)).toBe(4.6);
+    expect(ratingAfterReview(5.0, 100, 5)).toBe(5.0);
+    expect(ratingAfterReview(4.5, 50, 2)).toBe(4.4);
+    expect(ratingAfterReview(1.0, 50, 1)).toBe(1.0);
+    expect(ratingAfterReview(4.5, 70, 3)).toBe(4.5);
+    expect(reviewInputFor(mission({ remainingTimeSec: 150 }), true, false, '12:00')).toMatchObject({
+      remainingRatio: 0.5,
+      isWalkupVilla: true,
+      isRain: true,
+      isNight: false,
+      createdAt: '12:00',
+    });
+  });
+
+  it('records regular shops and customers and caps reviews', () => {
+    const career: RiderCareerSave = {
+      walletBalance: 0,
+      lifetimeCompleted: 0,
+      riderRating: 5,
+      upgrades: [],
+      reviews: [],
+      shopPickupCounts: {},
+      customerDeliveryCounts: {},
+      shopNames: {},
+    };
+    const rec = new RiderRecords(career, [shop]);
+    expect(rec.recordShopPickup(shop)).toEqual({ count: 1, isRegularPerk: false, justBecameRegular: false });
+    expect(rec.recordShopPickup(shop)).toEqual({ count: 2, isRegularPerk: false, justBecameRegular: true });
+    expect(rec.recordShopPickup(shop)).toEqual({ count: 3, isRegularPerk: true, justBecameRegular: false });
+    expect(rec.regularShops()).toEqual([{ shopId: 's', name: '🍗 가게', count: 3 }]);
+    expect(rec.isRegularCustomer('r')).toBe(false);
+    rec.recordCustomerDelivery('r');
+    rec.recordCustomerDelivery('r');
+    expect(rec.isRegularCustomer('r')).toBe(true);
+    for (let i = 0; i < 30; i++) {
+      rec.addReview({ id: `${i}`, orderNumber: `A-${i}`, shopId: 's', shopName: '가게', shopEmoji: '', menuName: '', customerName: '', unitNumber: '', stars: i % 2 ? 5 : 4, comment: '', tags: [], createdAt: '' });
+    }
+    expect(rec.reviews()).toHaveLength(25);
+    expect(rec.reviews()[0].orderNumber).toBe('A-29');
+    expect(rec.averageStars()).toBe(4.5);
+    expect(rec.reputation(5)).toBe(rec.reputation(5)); // cached while nothing changed
+  });
+
+  it('the daily ledger sums income and expenses', () => {
+    const l = { ...emptyLedger(), baseFeeTotal: 9000, tipTotal: 1000, missionBonusTotal: 5000, fuelExpense: 2000, fineExpense: 40000, completedCount: 2 };
+    const d = buildDailyLedger(l, { shiftDay: 3, walletBalance: -27000, lifetimeCompleted: 9, riderTier: RIDER_TIERS[1], riderRating: 4.9 });
+    expect(d).toMatchObject({ shiftDay: 3, completedCount: 2, grossIncome: 15000, totalExpenses: 42000, netProfit: -27000, walletBalance: -27000 });
+  });
+
+  it('kitchen delays and new missions', () => {
+    expect(kitchenDelayChance([...BUSY_KITCHEN_SHOPS][0], 1)).toBe(0.8);
+    expect(kitchenDelayChance('shop-quiet', 2)).toBe(0.8);
+    expect(kitchenDelayChance('shop-quiet', 1)).toBe(0.45);
+    const order = mission().order;
+    const chatty = createActiveMission(order, 10, () => 0.5);
+    expect(chatty).toMatchObject({ phase: 'to_pickup', startedAt: 10, remainingTimeSec: order.timeLimitSec, cargoSlot: null });
+    expect(chatty.chatTriggerDelaySec).toBeCloseTo(4.5 + 0.5 * 6.5);
+    expect(createActiveMission(order, 0, () => 0.9).chatTriggerDelaySec).toBe(0);
   });
 });

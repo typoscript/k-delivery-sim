@@ -2,12 +2,10 @@ import { DeliveryLocation } from '../types';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
-import { ACTIVE_MAP_DATA, deliverableDistricts, districtIdAt } from '../data/suwonDistricts';
+import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
 import {
   CustomerReview,
-  MAX_STORED_REVIEWS,
-  REGULAR_SHOP_THRESHOLD,
   RiderCareerSave,
   RiderTierSpec,
   UpgradeId,
@@ -19,19 +17,14 @@ import {
 } from './RiderCareer';
 import {
   SHIFT_LEDGER_KEYS,
-  ShiftGoalId,
   ShiftGoalSpec,
   ShiftGoalStatus,
   ShiftLedger,
   emptyShift,
-  goalsForDay,
-  goalsToAward,
-  shiftGoalStatuses,
 } from './ShiftDay';
 
 export * from './deliveryTypes';
 import {
-  REGULAR_CUSTOMER_THRESHOLD,
   SPECIAL_ORDERS,
   ActiveMission,
   CARGO_SLOT_COUNT,
@@ -52,23 +45,29 @@ import {
   RAIN_SURCHARGE_BONUS,
   SettlementResult,
 } from './deliveryTypes';
-import { OrderSurcharges, buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
+import {
+  OrderSurcharges,
+  buildDeliveryOrder,
+  createActiveMission,
+  kitchenDelayChance,
+  pickOrderNumber,
+  rollSpecialOrder,
+} from './orderFactory';
 import { MissionRoutePlanner } from './missionRoute';
-import { Reputation, computeReputation } from './reputation';
+import { Reputation } from './reputation';
 import {
   AchievementSpec,
   AchievementStatus,
-  CareerStats,
   DayRecord,
   STAR_COUNT_COUNTER,
   STAR_SUM_COUNTER,
-  achievementStatuses,
-  appendDay,
-  makeDayRecord,
-  newlyUnlocked,
 } from './careerHistory';
 import { computeSettlementPay } from './settlementPay';
 import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent, stepFoodCondition } from './cargoCare';
+import { ShiftProgress, settlementGoalCounters } from './shiftProgress';
+import { RiderRecords, ratingAfterReview, reviewInputFor } from './riderRecords';
+import { buildDailyLedger, pickShiftLedger } from './dailyLedger';
+
 export class DeliveryManager {
   public availableOrders: DeliveryOrder[] = [];
   public activeMissions: ActiveMission[] = [];
@@ -103,11 +102,10 @@ export class DeliveryManager {
   public shiftDay = 1;
   /** Game clock minute to resume at after a reload (kept up to date by the game loop) */
   public shiftClockMinute = SHIFT_START_MINUTE;
-  /** Today's goal counters: peak, villa, rain, night, perfect, urgentOnTime, regular, far, district:<id> */
-  private goalCounters: Record<string, number> = {};
-  private readonly claimedGoals = new Set<ShiftGoalId>();
-  /** Districts district goals can name (all four in the open world) */
-  private readonly goalDistricts = deliverableDistricts();
+  /** Today's goal counters / claimed goals and the career progress (history, achievements) built on them */
+  private readonly progress: ShiftProgress;
+  /** Regular shops and customers, reviews and reputation */
+  private readonly records: RiderRecords;
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
@@ -128,14 +126,15 @@ export class DeliveryManager {
     this.shops = locations.filter((l) => l.type === 'shop');
     this.residences = locations.filter((l) => l.type === 'residential');
     this.career = loadRiderCareer();
+    this.progress = new ShiftProgress(this.career);
+    this.records = new RiderRecords(this.career, this.shops);
     this.totalEarnings = this.career.walletBalance;
     this.lifetimeCompleted = this.career.lifetimeCompleted;
     this.riderRating = this.career.riderRating;
     const shift = this.career.shift ?? emptyShift(1, SHIFT_START_MINUTE);
     this.shiftDay = shift.day;
     this.shiftClockMinute = shift.clockMinute;
-    this.goalCounters = { ...shift.counters };
-    for (const id of shift.claimed) this.claimedGoals.add(id);
+    this.progress.restore(shift.counters, shift.claimed);
     this.restoreLedger(shift.ledger);
     this.refreshAvailableOrders();
   }
@@ -153,93 +152,59 @@ export class DeliveryManager {
     this.career.shift = {
       day: this.shiftDay,
       clockMinute: Math.floor(this.shiftClockMinute),
-      counters: { ...this.goalCounters },
-      claimed: [...this.claimedGoals],
+      counters: { ...this.progress.counters },
+      claimed: [...this.progress.claimed],
       ledger: this.ledgerSnapshot(),
     };
     saveRiderCareer(this.career);
   }
 
   private ledgerSnapshot(): ShiftLedger {
-    const out = {} as ShiftLedger;
-    for (const k of SHIFT_LEDGER_KEYS) out[k] = this[k];
-    return out;
+    return pickShiftLedger(this);
   }
 
   private restoreLedger(l: ShiftLedger): void {
     for (const k of SHIFT_LEDGER_KEYS) this[k] = l[k];
   }
 
-  private goalState() {
-    return {
-      completedCount: this.completedCount,
-      pedestrianAccidentCount: this.pedestrianAccidentCount,
-      counters: this.goalCounters,
-      claimed: this.claimedGoals,
-    };
-  }
-
   /** Rush-hour deliveries today */
   public get peakDeliveries(): number {
-    return this.goalCounters.peak ?? 0;
+    return this.progress.counters.peak ?? 0;
   }
 
   /** Today's goal specs: 배달 3건, two rotating goals for this day, 무사고 퇴근 */
   public todaysGoals(): ShiftGoalSpec[] {
-    return goalsForDay(this.shiftDay, this.goalDistricts);
+    return this.progress.goals(this.shiftDay);
   }
 
   /** Today's goals with progress */
   public getShiftGoals(): ShiftGoalStatus[] {
-    return shiftGoalStatuses(this.todaysGoals(), this.goalState());
-  }
-
-  /** Today's goal counter (+ its lifetime total for achievements) */
-  private bumpGoalCounter(key: string, amount = 1): void {
-    this.goalCounters[key] = (this.goalCounters[key] ?? 0) + amount;
-    if (!key.startsWith('_')) {
-      const life = (this.career.lifetimeCounters ??= {});
-      life[key] = (life[key] ?? 0) + amount;
-    }
+    return this.progress.statuses(this.shiftDay, this.completedCount, this.pedestrianAccidentCount);
   }
 
   /** Finished working days, oldest first */
   public getDayHistory(): readonly DayRecord[] {
-    return this.career.history ?? [];
-  }
-
-  private careerStats(): CareerStats {
-    return {
-      lifetimeCompleted: this.lifetimeCompleted,
-      counters: this.career.lifetimeCounters ?? {},
-      history: this.getDayHistory(),
-      districtIds: deliverableDistricts().map((d) => d.id),
-    };
+    return this.progress.history;
   }
 
   public getAchievements(): AchievementStatus[] {
-    return achievementStatuses(this.careerStats(), this.career.achievements ?? {});
+    return this.progress.achievements(this.lifetimeCompleted);
   }
 
   /** Records and returns achievements reached since the last call (after a delivery / clock-out) */
   public collectNewAchievements(): AchievementSpec[] {
-    const unlocked = (this.career.achievements ??= {});
-    const fresh = newlyUnlocked(this.careerStats(), unlocked);
-    if (fresh.length === 0) return [];
-    for (const a of fresh) unlocked[a.id] = this.shiftDay;
-    this.persistCareer();
+    const fresh = this.progress.collectNewAchievements(this.lifetimeCompleted, this.shiftDay);
+    if (fresh.length > 0) this.persistCareer();
     return fresh;
   }
 
-  private awardGoals(goals: ShiftGoalSpec[]): number {
-    let total = 0;
-    for (const g of goals) {
-      this.claimedGoals.add(g.id);
-      this.missionBonusTotal += g.bonus;
-      this.totalEarnings += g.bonus;
-      total += g.bonus;
-    }
-    return total;
+  /** Pays goals that are due now (after a delivery / at clock-out) into the ledger and wallet */
+  private awardDueGoals(moment: 'delivery' | 'clock_out'): { goals: ShiftGoalSpec[]; bonus: number } {
+    const goals = this.progress.toAward(this.shiftDay, this.completedCount, this.pedestrianAccidentCount, moment);
+    const bonus = this.progress.claim(goals);
+    this.missionBonusTotal += bonus;
+    this.totalEarnings += bonus;
+    return { goals, bonus };
   }
 
   /**
@@ -248,30 +213,24 @@ export class DeliveryManager {
    */
   public clockOut(): ClockOutResult | null {
     if (this.activeMissions.length > 0) return null;
-    const awardedAtClockOut = goalsToAward(this.todaysGoals(), this.goalState(), 'clock_out');
-    this.awardGoals(awardedAtClockOut);
+    const awardedAtClockOut = this.awardDueGoals('clock_out').goals;
     const day = this.shiftDay;
     const ledger = this.getDailyLedger();
     const goals = this.getShiftGoals();
-    this.career.history = appendDay(
-      this.getDayHistory(),
-      makeDayRecord({
-        day,
-        completedCount: ledger.completedCount,
-        grossIncome: ledger.grossIncome,
-        totalExpenses: ledger.totalExpenses,
-        netProfit: ledger.netProfit,
-        pedestrianAccidentCount: ledger.pedestrianAccidentCount,
-        goalsMet: goals.filter((g) => g.claimed).length,
-        goalsTotal: goals.length,
-        counters: this.goalCounters,
-      })
-    );
+    this.progress.recordDay({
+      day,
+      completedCount: ledger.completedCount,
+      grossIncome: ledger.grossIncome,
+      totalExpenses: ledger.totalExpenses,
+      netProfit: ledger.netProfit,
+      pedestrianAccidentCount: ledger.pedestrianAccidentCount,
+      goalsMet: goals.filter((g) => g.claimed).length,
+      goalsTotal: goals.length,
+    });
 
     this.shiftDay = day + 1;
     this.shiftClockMinute = SHIFT_START_MINUTE;
-    this.goalCounters = {};
-    this.claimedGoals.clear();
+    this.progress.reset();
     this.restoreLedger(emptyShift(this.shiftDay, SHIFT_START_MINUTE).ledger);
     this.persistCareer();
     this.refreshAvailableOrders();
@@ -297,55 +256,33 @@ export class DeliveryManager {
   }
 
   public getShopPickupCount(shopId: string): number {
-    return this.career.shopPickupCounts[shopId] ?? 0;
+    return this.records.shopPickupCount(shopId);
   }
 
   /** 단골 고객: this customer location already received REGULAR_CUSTOMER_THRESHOLD+ of your deliveries */
   public isRegularCustomer(customerId: string): boolean {
-    return (this.career.customerDeliveryCounts[customerId] ?? 0) >= REGULAR_CUSTOMER_THRESHOLD;
+    return this.records.isRegularCustomer(customerId);
   }
 
   public isRegularShop(shopId: string): boolean {
-    return this.getShopPickupCount(shopId) >= REGULAR_SHOP_THRESHOLD;
+    return this.records.isRegularShop(shopId);
   }
 
   public getRegularShops(): Array<{ shopId: string; name: string; count: number }> {
-    const out: Array<{ shopId: string; name: string; count: number }> = [];
-    for (const [shopId, count] of Object.entries(this.career.shopPickupCounts)) {
-      if (count >= REGULAR_SHOP_THRESHOLD) {
-        const localShop = this.shops.find((s) => s.id === shopId);
-        const name =
-          this.career.shopNames[shopId] ??
-          (localShop ? `${localShop.emoji} ${localShop.name}` : shopId);
-        out.push({ shopId, name, count });
-      }
-    }
-    out.sort((a, b) => b.count - a.count);
-    return out;
+    return this.records.regularShops();
   }
 
   public getRecentReviews(): CustomerReview[] {
-    return this.career.reviews;
+    return this.records.reviews();
   }
 
   /** Rider reputation from the newest review stars and the trust rating (decides call quality) */
   public getReputation(): Reputation {
-    // Called every frame by the dispatcher: recompute only when the reviews or the rating changed
-    const newest = this.career.reviews[0];
-    const key = `${this.career.reviews.length}:${newest?.orderNumber ?? ''}:${newest?.createdAt ?? ''}:${this.riderRating}`;
-    if (this.reputationCache?.key !== key) {
-      this.reputationCache = { key, rep: computeReputation(this.career.reviews.map((r) => r.stars), this.riderRating) };
-    }
-    return this.reputationCache.rep;
+    return this.records.reputation(this.riderRating);
   }
 
-  private reputationCache: { key: string; rep: Reputation } | null = null;
-
   public getAverageReviewStars(): number | null {
-    const list = this.career.reviews;
-    if (list.length === 0) return null;
-    const sum = list.reduce((acc, r) => acc + r.stars, 0);
-    return Math.round((sum / list.length) * 10) / 10;
+    return this.records.averageStars();
   }
 
   /** Backward-compatible primary mission accessor (carried / corridor / pinned / first active) */
@@ -478,29 +415,6 @@ export class DeliveryManager {
     }
   }
 
-  private createActiveMission(order: DeliveryOrder, startedAt: number): ActiveMission {
-    // ~62% of orders get a live Korean mid-delivery customer chat event once loaded on scooter!
-    const willChat = Math.random() < 0.62;
-    return {
-      order,
-      phase: 'to_pickup',
-      foodIntegrity: 100,
-      foodTemp: 100,
-      spillDamageAccum: 0,
-      startedAt,
-      remainingTimeSec: order.timeLimitSec,
-      cookingDurationSec: 0,
-      cookingRemainingSec: 0,
-      cargoSlot: null,
-      pickedUp: false,
-      chatEventTriggered: false,
-      chatTriggerDelaySec: willChat ? 4.5 + Math.random() * 6.5 : 0,
-      chatLoadedElapsedSec: 0,
-      chatNote: null,
-      promisedExtraTip: 0,
-    };
-  }
-
   public setWeatherRaining(raining: boolean): void {
     if (this.isWeatherRaining === raining) return;
     this.isWeatherRaining = raining;
@@ -535,7 +449,7 @@ export class DeliveryManager {
     const found = this.availableOrders.find((o) => o.id === orderId);
     if (!found) return null;
 
-    this.activeMissions.push(this.createActiveMission(found, performance.now()));
+    this.activeMissions.push(createActiveMission(found, performance.now()));
     this.availableOrders = this.availableOrders.filter((o) => o.id !== orderId);
 
     // Keep at least 3 fresh calls ready so bundled pickups feel lively
@@ -554,7 +468,7 @@ export class DeliveryManager {
     }
     const now = performance.now();
     for (const o of orders) {
-      this.activeMissions.push(this.createActiveMission(o, now));
+      this.activeMissions.push(createActiveMission(o, now));
     }
     this.invalidateNavCache();
     return true;
@@ -644,38 +558,15 @@ export class DeliveryManager {
     const m = this.getMissionById(missionId);
     if (!m || m.phase !== 'to_pickup') return null;
 
-    // Peak-time cooked food shops (chicken, pizza, burger, bunsik, katsu, mara, gukbap) have high delay chance
-    const busyCookShops = new Set([
-      'shop-chicken',
-      'shop-bunsik',
-      'shop-burger',
-      'shop-pizza',
-      'shop-katsu',
-      'shop-mara',
-      'shop-gukbap',
-      'shop-haejang',
-      'shop-jjamppong',
-      'shop-sundae',
-      'shop-burgerking',
-      'shop-lotteria',
-      'shop-pho',
-      'shop-sushi',
-      'shop-mcd',
-    ]);
     const sameShopCount = this.activeMissions.filter((x) => x.order.shop.id === m.order.shop.id).length;
-    const delayProb = busyCookShops.has(m.order.shop.id) || sameShopCount > 1 ? 0.8 : 0.45;
+    const delayProb = kitchenDelayChance(m.order.shop.id, sameShopCount);
     const special = m.order.special ? SPECIAL_ORDERS[m.order.special] : null;
     // Group orders always take a while at the counter (a big batch is still being packed)
     const hasDelay =
       forceCookingDelay !== undefined ? forceCookingDelay : (special?.extraWaitSec ?? 0) > 0 || Math.random() < delayProb;
 
     // Regular Store Perk: >= 2 previous pickups at this shop grants priority fast-track cooking!
-    const prevCount = this.getShopPickupCount(m.order.shop.id);
-    const isRegularPerk = prevCount >= REGULAR_SHOP_THRESHOLD;
-    const nextCount = prevCount + 1;
-    this.career.shopPickupCounts[m.order.shop.id] = nextCount;
-    this.career.shopNames[m.order.shop.id] = `${m.order.shop.emoji} ${m.order.shop.name}`;
-    const justBecameRegular = prevCount < REGULAR_SHOP_THRESHOLD && nextCount >= REGULAR_SHOP_THRESHOLD;
+    const { count: nextCount, isRegularPerk, justBecameRegular } = this.records.recordShopPickup(m.order.shop);
     this.persistCareer();
 
     if (hasDelay) {
@@ -832,8 +723,7 @@ export class DeliveryManager {
     this.specialBonusTotal += specialBonus + regularCustomerTip;
     this.tierBonusTotal += tierBonus;
     // 단골 고객: count completed deliveries per customer location
-    const cid = m.order.customer.id;
-    this.career.customerDeliveryCounts[cid] = (this.career.customerDeliveryCounts[cid] ?? 0) + 1;
+    this.records.recordCustomerDelivery(m.order.customer.id);
     this.tipTotal += tip + tempBonus + villaStairBonus + promisedTipBonus;
     this.damageDeductionTotal += pay.damageDed;
 
@@ -841,21 +731,12 @@ export class DeliveryManager {
     this.completedCount += 1;
     this.lifetimeCompleted += 1;
     // Counters for today's rotating goals
-    if (peakBonus > 0) this.bumpGoalCounter('peak');
-    if (m.order.customer.residenceKind === 'walkup_villa') this.bumpGoalCounter('villa');
-    if (rainBonus > 0) this.bumpGoalCounter('rain');
-    if (nightBonus > 0) this.bumpGoalCounter('night');
-    if (m.foodIntegrity >= 95) this.bumpGoalCounter('perfect');
-    if (m.order.special === 'urgent' && specialBonus > 0) this.bumpGoalCounter('urgentOnTime');
-    if (m.order.regularCustomer) this.bumpGoalCounter('regular');
-    if (m.order.distanceMeters > 1000) this.bumpGoalCounter('far');
-    this.bumpGoalCounter(`district:${districtIdAt(m.order.customer.x, m.order.customer.z)}`);
+    for (const key of settlementGoalCounters(m, pay)) this.progress.bump(key);
     const nextTier = this.getCurrentTier();
     const tierPromotedTo = nextTier.id !== prevTier.id ? nextTier : null;
 
     // Daily goals (배달 3건 + today's two rotating goals) pay out the moment they are reached
-    const goalsCompleted = goalsToAward(this.todaysGoals(), this.goalState(), 'delivery');
-    const missionBonusAwarded = this.awardGoals(goalsCompleted);
+    const { goals: goalsCompleted, bonus: missionBonusAwarded } = this.awardDueGoals('delivery');
     const missionJustCompleted = goalsCompleted.length > 0;
 
     const now = new Date();
@@ -863,39 +744,12 @@ export class DeliveryManager {
       now.getMinutes()
     ).padStart(2, '0')}`;
 
-    const review = generateCustomerReview({
-      orderNumber: m.order.orderNumber,
-      shopId: m.order.shop.id,
-      shopName: m.order.shop.name,
-      shopEmoji: m.order.shop.emoji,
-      menuName: m.order.menuName,
-      customerName: m.order.customer.name,
-      unitNumber: m.order.unitNumber,
-      foodIntegrity: Math.round(m.foodIntegrity),
-      foodTemp: Math.round(m.foodTemp),
-      foodTempType: m.order.foodTempType,
-      isSpillSensitive: m.order.isSpillSensitive,
-      spillDamageAccum: Math.round(m.spillDamageAccum),
-      remainingRatio: m.order.timeLimitSec > 0 ? m.remainingTimeSec / m.order.timeLimitSec : 0.5,
-      isWalkupVilla: m.order.customer.residenceKind === 'walkup_villa',
-      isRain: rainBonus > 0,
-      isNight: nightBonus > 0,
-      deliveryInstruction: m.order.deliveryInstruction,
-      createdAt: completedAt,
-    });
-    this.career.reviews.unshift(review);
-    this.bumpGoalCounter(STAR_SUM_COUNTER, review.stars);
-    this.bumpGoalCounter(STAR_COUNT_COUNTER);
-    if (this.career.reviews.length > MAX_STORED_REVIEWS) {
-      this.career.reviews.length = MAX_STORED_REVIEWS;
-    }
-
+    const review = generateCustomerReview(reviewInputFor(m, rainBonus > 0, nightBonus > 0, completedAt));
+    this.records.addReview(review);
+    this.progress.bump(STAR_SUM_COUNTER, review.stars);
+    this.progress.bump(STAR_COUNT_COUNTER);
     // Smoothly adjust trust rating from clean 5-star or damaged 1~2-star customer reviews
-    if ((m.foodIntegrity >= 90 || review.stars === 5) && this.riderRating < 5.0) {
-      this.riderRating = Math.min(5.0, Math.round((this.riderRating + 0.1) * 10) / 10);
-    } else if (review.stars <= 2 && this.riderRating > 1.0) {
-      this.riderRating = Math.max(1.0, Math.round((this.riderRating - 0.1) * 10) / 10);
-    }
+    this.riderRating = ratingAfterReview(this.riderRating, m.foodIntegrity, review.stars);
     this.persistCareer();
 
     this.completedMissions.unshift({
@@ -1120,50 +974,13 @@ export class DeliveryManager {
   }
 
   public getDailyLedger(): DailyFinanceLedger {
-    const grossIncome =
-      this.baseFeeTotal +
-      this.distanceBonusTotal +
-      this.rainBonusTotal +
-      this.nightBonusTotal +
-      this.peakBonusTotal +
-      this.specialBonusTotal +
-      this.tierBonusTotal +
-      this.tipTotal +
-      this.missionBonusTotal;
-    const totalExpenses =
-      this.damageDeductionTotal +
-      this.fuelExpense +
-      this.repairExpense +
-      this.upgradeExpense +
-      this.convenienceExpense +
-      this.fineExpense;
-    return {
+    return buildDailyLedger(this, {
       shiftDay: this.shiftDay,
-      completedCount: this.completedCount,
-      baseFeeTotal: this.baseFeeTotal,
-      distanceBonusTotal: this.distanceBonusTotal,
-      rainBonusTotal: this.rainBonusTotal,
-      nightBonusTotal: this.nightBonusTotal,
-      peakBonusTotal: this.peakBonusTotal,
-      specialBonusTotal: this.specialBonusTotal,
-      tierBonusTotal: this.tierBonusTotal,
-      tipTotal: this.tipTotal,
-      missionBonusTotal: this.missionBonusTotal,
-      damageDeductionTotal: this.damageDeductionTotal,
-      fuelExpense: this.fuelExpense,
-      repairExpense: this.repairExpense,
-      upgradeExpense: this.upgradeExpense,
-      convenienceExpense: this.convenienceExpense,
-      fineExpense: this.fineExpense,
-      grossIncome,
-      totalExpenses,
-      netProfit: grossIncome - totalExpenses,
       walletBalance: this.totalEarnings,
       lifetimeCompleted: this.lifetimeCompleted,
       riderTier: this.getCurrentTier(),
       riderRating: this.riderRating,
-      pedestrianAccidentCount: this.pedestrianAccidentCount,
-    };
+    });
   }
 
   /**

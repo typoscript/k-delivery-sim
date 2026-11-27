@@ -1,6 +1,7 @@
 import { DeliveryLocation } from '../types';
 import {
   ALTTLE_FLAT_FEE,
+  ActiveMission,
   ALTTLE_TIME_LIMIT_SEC,
   DeliveryOrder,
   DispatchOrderType,
@@ -116,4 +117,51 @@ export function pickOrderNumber(
     }
   }
   return fallback;
+}
+
+/** Cooked-food shops whose kitchens often keep riders waiting (chicken, pizza, burger, bunsik, ...) */
+export const BUSY_KITCHEN_SHOPS: ReadonlySet<string> = new Set([
+  'shop-chicken',
+  'shop-bunsik',
+  'shop-burger',
+  'shop-pizza',
+  'shop-katsu',
+  'shop-mara',
+  'shop-gukbap',
+  'shop-haejang',
+  'shop-jjamppong',
+  'shop-sundae',
+  'shop-burgerking',
+  'shop-lotteria',
+  'shop-pho',
+  'shop-sushi',
+  'shop-mcd',
+]);
+
+/** Chance the food isn't ready at the counter: busy kitchens or several of your orders from the same shop */
+export function kitchenDelayChance(shopId: string, sameShopOrders: number): number {
+  return BUSY_KITCHEN_SHOPS.has(shopId) || sameShopOrders > 1 ? 0.8 : 0.45;
+}
+
+/** A freshly accepted order; ~62% of them get a customer chat event a few seconds after loading */
+export function createActiveMission(order: DeliveryOrder, startedAt: number, rand: () => number = Math.random): ActiveMission {
+  const willChat = rand() < 0.62;
+  return {
+    order,
+    phase: 'to_pickup',
+    foodIntegrity: 100,
+    foodTemp: 100,
+    spillDamageAccum: 0,
+    startedAt,
+    remainingTimeSec: order.timeLimitSec,
+    cookingDurationSec: 0,
+    cookingRemainingSec: 0,
+    cargoSlot: null,
+    pickedUp: false,
+    chatEventTriggered: false,
+    chatTriggerDelaySec: willChat ? 4.5 + rand() * 6.5 : 0,
+    chatLoadedElapsedSec: 0,
+    chatNote: null,
+    promisedExtraTip: 0,
+  };
 }
