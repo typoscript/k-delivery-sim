@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import {
+  SIGNAL_STOP_LINE_OFFSET,
+  edgeDirection,
+  getSignalAxis,
+  laneBlendDecay,
+  signalSpeedCap,
+} from './TrafficRules';
 
 export type SignalColor = 'green' | 'yellow' | 'red';
 export type VehicleDriveState = 'CRUISING' | 'DECELERATING' | 'STOPPED' | 'EMERGENCY_BRAKE';
@@ -53,7 +60,25 @@ interface AiVehicle {
   colorHex: string;
   halfWidth: number;
   halfLength: number;
+  /** Next edge pre-picked on approach so short follow-on edges into a signal can be braked for early */
+  nextEdge: OsmAdjEdge | null;
+  /** Lateral lane-offset jump at the last node, blended out over distance travelled (no teleport at turns) */
+  blendX: number;
+  blendZ: number;
+  /** Cross-traffic deadlock breaker state */
+  stuckTimer: number;
+  blockedBy: number;
+  ignoreIdx: number;
+  ignoreTimer: number;
 }
+
+/** Collision circles (as square AABBs of half-size = halfWidth) placed along the body axis */
+const CAR_SEGMENTS = [-1.19, 0, 1.19];
+const BUS_SEGMENTS = [-3.1, -1.55, 0, 1.55, 3.1];
+const STUCK_YIELD_SEC = 2.0;
+const IGNORE_BLOCKER_SEC = 3.0;
+const PLAYER_COLLISION_PAD = 0.6;
+const SIGNAL_LOOKAHEAD = 32;
 
 const CYCLE_DURATION = 18.0;
 const FRONT_RAY_RANGE = 12.5;
@@ -389,6 +414,13 @@ export class TrafficSystem {
         colorHex: css,
         halfWidth: isBus ? 1.25 : 0.96,
         halfLength: isBus ? 4.35 : 2.15,
+        nextEdge: null,
+        blendX: 0,
+        blendZ: 0,
+        stuckTimer: 0,
+        blockedBy: -1,
+        ignoreIdx: -1,
+        ignoreTimer: 0,
       });
     }
   }
@@ -402,18 +434,64 @@ export class TrafficSystem {
     }));
   }
 
+  /**
+   * Heading-aligned collision approximation: a chain of small squares along each body,
+   * so the scooter can't clip through car noses/tails or bus overhangs and diagonal cars fit their body.
+   */
   public getCarObstacleBoxes(): ObstacleBox[] {
     const boxes: ObstacleBox[] = [];
     for (const v of this.vehicles) {
-      const r = v.isBus ? 2.4 : 1.5;
-      boxes.push({
-        minX: v.x - r,
-        maxX: v.x + r,
-        minZ: v.z - r,
-        maxZ: v.z + r,
-      });
+      const fx = Math.sin(v.heading);
+      const fz = Math.cos(v.heading);
+      const r = v.halfWidth;
+      for (const off of v.isBus ? BUS_SEGMENTS : CAR_SEGMENTS) {
+        const cx = v.x + fx * off;
+        const cz = v.z + fz * off;
+        boxes.push({ minX: cx - r, maxX: cx + r, minZ: cz - r, maxZ: cz + r });
+      }
     }
     return boxes;
+  }
+
+  /** Forward-ray gap to vehicle `o` using its segment chain (Infinity if the ray misses) */
+  private rayGapToVehicle(o: AiVehicle): number {
+    const fx = Math.sin(o.heading);
+    const fz = Math.cos(o.heading);
+    const r = o.halfWidth;
+    let best = Infinity;
+    for (const off of o.isBus ? BUS_SEGMENTS : CAR_SEGMENTS) {
+      const cx = o.x + fx * off;
+      const cz = o.z + fz * off;
+      this.tmpMin.set(cx - r, 0, cz - r);
+      this.tmpMax.set(cx + r, 2.5, cz + r);
+      this.tmpBox.set(this.tmpMin, this.tmpMax);
+      if (this.frontRay.intersectBox(this.tmpBox, this.rayHitPoint)) {
+        const gap = this.frontRay.origin.distanceTo(this.rayHitPoint);
+        if (gap < best) best = gap;
+      }
+    }
+    return best;
+  }
+
+  /** Speed cap from red/yellow signals on the current edge and (looking ahead) the pre-picked next edge */
+  private signalCapFor(v: AiVehicle, distToNode: number, ns: SignalColor, ew: SignalColor): number {
+    const nodes = ACTIVE_MAP_DATA.nodes;
+    let cap = Infinity;
+    if (nodes[v.toNode].isSignal && distToNode - SIGNAL_STOP_LINE_OFFSET < SIGNAL_LOOKAHEAD) {
+      const d = edgeDirection(v.fromNode, v.toNode);
+      const sig = getSignalAxis(v.toNode, d.fx, d.fz) === 'ns' ? ns : ew;
+      cap = Math.min(cap, signalSpeedCap(v.speed, distToNode - SIGNAL_STOP_LINE_OFFSET, sig));
+    }
+    const ne = v.nextEdge;
+    if (ne && nodes[ne.to].isSignal) {
+      const stopDist = distToNode + ne.dist - SIGNAL_STOP_LINE_OFFSET;
+      if (stopDist < SIGNAL_LOOKAHEAD) {
+        const d = edgeDirection(v.toNode, ne.to);
+        const sig = getSignalAxis(ne.to, d.fx, d.fz) === 'ns' ? ns : ew;
+        cap = Math.min(cap, signalSpeedCap(v.speed, stopDist, sig));
+      }
+    }
+    return cap;
   }
 
   private pickNextEdge(v: AiVehicle): OsmAdjEdge {
@@ -499,18 +577,17 @@ export class TrafficSystem {
       const moveX = playerX - this.prevPlayerX;
       const moveZ = playerZ - this.prevPlayerZ;
       if (Math.hypot(moveX, moveZ) > 0.05) {
-        const movingNS = Math.abs(moveZ) >= Math.abs(moveX);
-        const mySig = movingNS ? ns : ew;
-        if (mySig === 'red') {
-          for (const sn of ACTIVE_MAP_DATA.nodes) {
-            if (!sn.isSignal) continue;
-            const prevD = Math.hypot(this.prevPlayerX - sn.x, this.prevPlayerZ - sn.z);
-            const curD = Math.hypot(playerX - sn.x, playerZ - sn.z);
-            if (prevD > 8.0 && curD <= 8.0) {
+        for (const sn of ACTIVE_MAP_DATA.nodes) {
+          if (!sn.isSignal) continue;
+          const prevD = Math.hypot(this.prevPlayerX - sn.x, this.prevPlayerZ - sn.z);
+          const curD = Math.hypot(playerX - sn.x, playerZ - sn.z);
+          if (prevD > 8.0 && curD <= 8.0) {
+            const mySig = getSignalAxis(sn.id, moveX, moveZ) === 'ns' ? ns : ew;
+            if (mySig === 'red') {
               this.violationCooldown = 5.0;
               onRedLightViolation();
-              break;
             }
+            break;
           }
         }
       }
@@ -539,13 +616,29 @@ export class TrafficSystem {
           if (nearbyNodes.length > 0) {
             const pick = nearbyNodes[Math.floor(Math.random() * nearbyNodes.length)];
             const outs = this.adj[pick];
-            if (outs.length > 0) {
-              const ed = outs[Math.floor(Math.random() * outs.length)];
-              v.fromNode = pick;
-              v.toNode = ed.to;
-              v.edgeDist = ed.dist;
-              v.edgeWidth = ed.width;
-              v.progress = 2.0;
+            const usable = v.isBus ? outs.filter((e) => e.isMajor) : outs;
+            if (usable.length > 0) {
+              const ed = usable[Math.floor(Math.random() * usable.length)];
+              const spawn = this.computeVehicleWorldPose(pick, ed.to, 2.0, ed.dist, ed.width);
+              // Don't drop the car on top of another one already occupying that lane
+              const occupied = this.vehicles.some(
+                (o) => o !== v && Math.hypot(o.x - spawn.x, o.z - spawn.z) < o.halfLength + v.halfLength + 2
+              );
+              if (!occupied) {
+                v.fromNode = pick;
+                v.toNode = ed.to;
+                v.edgeDist = ed.dist;
+                v.edgeWidth = ed.width;
+                v.progress = 2.0;
+                v.nextEdge = null;
+                v.blendX = 0;
+                v.blendZ = 0;
+                v.x = spawn.x;
+                v.z = spawn.z;
+                v.heading = spawn.heading;
+                v.stuckTimer = 0;
+                v.ignoreIdx = -1;
+              }
             }
           }
         }
@@ -572,40 +665,42 @@ export class TrafficSystem {
 
         const fx = Math.sin(v.heading);
         const fz = Math.cos(v.heading);
-        const targetNode = nodes[v.toNode];
         const distToNode = Math.max(0, v.edgeDist - v.progress);
 
         let targetSpd = v.cruiseSpeed;
         let emergency = false;
 
-        // Traffic light stop before signalized intersection
-        if (targetNode.isSignal && distToNode <= 18 && distToNode >= 6.5) {
-          const isNS = Math.abs(fz) >= Math.abs(fx);
-          const mySig = isNS ? ns : ew;
-          if (mySig === 'red' || mySig === 'yellow') {
-            targetSpd = distToNode <= 11.5 ? 0 : Math.min(targetSpd, 4.0);
-          }
+        // Pre-pick the next edge on approach so a short follow-on edge into a signal is braked for in time
+        if (!v.nextEdge && distToNode < SIGNAL_LOOKAHEAD) {
+          v.nextEdge = this.pickNextEdge(v);
         }
+
+        // Traffic light: smooth braking profile to the stop line (works on short approach edges too)
+        targetSpd = Math.min(targetSpd, this.signalCapFor(v, distToNode, ns, ew));
 
         // Forward 12m raycast against other AI vehicles & player scooter
         this.frontRay.origin.set(v.x + fx * (v.halfLength + 0.2), 0.7, v.z + fz * (v.halfLength + 0.2));
         this.frontRay.direction.set(fx, 0, fz);
 
+        if (v.ignoreTimer > 0) {
+          v.ignoreTimer = Math.max(0, v.ignoreTimer - clampedDt);
+          if (v.ignoreTimer === 0) v.ignoreIdx = -1;
+        }
+
         let minGap = Infinity;
+        let blocker = -1;
         for (let j = 0; j < this.vehicles.length; j++) {
-          if (i === j) continue;
+          if (i === j || j === v.ignoreIdx) continue;
           const o = this.vehicles[j];
           const dSq = (o.x - v.x) ** 2 + (o.z - v.z) ** 2;
-          if (dSq > 400) continue;
-          const r = o.isBus ? 2.6 : 1.5;
-          this.tmpMin.set(o.x - r, 0, o.z - r);
-          this.tmpMax.set(o.x + r, 2.5, o.z + r);
-          this.tmpBox.set(this.tmpMin, this.tmpMax);
-          if (this.frontRay.intersectBox(this.tmpBox, this.rayHitPoint)) {
-            const gap = this.frontRay.origin.distanceTo(this.rayHitPoint);
-            if (gap < minGap) minGap = gap;
+          if (dSq > 625) continue;
+          const gap = this.rayGapToVehicle(o);
+          if (gap < minGap) {
+            minGap = gap;
+            blocker = j;
           }
         }
+        const aiGap = minGap;
 
         // Check player scooter ahead
         const toPlX = playerX - v.x;
@@ -631,12 +726,36 @@ export class TrafficSystem {
             v.playerCutInActive = false;
           }
 
-          // Direct physical collision with riding player
-          if (isRiding && distPl < v.halfWidth + 0.88 && Math.abs(playerSpeedMps) > 3.2) {
+          // Direct physical collision with riding player (heading-aligned body rectangle)
+          const along = toPlX * fx + toPlZ * fz;
+          const side = toPlX * -fz + toPlZ * fx;
+          if (
+            isRiding &&
+            Math.abs(along) < v.halfLength + PLAYER_COLLISION_PAD &&
+            Math.abs(side) < v.halfWidth + PLAYER_COLLISION_PAD &&
+            Math.abs(playerSpeedMps) > 3.2
+          ) {
             onVehicleCollision(v.x, v.z);
           }
         } else {
           v.playerCutInActive = false;
+        }
+
+        // Cross-traffic deadlock breaker: two cars nosed into each other at an unsignalized junction.
+        // Queues (same direction) never trigger it; the player is never ignored.
+        v.blockedBy = aiGap < SAFE_FOLLOW_GAP ? blocker : -1;
+        if (v.blockedBy >= 0 && v.speed < 0.3 && minGap === aiGap) {
+          const o = this.vehicles[v.blockedBy];
+          const sameDir = fx * Math.sin(o.heading) + fz * Math.cos(o.heading) > 0.85;
+          v.stuckTimer = sameDir ? 0 : v.stuckTimer + clampedDt;
+          // Mutual block -> lower index gets right of way; one-sided block -> go after a wait
+          if (v.stuckTimer > STUCK_YIELD_SEC && (o.blockedBy !== i || i < v.blockedBy)) {
+            v.ignoreIdx = v.blockedBy;
+            v.ignoreTimer = IGNORE_BLOCKER_SEC;
+            v.stuckTimer = 0;
+          }
+        } else {
+          v.stuckTimer = 0;
         }
 
         if (minGap < SAFE_FOLLOW_GAP) {
@@ -656,15 +775,24 @@ export class TrafficSystem {
               ? 'DECELERATING'
               : 'CRUISING';
 
-        v.progress += v.speed * clampedDt;
+        const travelled = v.speed * clampedDt;
+        v.progress += travelled;
+        const decay = laneBlendDecay(travelled);
+        v.blendX *= decay;
+        v.blendZ *= decay;
         if (v.progress >= v.edgeDist) {
-          const nextEdge = this.pickNextEdge(v);
+          const nextEdge = v.nextEdge ?? this.pickNextEdge(v);
+          v.nextEdge = null;
           const carry = v.progress - v.edgeDist;
           v.fromNode = v.toNode;
           v.toNode = nextEdge.to;
           v.edgeDist = nextEdge.dist;
           v.edgeWidth = nextEdge.width;
           v.progress = Math.min(carry, Math.max(0, v.edgeDist - 0.2));
+          // Carry the visible position across the node: the lane-offset jump is blended out while driving
+          const np = this.computeVehicleWorldPose(v.fromNode, v.toNode, v.progress, v.edgeDist, v.edgeWidth);
+          v.blendX = v.x - np.x;
+          v.blendZ = v.z - np.z;
         }
       }
 
@@ -675,8 +803,8 @@ export class TrafficSystem {
         v.edgeDist,
         v.edgeWidth
       );
-      v.x = pose.x;
-      v.z = pose.z;
+      v.x = pose.x + v.blendX;
+      v.z = pose.z + v.blendZ;
       const dHead = wrapAngle(pose.heading - v.heading);
       v.heading = wrapAngle(v.heading + dHead * Math.min(1, clampedDt * 8));
 

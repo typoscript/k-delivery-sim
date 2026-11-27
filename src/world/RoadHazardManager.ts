@@ -10,6 +10,13 @@ import {
   wrapAngle,
 } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import {
+  SIGNAL_STOP_LINE_OFFSET,
+  edgeDirection,
+  getSignalAxis,
+  laneBlendDecay,
+  signalSpeedCap,
+} from './TrafficRules';
 import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, PedestrianRig } from './PedestrianFactory';
 import {
@@ -56,6 +63,8 @@ interface PolicePatrolUnit {
   cruiseSpeed: number;
   sirenTimer: number;
   citeCooldown: number;
+  blendX: number;
+  blendZ: number;
 }
 
 interface ConstructionZoneUnit {
@@ -80,6 +89,8 @@ interface RivalRiderUnit {
   heading: number;
   speed: number;
   cruiseSpeed: number;
+  blendX: number;
+  blendZ: number;
 }
 
 interface SpeedCameraUnit {
@@ -610,6 +621,8 @@ export class RoadHazardManager {
         cruiseSpeed: 9.6,
         sirenTimer: 0,
         citeCooldown: 0,
+        blendX: 0,
+        blendZ: 0,
       });
       this.patrolMarkers.push({
         id,
@@ -810,6 +823,8 @@ export class RoadHazardManager {
         heading: pose.heading,
         speed: cruiseSpeed,
         cruiseSpeed,
+        blendX: 0,
+        blendZ: 0,
       });
       this.rivalRiderMarkers.push({
         id,
@@ -927,10 +942,11 @@ export class RoadHazardManager {
       const distToNode = Math.max(0, p.edgeDist - p.progress);
 
       let mustStop = false;
-      if (targetNode.isSignal && distToNode <= 13 && distToNode >= 6) {
-        const isNS = Math.abs(fz) >= Math.abs(fx);
-        const sig = isNS ? signalState.ns : signalState.ew;
-        if (sig === 'red' || sig === 'yellow') mustStop = true;
+      let signalCap = Infinity;
+      if (targetNode.isSignal) {
+        const d = edgeDirection(p.fromNode, p.toNode);
+        const sig = getSignalAxis(p.toNode, d.fx, d.fz) === 'ns' ? signalState.ns : signalState.ew;
+        signalCap = signalSpeedCap(p.speed, distToNode - SIGNAL_STOP_LINE_OFFSET, sig);
       }
 
       const toRiderX = scooter.x - p.x;
@@ -939,9 +955,14 @@ export class RoadHazardManager {
       const aheadDot = distRider > 0.1 ? (toRiderX * fx + toRiderZ * fz) / distRider : 0;
       if (distRider < 6.8 && aheadDot > 0.72) mustStop = true;
 
-      const targetSpd = mustStop ? 0 : p.cruiseSpeed;
-      p.speed += (targetSpd - p.speed) * Math.min(1, clampedDt * (mustStop ? 8 : 3.5));
-      p.progress += p.speed * clampedDt;
+      const targetSpd = mustStop ? 0 : Math.min(p.cruiseSpeed, signalCap);
+      const braking = targetSpd < p.speed;
+      p.speed += (targetSpd - p.speed) * Math.min(1, clampedDt * (braking ? 8 : 3.5));
+      const pTravel = p.speed * clampedDt;
+      p.progress += pTravel;
+      const pDecay = laneBlendDecay(pTravel);
+      p.blendX *= pDecay;
+      p.blendZ *= pDecay;
 
       if (p.progress >= p.edgeDist) {
         const nextEd = this.pickNextGraphEdge(p.fromNode, p.toNode, true);
@@ -951,11 +972,14 @@ export class RoadHazardManager {
         p.edgeDist = nextEd.dist;
         p.edgeWidth = nextEd.width;
         p.progress = Math.min(carry, Math.max(0, p.edgeDist - 0.2));
+        const np = this.computeEdgePose(p.fromNode, p.toNode, p.progress, p.edgeDist, p.edgeWidth);
+        p.blendX = p.x - np.x;
+        p.blendZ = p.z - np.z;
       }
 
       const pose = this.computeEdgePose(p.fromNode, p.toNode, p.progress, p.edgeDist, p.edgeWidth);
-      p.x = pose.x;
-      p.z = pose.z;
+      p.x = pose.x + p.blendX;
+      p.z = pose.z + p.blendZ;
       p.heading = wrapAngle(p.heading + wrapAngle(pose.heading - p.heading) * Math.min(1, clampedDt * 8));
       p.group.position.set(p.x, 0, p.z);
       p.group.rotation.y = p.heading;
@@ -998,10 +1022,11 @@ export class RoadHazardManager {
       const distToNode = Math.max(0, r.edgeDist - r.progress);
 
       let mustStop = false;
-      if (targetNode.isSignal && distToNode <= 12 && distToNode >= 5.5) {
-        const isNS = Math.abs(fz) >= Math.abs(fx);
-        const sig = isNS ? signalState.ns : signalState.ew;
-        if (sig === 'red' || sig === 'yellow') mustStop = true;
+      let signalCap = Infinity;
+      if (targetNode.isSignal) {
+        const d = edgeDirection(r.fromNode, r.toNode);
+        const sig = getSignalAxis(r.toNode, d.fx, d.fz) === 'ns' ? signalState.ns : signalState.ew;
+        signalCap = signalSpeedCap(r.speed, distToNode - SIGNAL_STOP_LINE_OFFSET, sig);
       }
 
       const toPlX = scooter.x - r.x;
@@ -1010,9 +1035,14 @@ export class RoadHazardManager {
       const aheadDot = distPl > 0.1 ? (toPlX * fx + toPlZ * fz) / distPl : 0;
       if (distPl < 5.2 && aheadDot > 0.72) mustStop = true;
 
-      const targetSpd = mustStop ? 0 : r.cruiseSpeed;
-      r.speed += (targetSpd - r.speed) * Math.min(1, clampedDt * (mustStop ? 9 : 4.2));
-      r.progress += r.speed * clampedDt;
+      const targetSpd = mustStop ? 0 : Math.min(r.cruiseSpeed, signalCap);
+      const rBraking = targetSpd < r.speed;
+      r.speed += (targetSpd - r.speed) * Math.min(1, clampedDt * (rBraking ? 9 : 4.2));
+      const rTravel = r.speed * clampedDt;
+      r.progress += rTravel;
+      const rDecay = laneBlendDecay(rTravel);
+      r.blendX *= rDecay;
+      r.blendZ *= rDecay;
 
       if (r.progress >= r.edgeDist) {
         const nextEd = this.pickNextGraphEdge(r.fromNode, r.toNode, false);
@@ -1022,11 +1052,14 @@ export class RoadHazardManager {
         r.edgeDist = nextEd.dist;
         r.edgeWidth = nextEd.width;
         r.progress = Math.min(carry, Math.max(0, r.edgeDist - 0.2));
+        const np = this.computeEdgePose(r.fromNode, r.toNode, r.progress, r.edgeDist, r.edgeWidth, 0.22);
+        r.blendX = r.x - np.x;
+        r.blendZ = r.z - np.z;
       }
 
       const pose = this.computeEdgePose(r.fromNode, r.toNode, r.progress, r.edgeDist, r.edgeWidth, 0.22);
-      r.x = pose.x;
-      r.z = pose.z;
+      r.x = pose.x + r.blendX;
+      r.z = pose.z + r.blendZ;
       r.heading = wrapAngle(r.heading + wrapAngle(pose.heading - r.heading) * Math.min(1, clampedDt * 9));
       r.group.position.set(r.x, 0, r.z);
       r.group.rotation.y = r.heading;
