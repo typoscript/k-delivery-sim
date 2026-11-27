@@ -88,3 +88,28 @@ describe('PedestrianGraph on the active (unified) map', () => {
     expect(differsFromWorldAxis).toBeGreaterThan(0);
   });
 });
+
+describe('PedestrianGraph road crossings', () => {
+  it('flags every road crossing and only crosses at junctions, dead ends or signals', () => {
+    const deg = new Array<number>(ACTIVE_MAP_DATA.nodes.length).fill(0);
+    for (const e of ACTIVE_MAP_DATA.edges) deg[e.a]++, deg[e.b]++;
+    const crossNodes = ACTIVE_MAP_DATA.nodes.filter((n) => deg[n.id] !== 2 || n.isSignal);
+    let unsignalized = 0;
+    let checked = 0;
+    for (const n of graph.nodes) {
+      for (const e of graph.getEdges(n.id)) {
+        if (e.kind === 'crosswalk') expect(e.crossesRoad).toBe(true);
+        if (!e.crossesRoad || e.to < n.id) continue;
+        if (e.kind === 'sidewalk') unsignalized++;
+        // sample 1 in 7 crossings: its midpoint lies at a crossing-allowed road node (not mid-block)
+        if (checked++ % 7 !== 0) continue;
+        const b = graph.getNode(e.to);
+        const mx = (n.x + b.x) / 2;
+        const mz = (n.z + b.z) / 2;
+        const near = crossNodes.some((c) => Math.hypot(c.x - mx, c.z - mz) < 16);
+        expect(near).toBe(true);
+      }
+    }
+    expect(unsignalized).toBeGreaterThan(100);
+  });
+});

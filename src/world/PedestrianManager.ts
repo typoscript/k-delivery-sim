@@ -4,6 +4,7 @@ import { SignalStateSnapshot } from './TrafficSystem';
 import { PedestrianFactory, setPedestrianDetail, PedestrianRig } from './PedestrianFactory';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { CrosswalkAxis, PedestrianEdge, PedestrianGraph } from './PedestrianGraph';
+import { VehicleBody, isRoadCrossingClear, overlapsBody, pushOutOfBodies } from './vehicleBodies';
 
 export type PedestrianFSMState =
   | 'WALKING'
@@ -58,6 +59,8 @@ export interface PedestrianAgent {
   yieldTimer: number;
   /** After recovering from a startle, ignore the same scooter for a while (prevents startle loops) */
   startleCooldown: number;
+  /** Seconds waited at an unsignalized road crossing for a gap in traffic */
+  crossWaitTimer: number;
 }
 
 const SIDEWALK_Y = 0.16;
@@ -85,6 +88,11 @@ const STARTLE_COOLDOWN_SEC = 4.0; // no re-startle right after recovering (walk-
 const STARTLE_PANIC_RADIUS = 1.6; // ...unless the scooter charges in this close at speed
 const SIDEWALK_YIELD_SEC = 1.6; // wait this long for a blocker ahead, then walk around it
 const DETOUR_SPEED = 1.1; // m/s sideways drift while walking around a blocker
+// Cars: pedestrians never walk into a car body and wait for a gap before crossing a road without a signal
+const PEDESTRIAN_BODY_RADIUS = 0.35;
+const CAR_LOOKAHEAD_M = 0.8; // stop if the next 0.8m of the path is inside a car
+const CAR_CHECK_RANGE_SQ = 12 * 12;
+const CROSS_WAIT_GIVE_UP_SEC = 25; // a road with no gap for this long -> walk on along the sidewalk instead
 
 // Open-world population streaming: keep the crowd around the player on the 6km unified map
 export const PEDESTRIAN_INITIAL_SPAWN_RADIUS = 180; // initial spawns within this radius of the player spawn
@@ -127,6 +135,8 @@ export function evaluatePedestrianSignal(
  * - Immediately pauses tick updates & hides group when player enters underground corridors (y = -500).
  */
 export class PedestrianManager {
+  /** AI vehicle bodies for this tick (pedestrians avoid them) */
+  private cars: readonly VehicleBody[] = [];
   public readonly root = new THREE.Group();
   public readonly graph = new PedestrianGraph();
   public readonly factory = new PedestrianFactory();
@@ -181,6 +191,7 @@ export class PedestrianManager {
         hitCooldown: 0,
         yieldTimer: 0,
         startleCooldown: 0,
+        crossWaitTimer: 0,
       };
       this.placeAgentOnNode(agent, startNodeId);
       this.agents.push(agent);
@@ -194,7 +205,7 @@ export class PedestrianManager {
     const startNode = this.graph.getNode(nodeId);
     const edges = this.graph.getEdges(nodeId);
     // Prefer starting on a sidewalk edge so spawns begin cleanly on raised sidewalks
-    const sidewalkEdges = edges.filter((e) => e.kind === 'sidewalk');
+    const sidewalkEdges = edges.filter((e) => e.kind === 'sidewalk' && !e.crossesRoad);
     const edge =
       sidewalkEdges.length > 0 ? sidewalkEdges[Math.floor(Math.random() * sidewalkEdges.length)] : edges[0];
     const nextNode = this.graph.getNode(edge.to);
@@ -217,6 +228,7 @@ export class PedestrianManager {
     a.reactPhase = 0;
     a.evadeRemaining = 0;
     a.yieldTimer = 0;
+    a.crossWaitTimer = 0;
     a.startleCooldown = 0;
     a.hitCooldown = 0;
     a.rig.root.position.set(a.x, a.y, a.z);
@@ -322,8 +334,10 @@ export class PedestrianManager {
     inCorridor: boolean,
     scooterInfo?: ScooterProximityInfo,
     onPedestrianCollision?: (event: PedestrianCollisionEvent) => void,
-    onPedestrianStartled?: () => void
+    onPedestrianStartled?: () => void,
+    cars: readonly VehicleBody[] = []
   ): void {
+    this.cars = cars;
     if (inCorridor) {
       // Pause AI ticks immediately when inside apartment corridor (y = -500)
       return;
@@ -422,6 +436,7 @@ export class PedestrianManager {
           // Knocked down mid-crosswalk -> keep CROSSING so the signal-aware sprint logic finishes the crossing
           a.fsm = a.resumeFsm;
         }
+        this.pushOutOfCars(a);
         if (isVisible) {
           a.rig.root.position.set(a.x, a.y, a.z);
           a.rig.root.rotation.y = a.heading;
@@ -510,6 +525,7 @@ export class PedestrianManager {
           a.fsm = a.resumeFsm;
           a.startleCooldown = STARTLE_COOLDOWN_SEC;
         }
+        this.pushOutOfCars(a);
 
         if (isVisible) {
           a.rig.root.position.set(a.x, a.y, a.z);
@@ -524,27 +540,43 @@ export class PedestrianManager {
 
       if (a.fsm === 'WAITING_CROSSWALK') {
         desiredSpeed = 0;
-        const axis = a.activeEdge.crossingAxis ?? 'ns';
-        const pedSig = evaluatePedestrianSignal(axis, signal);
 
         // Face across the crosswalk while waiting at the yellow tactile pad
         if (distToTarget > 0.1) {
           a.heading = this.lerpAngle(a.heading, Math.atan2(dx, dz), Math.min(1, clampedDt * 8));
         }
 
-        // Crosswalk light turned solid green -> step off curb and start CROSSING!
-        if (pedSig === 'green') {
-          a.fsm = 'CROSSING';
-          desiredSpeed = a.walkSpeed;
+        if (a.activeEdge.kind === 'crosswalk') {
+          // Crosswalk light turned solid green -> step off curb and start CROSSING (unless a car sits on it)
+          const pedSig = evaluatePedestrianSignal(a.activeEdge.crossingAxis ?? 'ns', signal);
+          if (pedSig === 'green' && !this.carBlocksPath(a.x, a.z, dx / (distToTarget || 1), dz / (distToTarget || 1))) {
+            a.fsm = 'CROSSING';
+            desiredSpeed = a.walkSpeed;
+          }
+        } else {
+          // No signal: look both ways and go only when no car will reach the crossing before we are across
+          a.crossWaitTimer += clampedDt;
+          if (isRoadCrossingClear(a.x, a.z, targetNode.x, targetNode.z, cars, a.walkSpeed)) {
+            a.fsm = 'CROSSING';
+            a.crossWaitTimer = 0;
+            desiredSpeed = a.walkSpeed;
+          } else if (a.crossWaitTimer > CROSS_WAIT_GIVE_UP_SEC) {
+            this.walkOnInstead(a);
+            continue;
+          }
         }
       } else if (a.fsm === 'CROSSING') {
-        const axis = a.activeEdge.crossingAxis ?? 'ns';
-        const pedSig = evaluatePedestrianSignal(axis, signal);
-        // Blinking green (or turning yellow/red while already in road) -> sprint at 1.5x speed!
-        desiredSpeed =
-          pedSig === 'blinking' || pedSig === 'red'
-            ? a.walkSpeed * BLINK_RUN_MULTIPLIER
-            : a.walkSpeed;
+        if (a.activeEdge.kind === 'crosswalk') {
+          const pedSig = evaluatePedestrianSignal(a.activeEdge.crossingAxis ?? 'ns', signal);
+          // Blinking green (or turning yellow/red while already in road) -> sprint at 1.5x speed!
+          desiredSpeed =
+            pedSig === 'blinking' || pedSig === 'red'
+              ? a.walkSpeed * BLINK_RUN_MULTIPLIER
+              : a.walkSpeed;
+        } else {
+          // Unsignalized crossing: brisk walk to get out of the road
+          desiredSpeed = a.walkSpeed * 1.15;
+        }
 
         if (distToTarget < 0.45) {
           // Reached opposite sidewalk tactile pad -> resume WALKING!
@@ -597,6 +629,12 @@ export class PedestrianManager {
         }
       }
 
+      // Never walk into a car body (a car stopped on the crosswalk, a car parked across the path...)
+      if (desiredSpeed > 0 && distToTarget > 0.05 && this.carBlocksPath(a.x, a.z, dx / distToTarget, dz / distToTarget)) {
+        desiredSpeed = 0;
+        a.currentSpeed = 0;
+      }
+
       // Smooth acceleration / deceleration for natural Idle <-> Walk <-> Run transitions
       a.currentSpeed += (desiredSpeed - a.currentSpeed) * Math.min(1, clampedDt * 9);
       if (desiredSpeed === 0 && a.currentSpeed < 0.03) {
@@ -621,6 +659,9 @@ export class PedestrianManager {
           ? ROAD_Y
           : SIDEWALK_Y;
       a.y += (targetY - a.y) * Math.min(1, clampedDt * 12);
+
+      // A car that drove into us (turning onto the crossing, startle sidestep into the road): step out of it
+      this.pushOutOfCars(a);
 
       // Only update 3D transforms & procedural limb animation for visible pedestrians within 80m!
       if (isVisible) {
@@ -652,8 +693,45 @@ export class PedestrianManager {
         a.fsm = 'WAITING_CROSSWALK';
         a.currentSpeed = 0;
       }
+    } else if (nextEdge.crossesRoad) {
+      // Unsignalized road crossing: wait at the curb until there is a gap in traffic
+      a.fsm = 'WAITING_CROSSWALK';
+      a.currentSpeed = 0;
+      a.crossWaitTimer = 0;
     } else {
       a.fsm = 'WALKING';
+    }
+  }
+
+  /** Gave up waiting for a gap: take a sidewalk edge from the curb node instead of crossing */
+  private walkOnInstead(a: PedestrianAgent): void {
+    const edges = this.graph.getEdges(a.fromNodeId).filter((e) => !e.crossesRoad);
+    a.crossWaitTimer = 0;
+    if (edges.length === 0) return;
+    const edge = edges[Math.floor(Math.random() * edges.length)];
+    a.activeEdge = edge;
+    a.prevNodeId = a.fromNodeId;
+    a.toNodeId = edge.to;
+    a.fsm = 'WALKING';
+  }
+
+  /** True if the next CAR_LOOKAHEAD_M of the path from (x, z) along (ux, uz) runs into a car body */
+  private carBlocksPath(x: number, z: number, ux: number, uz: number): boolean {
+    const px = x + ux * CAR_LOOKAHEAD_M;
+    const pz = z + uz * CAR_LOOKAHEAD_M;
+    for (const c of this.cars) {
+      if ((c.x - x) ** 2 + (c.z - z) ** 2 > CAR_CHECK_RANGE_SQ) continue;
+      if (overlapsBody(c, px, pz, PEDESTRIAN_BODY_RADIUS)) return true;
+    }
+    return false;
+  }
+
+  private pushOutOfCars(a: PedestrianAgent): void {
+    if (this.cars.length === 0) return;
+    const out = pushOutOfBodies(a.x, a.z, PEDESTRIAN_BODY_RADIUS, this.cars);
+    if (out) {
+      a.x = out.x;
+      a.z = out.z;
     }
   }
 

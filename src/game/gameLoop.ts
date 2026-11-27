@@ -4,8 +4,9 @@ import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world
 import { PerfMonitor } from './PerfMonitor';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
 import { PedestrianCollisionEvent } from '../world/PedestrianManager';
-import { ScooterInput } from '../vehicle/ScooterPhysics';
-import { OnFootInput } from '../player/PlayerController';
+import { SCOOTER_SPECS, ScooterInput } from '../vehicle/ScooterPhysics';
+import { OnFootInput, PLAYER_RADIUS } from '../player/PlayerController';
+import { pushOutOfBodies } from '../world/vehicleBodies';
 import { validateDeliveryPhotoFrame } from '../camera/PhotoProofValidator';
 import { getInstructionMeta } from '../delivery/DeliveryManager';
 import { getUpgradeEffects } from '../delivery/RiderCareer';
@@ -131,8 +132,23 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
           audio.playAiCarHorn();
           hud.showToast('📢 빵빵! 차량 차선 끼어들기 주의!', 1800);
         },
-        pedestrians.agents
+        pedestrians.agents,
+        isRiding ? null : { x: scooterPhysics.state.x, z: scooterPhysics.state.z }
       );
+      // Cars never end up inside the scooter or the walking player: anything a car moved into is pushed out
+      const carBodies = traffic.getCarBodies();
+      const scooterOut = pushOutOfBodies(scooterPhysics.state.x, scooterPhysics.state.z, SCOOTER_SPECS.radius, carBodies);
+      if (scooterOut) {
+        scooterPhysics.state.x = scooterOut.x;
+        scooterPhysics.state.z = scooterOut.z;
+      }
+      if (playerCtrl.state.mode === 'on_foot') {
+        const footOut = pushOutOfBodies(playerCtrl.state.x, playerCtrl.state.z, PLAYER_RADIUS, carBodies);
+        if (footOut) {
+          playerCtrl.state.x = footOut.x;
+          playerCtrl.state.z = footOut.z;
+        }
+      }
       const handlePedestrianHit = (hitEvent: PedestrianCollisionEvent) => {
         // 1. Immediate scooter slip crash (triggers heavy food damage '-55%' + rider ejection!)
         scooterPhysics.triggerExternalCrash(hitEvent.hitSide, 'pedestrian_hit');
@@ -165,7 +181,8 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
         handlePedestrianHit,
         () => {
           audio.playPedestrianStartle();
-        }
+        },
+        carBodies
       );
 
       perf.lap('pedestrians');

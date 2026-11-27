@@ -154,3 +154,69 @@ describe('PedestrianManager open-world streaming', () => {
     expect(PEDESTRIAN_RECYCLE_DISTANCE).toBeGreaterThan(PEDESTRIAN_INITIAL_SPAWN_RADIUS);
   });
 });
+
+describe('PedestrianManager and cars', () => {
+  const car = (x: number, z: number, heading: number, speed: number) => ({
+    x,
+    z,
+    heading,
+    halfLength: 2.15,
+    halfWidth: 0.96,
+    speed,
+  });
+  const farScooter: ScooterProximityInfo = { x: 1e5, z: 1e5, heading: 0, speedMps: 0, isRiding: false, crashed: false };
+
+  it('stops instead of walking into a car standing across the sidewalk path', () => {
+    const { mgr, a, ux, uz } = setup();
+    // car parked across the path 3m ahead (heading perpendicular to the walking direction)
+    const c = car(a.x + ux * 3, a.z + uz * 3, Math.atan2(-uz, ux), 0);
+    for (let t = 0; t < 8; t += DT) {
+      mgr.update(DT, SIGNAL, 1e5, 1e5, 1e5, 1e5, false, farScooter, undefined, undefined, [c]);
+      const along = (a.x - c.x) * Math.sin(c.heading) + (a.z - c.z) * Math.cos(c.heading);
+      const side = -(a.x - c.x) * Math.cos(c.heading) + (a.z - c.z) * Math.sin(c.heading);
+      const inside = Math.abs(along) < c.halfLength + 0.2 && Math.abs(side) < c.halfWidth + 0.2;
+      expect(inside).toBe(false);
+    }
+  });
+
+  it('waits at an unsignalized crossing for an approaching car, then crosses', () => {
+    const mgr = new PedestrianManager(new THREE.Group());
+    // find an unsignalized crossing edge and put one pedestrian at its curb
+    let from = -1;
+    let edge = null as ReturnType<typeof mgr.graph.getEdges>[number] | null;
+    for (const n of mgr.graph.nodes) {
+      const e = mgr.graph.getEdges(n.id).find((ed) => ed.crossesRoad && ed.kind === 'sidewalk' && ed.distance > 8);
+      if (e) {
+        from = n.id;
+        edge = e;
+        break;
+      }
+    }
+    expect(edge).not.toBeNull();
+    const a = mgr.agents[0];
+    mgr.agents.splice(0, mgr.agents.length, a);
+    const fn = mgr.graph.getNode(from);
+    const tn = mgr.graph.getNode(edge!.to);
+    Object.assign(a, { x: fn.x, z: fn.z, fromNodeId: from, prevNodeId: from, toNodeId: edge!.to, activeEdge: edge! });
+    a.fsm = 'WAITING_CROSSWALK';
+    a.crossWaitTimer = 0;
+    // a car driving along the road toward the crossing midpoint, 30m away at 8 m/s
+    const ux = (tn.x - fn.x) / edge!.distance;
+    const uz = (tn.z - fn.z) / edge!.distance;
+    const mx = (fn.x + tn.x) / 2;
+    const mz = (fn.z + tn.z) / 2;
+    const roadDirX = -uz;
+    const roadDirZ = ux;
+    const c = car(mx - roadDirX * 30, mz - roadDirZ * 30, Math.atan2(roadDirX, roadDirZ), 8);
+    let crossedAt = -1;
+    for (let t = 0; t < 12; t += DT) {
+      c.x += Math.sin(c.heading) * c.speed * DT;
+      c.z += Math.cos(c.heading) * c.speed * DT;
+      mgr.update(DT, SIGNAL, fn.x, fn.z, 1e5, 1e5, false, farScooter, undefined, undefined, [c]);
+      if ((a.fsm as string) === 'CROSSING' && crossedAt < 0) crossedAt = t;
+    }
+    // car reaches the crossing at ~3.75s and clears it ~1s later: the pedestrian must not step out before
+    expect(crossedAt).toBeGreaterThan(4);
+    expect(crossedAt).toBeLessThan(8);
+  });
+});

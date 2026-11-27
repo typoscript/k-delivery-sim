@@ -23,6 +23,11 @@ export interface PedestrianEdge {
    * with car signals at oblique junctions too. On a grid: 'ns' = walking along Z across an EW road.
    */
   crossingAxis?: CrosswalkAxis;
+  /**
+   * Edge runs across a road. Signalized ones are kind 'crosswalk'; unsignalized ones stay kind 'sidewalk'
+   * but pedestrians still wait for a gap in traffic (isRoadCrossingClear) and cross as CROSSING.
+   */
+  crossesRoad?: boolean;
   distance: number;
 }
 
@@ -125,6 +130,14 @@ export class PedestrianGraph {
     const osmNodes = ACTIVE_MAP_DATA.nodes;
     const osmEdges = ACTIVE_MAP_DATA.edges;
 
+    // Pedestrians cross roads only at junctions, dead ends and signals - never at a bend in the middle of a block
+    const roadDegree = new Array<number>(osmNodes.length).fill(0);
+    for (const e of osmEdges) {
+      roadDegree[e.a]++;
+      roadDegree[e.b]++;
+    }
+    const canCrossAt = (id: number) => roadDegree[id] !== 2 || osmNodes[id].isSignal;
+
     // Track sidewalk endpoint nodes created near each OSM junction so sidewalks connect smoothly!
     const junctionSidewalkNodes: number[][] = Array.from({ length: osmNodes.length }, () => []);
 
@@ -169,18 +182,24 @@ export class PedestrianGraph {
       // Crosswalk across road at ends (signalized if junction has traffic signals).
       // Crossing direction is the road normal: walk with the phase of traffic moving parallel to it,
       // i.e. while the cars on this road segment have red.
-      this.addBidirectionalEdge(
-        pairA[0],
-        pairA[1],
-        na.isSignal ? 'crosswalk' : 'sidewalk',
-        na.isSignal ? getSignalAxis(e.a, rx, rz) : undefined
-      );
-      this.addBidirectionalEdge(
-        pairB[0],
-        pairB[1],
-        nb.isSignal ? 'crosswalk' : 'sidewalk',
-        nb.isSignal ? getSignalAxis(e.b, rx, rz) : undefined
-      );
+      if (canCrossAt(e.a)) {
+        this.addBidirectionalEdge(
+          pairA[0],
+          pairA[1],
+          na.isSignal ? 'crosswalk' : 'sidewalk',
+          na.isSignal ? getSignalAxis(e.a, rx, rz) : undefined,
+          true
+        );
+      }
+      if (canCrossAt(e.b)) {
+        this.addBidirectionalEdge(
+          pairB[0],
+          pairB[1],
+          nb.isSignal ? 'crosswalk' : 'sidewalk',
+          nb.isSignal ? getSignalAxis(e.b, rx, rz) : undefined,
+          true
+        );
+      }
     }
 
     // Stitch sidewalk corner nodes belonging to the same OSM intersection within reasonable curb gap
@@ -195,12 +214,16 @@ export class PedestrianGraph {
           if (d >= 1.5 && d <= 22) {
             // Avoid duplicate edges
             if (this.adjacency[a.id].some((ed) => ed.to === b.id)) continue;
-            const crossesRoad = d > 9.0 && isSig;
+            // Corner links longer than 9m span a road (shorter ones wrap around the curb corner)
+            const crossesRoad = d > 9.0;
+            if (crossesRoad && !canCrossAt(j)) continue;
+            const signalized = crossesRoad && isSig;
             this.addBidirectionalEdge(
               a.id,
               b.id,
-              crossesRoad ? 'crosswalk' : 'sidewalk',
-              crossesRoad ? getSignalAxis(j, b.x - a.x, b.z - a.z) : undefined
+              signalized ? 'crosswalk' : 'sidewalk',
+              signalized ? getSignalAxis(j, b.x - a.x, b.z - a.z) : undefined,
+              crossesRoad
             );
           }
         }
@@ -250,14 +273,16 @@ export class PedestrianGraph {
     a: number,
     b: number,
     kind: PedestrianEdgeKind,
-    crossingAxis?: CrosswalkAxis
+    crossingAxis?: CrosswalkAxis,
+    crossesRoad = false
   ): void {
     const na = this.nodes[a];
     const nb = this.nodes[b];
     const dist = Math.hypot(nb.x - na.x, nb.z - na.z);
     if (dist < 0.2) return;
-    this.adjacency[a].push({ to: b, kind, crossingAxis, distance: dist });
-    this.adjacency[b].push({ to: a, kind, crossingAxis, distance: dist });
+    const extra = crossesRoad ? { crossesRoad: true } : {};
+    this.adjacency[a].push({ to: b, kind, crossingAxis, distance: dist, ...extra });
+    this.adjacency[b].push({ to: a, kind, crossingAxis, distance: dist, ...extra });
   }
 
   public getNode(id: number): PedestrianNode {

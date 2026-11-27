@@ -3,6 +3,7 @@ import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { buildInstanced, placeMatrix } from './instancing';
 import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
+import { VehicleBody, gapAheadOfBody, vehicleObstacle } from './vehicleBodies';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import {
   SIGNAL_STOP_LINE_OFFSET,
@@ -73,12 +74,16 @@ interface AiVehicle {
   ignoreTimer: number;
 }
 
-/** Collision circles (as square AABBs of half-size = halfWidth) placed along the body axis */
+/** Squares (half-size = halfWidth) along the body axis that the AI forward ray tests against */
 const CAR_SEGMENTS = [-1.19, 0, 1.19];
 const BUS_SEGMENTS = [-3.1, -1.55, 0, 1.55, 3.1];
 const STUCK_YIELD_SEC = 2.0;
 const IGNORE_BLOCKER_SEC = 3.0;
 const PLAYER_COLLISION_PAD = 0.6;
+/** Sensing radii for things in a car's path: scooter (riding or parked), walking player, pedestrian + margin */
+const PLAYER_RIDING_RADIUS = 0.9;
+const PLAYER_WALK_RADIUS = 0.6;
+const PEDESTRIAN_YIELD_RADIUS = 0.9;
 const SIGNAL_LOOKAHEAD = 32;
 
 const CYCLE_DURATION = 18.0;
@@ -326,23 +331,14 @@ export class TrafficSystem {
     }));
   }
 
-  /**
-   * Heading-aligned collision approximation: a chain of small squares along each body,
-   * so the scooter can't clip through car noses/tails or bus overhangs and diagonal cars fit their body.
-   */
+  /** Exact heading-aligned body rectangles (cars 4.3 x 1.92m, buses 8.7 x 2.5m) for scooter / player collision */
   public getCarObstacleBoxes(): ObstacleBox[] {
-    const boxes: ObstacleBox[] = [];
-    for (const v of this.vehicles) {
-      const fx = Math.sin(v.heading);
-      const fz = Math.cos(v.heading);
-      const r = v.halfWidth;
-      for (const off of v.isBus ? BUS_SEGMENTS : CAR_SEGMENTS) {
-        const cx = v.x + fx * off;
-        const cz = v.z + fz * off;
-        boxes.push({ minX: cx - r, maxX: cx + r, minZ: cz - r, maxZ: cz + r });
-      }
-    }
-    return boxes;
+    return this.vehicles.map((v) => vehicleObstacle(v));
+  }
+
+  /** Live vehicle bodies (position, heading, size, speed) for pedestrians and push-out (do not mutate) */
+  public getCarBodies(): readonly VehicleBody[] {
+    return this.vehicles;
   }
 
   /** Forward-ray gap to vehicle `o` using its segment chain (Infinity if the ray misses) */
@@ -429,7 +425,9 @@ export class TrafficSystem {
     onRedLightViolation: () => void,
     onVehicleCollision: (carX: number, carZ: number) => void,
     onAiCarHorn?: () => void,
-    pedestrians?: ReadonlyArray<{ x: number; z: number; fsm: string }>
+    pedestrians?: ReadonlyArray<{ x: number; z: number; fsm: string; resumeFsm?: string }>,
+    /** Scooter standing on its own (player on foot): cars must stop for it instead of driving through */
+    parkedScooter?: { x: number; z: number } | null
   ): void {
     const clampedDt = Math.min(dt, 0.05);
 
@@ -597,29 +595,24 @@ export class TrafficSystem {
         }
         const aiGap = minGap;
 
-        // Check player scooter ahead
+        // Player (riding or on foot) in our swept lane ahead, incl. right at the front corners
         const toPlX = playerX - v.x;
         const toPlZ = playerZ - v.z;
         const distPl = Math.hypot(toPlX, toPlZ);
-        if (distPl < FRONT_RAY_RANGE + v.halfLength) {
-          const dotAhead = distPl > 0.1 ? (toPlX * fx + toPlZ * fz) / distPl : 0;
-          const lateral = Math.abs(toPlX * -fz + toPlZ * fx);
-          if (dotAhead > 0.72 && lateral < v.halfWidth + 0.95) {
-            const plGap = distPl - v.halfLength - 0.8;
-            if (plGap < minGap) {
-              minGap = plGap;
-              if (plGap < 5.2 && v.speed > 3.0) {
-                emergency = true;
-                if (!v.playerCutInActive && v.hornCooldown <= 0) {
-                  v.playerCutInActive = true;
-                  v.hornCooldown = 5.0;
-                  onAiCarHorn?.();
-                }
+        if (distPl < FRONT_RAY_RANGE + v.halfLength + 2) {
+          const plGap = gapAheadOfBody(v, playerX, playerZ, isRiding ? PLAYER_RIDING_RADIUS : PLAYER_WALK_RADIUS, FRONT_RAY_RANGE);
+          if (plGap < minGap) {
+            minGap = plGap;
+            if (isRiding && plGap < 5.2 && v.speed > 3.0) {
+              emergency = true;
+              if (!v.playerCutInActive && v.hornCooldown <= 0) {
+                v.playerCutInActive = true;
+                v.hornCooldown = 5.0;
+                onAiCarHorn?.();
               }
             }
-          } else {
-            v.playerCutInActive = false;
           }
+          if (plGap === Infinity) v.playerCutInActive = false;
 
           // Direct physical collision with riding player (heading-aligned body rectangle)
           const along = toPlX * fx + toPlZ * fz;
@@ -636,19 +629,23 @@ export class TrafficSystem {
           v.playerCutInActive = false;
         }
 
-        // Yield to pedestrians on the crosswalk (or lying fallen in the road) inside our lane ahead
+        // Parked scooter left on the road: stop behind it like any other obstacle
+        if (parkedScooter) {
+          const scGap = gapAheadOfBody(v, parkedScooter.x, parkedScooter.z, PLAYER_RIDING_RADIUS, FRONT_RAY_RANGE);
+          if (scGap < minGap) minGap = scGap;
+        }
+
+        // Yield to pedestrians crossing the road (or lying fallen / startled in it) inside our lane ahead
         if (pedestrians) {
           for (const pd of pedestrians) {
-            if (pd.fsm !== 'CROSSING' && pd.fsm !== 'FALLEN') continue;
+            const onRoad =
+              pd.fsm === 'CROSSING' || pd.fsm === 'FALLEN' || (pd.fsm === 'STARTLED' && pd.resumeFsm === 'CROSSING');
+            if (!onRoad) continue;
             const px = pd.x - v.x;
             const pz = pd.z - v.z;
             if (px * px + pz * pz > 400) continue;
-            const along = px * fx + pz * fz;
-            const side = px * -fz + pz * fx;
-            if (along > 0 && Math.abs(side) < v.halfWidth + 0.9) {
-              const pedGap = along - v.halfLength - 0.6;
-              if (pedGap < minGap) minGap = pedGap;
-            }
+            const pedGap = gapAheadOfBody(v, pd.x, pd.z, PEDESTRIAN_YIELD_RADIUS, FRONT_RAY_RANGE + 6);
+            if (pedGap < minGap) minGap = pedGap;
           }
         }
 

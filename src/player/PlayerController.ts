@@ -35,7 +35,7 @@ export interface PlayerState {
   tumbleVz: number;
 }
 
-const PLAYER_RADIUS = 0.42;
+export const PLAYER_RADIUS = 0.42;
 const WALK_SPEED = 4.6;
 const SPRINT_SPEED = 8.0;
 const GRAVITY = 22.0;
