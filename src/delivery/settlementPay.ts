@@ -1,4 +1,4 @@
-import { ActiveMission, BASE_FLAT_FEE, OPTIMAL_TEMP_BONUS, VILLA_STAIR_BONUS } from './deliveryTypes';
+import { ActiveMission, BASE_FLAT_FEE, OPTIMAL_TEMP_BONUS, REGULAR_CUSTOMER_TIP, VILLA_STAIR_BONUS } from './deliveryTypes';
 
 /** Itemized pay for one delivered order (all parts already rounded; `earned` is their exact sum) */
 export interface SettlementPay {
@@ -16,6 +16,10 @@ export interface SettlementPay {
   rainBonus: number;
   nightBonus: number;
   peakBonus: number;
+  /** Special order surcharge (an urgent delivery pays it only when delivered in time) */
+  specialBonus: number;
+  /** 단골 고객 tip when the food arrives in good shape */
+  regularCustomerTip: number;
   tierBonus: number;
   earned: number;
 }
@@ -35,12 +39,16 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const villaStairBonus = o.customer.residenceKind === 'walkup_villa' ? VILLA_STAIR_BONUS : 0;
   const promisedTipBonus = m.promisedExtraTip > 0 && m.foodIntegrity >= 85 ? m.promisedExtraTip : 0;
   const peakBonus = o.peakBonus ?? 0;
+  const onTime = m.remainingTimeSec > 0;
+  const specialBonus = o.special === 'urgent' && !onTime ? 0 : (o.specialBonus ?? 0);
+  const regularCustomerTip = o.regularCustomer && m.foodIntegrity >= 80 ? REGULAR_CUSTOMER_TIP : 0;
   const damageDed = Math.max(0, Math.round((o.baseFee * (1 - m.foodIntegrity / 100)) / 100) * 100);
   // SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee; anything above it is the distance surcharge
   const basePart = Math.min(o.baseFee, o.baseFlatFee || BASE_FLAT_FEE);
   const distPart = Math.max(0, o.baseFee - basePart);
   const earned =
-    o.baseFee - damageDed + tip + o.rainBonus + o.nightBonus + peakBonus + tierBonus + tempBonus + villaStairBonus + promisedTipBonus;
+    o.baseFee - damageDed + tip + o.rainBonus + o.nightBonus + peakBonus + specialBonus + regularCustomerTip +
+    tierBonus + tempBonus + villaStairBonus + promisedTipBonus;
   return {
     basePart,
     distPart,
@@ -53,6 +61,8 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
     rainBonus: o.rainBonus,
     nightBonus: o.nightBonus,
     peakBonus,
+    specialBonus,
+    regularCustomerTip,
     tierBonus,
     earned,
   };

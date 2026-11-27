@@ -4457,6 +4457,34 @@ body.phone-3d-hover canvas {
 }
 
 
+.special-order-tag,
+.regular-customer-tag {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 4px;
+}
+
+.special-order-tag.urgent {
+  background: rgba(16, 185, 129, 0.22);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.6);
+}
+
+.special-order-tag.group {
+  background: rgba(245, 158, 11, 0.22);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.6);
+}
+
+.regular-customer-tag {
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.55);
+}
+
 .peak-bonus-tag {
   display: inline-block;
   font-size: 9.5px;

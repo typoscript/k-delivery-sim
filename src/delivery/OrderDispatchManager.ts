@@ -1,5 +1,5 @@
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
-import { buildDeliveryOrder, pickOrderNumber } from './orderFactory';
+import { buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { DeliveryLocation } from '../types';
 import {
   ALTTLE_TIME_LIMIT_SEC,
@@ -9,7 +9,6 @@ import {
   MAX_CONCURRENT_ORDERS,
   NIGHT_SURCHARGE_BONUS,
   RAIN_SURCHARGE_BONUS,
-  SINGLE_TIME_LIMIT_SEC,
 } from './DeliveryManager';
 
 export type DispatchOfferState = 'IDLE' | 'OFFERING' | 'COOLDOWN';
@@ -241,13 +240,15 @@ export class OrderDispatchManager {
           shop,
           customer,
           surcharges: { rainBonus, nightBonus, peakBonus },
+          special: type === 'SINGLE' ? rollSpecialOrder(delivery.isNightMode, delivery.demandPhase.isPeak) : undefined,
+          regularCustomer: delivery.isRegularCustomer(customer.id),
         })
       );
     }
 
     if (orders.length < count) return null;
 
-    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0), 0);
+    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0) + (o.specialBonus ?? 0), 0);
     const totalRainBonus = orders.reduce((acc, o) => acc + o.rainBonus, 0);
     const totalNightBonus = orders.reduce((acc, o) => acc + o.nightBonus, 0);
     const totalPeakBonus = orders.reduce((acc, o) => acc + (o.peakBonus ?? 0), 0);
@@ -272,7 +273,8 @@ export class OrderDispatchManager {
       totalNightBonus,
       totalPeakBonus,
       totalDistanceMeters,
-      timeLimitSec: type === 'SINGLE' ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
+      // Special 한집배달 orders carry their own limit (urgent deliveries are short, group orders long)
+      timeLimitSec: type === 'SINGLE' ? orders[0].timeLimitSec : ALTTLE_TIME_LIMIT_SEC,
       remainingOfferSec: OFFER_DURATION_SEC,
       durationOfferSec: OFFER_DURATION_SEC,
       pulseTick: 1,

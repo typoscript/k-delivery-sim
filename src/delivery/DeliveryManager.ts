@@ -30,6 +30,8 @@ import {
 
 export * from './deliveryTypes';
 import {
+  REGULAR_CUSTOMER_THRESHOLD,
+  SPECIAL_ORDERS,
   ActiveMission,
   CARGO_SLOT_COUNT,
   ClockOutResult,
@@ -49,7 +51,7 @@ import {
   RAIN_SURCHARGE_BONUS,
   SettlementResult,
 } from './deliveryTypes';
-import { OrderSurcharges, buildDeliveryOrder, pickOrderNumber } from './orderFactory';
+import { OrderSurcharges, buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { MissionRoutePlanner } from './missionRoute';
 import { computeSettlementPay } from './settlementPay';
 import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent, stepFoodCondition } from './cargoCare';
@@ -79,6 +81,7 @@ export class DeliveryManager {
   public rainBonusTotal = 0;
   public nightBonusTotal = 0;
   public peakBonusTotal = 0;
+  public specialBonusTotal = 0;
   public tierBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
@@ -218,6 +221,11 @@ export class DeliveryManager {
 
   public getShopPickupCount(shopId: string): number {
     return this.career.shopPickupCounts[shopId] ?? 0;
+  }
+
+  /** 단골 고객: this customer location already received REGULAR_CUSTOMER_THRESHOLD+ of your deliveries */
+  public isRegularCustomer(customerId: string): boolean {
+    return (this.career.customerDeliveryCounts[customerId] ?? 0) >= REGULAR_CUSTOMER_THRESHOLD;
   }
 
   public isRegularShop(shopId: string): boolean {
@@ -361,14 +369,17 @@ export class DeliveryManager {
       const key = `${shop.id}-${customer.id}`;
       if (usedPairs.has(key)) continue;
       usedPairs.add(key);
+      const type = board.length % 2 === 0 ? 'SINGLE' : 'ALTTLE_BUNDLE';
       board.push(
         buildDeliveryOrder({
           id: `ORD-${this.orderSeq++}`,
           orderNumber: pickOrderNumber(usedNumbers, ['A-', 'B-', 'C-'], `D-${10 + (this.orderSeq % 89)}`),
-          type: board.length % 2 === 0 ? 'SINGLE' : 'ALTTLE_BUNDLE',
+          type,
           shop,
           customer,
           surcharges: this.orderSurcharges(),
+          special: type === 'SINGLE' ? rollSpecialOrder(this.isNightMode, this.demandPhase.isPeak) : undefined,
+          regularCustomer: this.isRegularCustomer(customer.id),
         })
       );
     }
@@ -560,7 +571,10 @@ export class DeliveryManager {
     ]);
     const sameShopCount = this.activeMissions.filter((x) => x.order.shop.id === m.order.shop.id).length;
     const delayProb = busyCookShops.has(m.order.shop.id) || sameShopCount > 1 ? 0.8 : 0.45;
-    const hasDelay = forceCookingDelay !== undefined ? forceCookingDelay : Math.random() < delayProb;
+    const special = m.order.special ? SPECIAL_ORDERS[m.order.special] : null;
+    // Group orders always take a while at the counter (a big batch is still being packed)
+    const hasDelay =
+      forceCookingDelay !== undefined ? forceCookingDelay : (special?.extraWaitSec ?? 0) > 0 || Math.random() < delayProb;
 
     // Regular Store Perk: >= 2 previous pickups at this shop grants priority fast-track cooking!
     const prevCount = this.getShopPickupCount(m.order.shop.id);
@@ -573,7 +587,8 @@ export class DeliveryManager {
 
     if (hasDelay) {
       // 5 ~ 10 seconds random, longer while kitchens are slammed in a lunch / dinner rush
-      const rawWaitSec = Math.round((5 + Math.floor(Math.random() * 6)) * this.demandPhase.cookingMul);
+      const rawWaitSec =
+        Math.round((5 + Math.floor(Math.random() * 6)) * this.demandPhase.cookingMul) + (special?.extraWaitSec ?? 0);
       if (isRegularPerk && rawWaitSec <= 6) {
         // Regular store owner prioritized your order -> instant handoff!
         m.phase = 'carrying_to_box';
@@ -713,7 +728,7 @@ export class DeliveryManager {
 
     const prevTier = this.getCurrentTier();
     const pay = computeSettlementPay(m, prevTier.bonusPerDelivery);
-    const { tip, tipPenalty, tempBonus, villaStairBonus, promisedTipBonus, rainBonus, nightBonus, peakBonus, tierBonus, earned } = pay;
+    const { tip, tipPenalty, tempBonus, villaStairBonus, promisedTipBonus, rainBonus, nightBonus, peakBonus, specialBonus, regularCustomerTip, tierBonus, earned } = pay;
 
     // Itemized daily ledger
     this.baseFeeTotal += pay.basePart;
@@ -721,7 +736,11 @@ export class DeliveryManager {
     this.rainBonusTotal += rainBonus;
     this.nightBonusTotal += nightBonus;
     this.peakBonusTotal += peakBonus;
+    this.specialBonusTotal += specialBonus + regularCustomerTip;
     this.tierBonusTotal += tierBonus;
+    // 단골 고객: count completed deliveries per customer location
+    const cid = m.order.customer.id;
+    this.career.customerDeliveryCounts[cid] = (this.career.customerDeliveryCounts[cid] ?? 0) + 1;
     this.tipTotal += tip + tempBonus + villaStairBonus + promisedTipBonus;
     this.damageDeductionTotal += pay.damageDed;
 
@@ -791,6 +810,8 @@ export class DeliveryManager {
       rainBonus,
       nightBonus,
       peakBonus,
+      specialBonus,
+      regularCustomerTip,
       tierBonus,
       tierPromotedTo,
       foodIntegrity: Math.round(m.foodIntegrity),
@@ -992,6 +1013,7 @@ export class DeliveryManager {
       this.rainBonusTotal +
       this.nightBonusTotal +
       this.peakBonusTotal +
+      this.specialBonusTotal +
       this.tierBonusTotal +
       this.tipTotal +
       this.missionBonusTotal;
@@ -1010,6 +1032,7 @@ export class DeliveryManager {
       rainBonusTotal: this.rainBonusTotal,
       nightBonusTotal: this.nightBonusTotal,
       peakBonusTotal: this.peakBonusTotal,
+      specialBonusTotal: this.specialBonusTotal,
       tierBonusTotal: this.tierBonusTotal,
       tipTotal: this.tipTotal,
       missionBonusTotal: this.missionBonusTotal,

@@ -36,6 +36,48 @@ export interface ClockOutResult {
 }
 
 export type DispatchOrderType = 'SINGLE' | 'ALTTLE_BUNDLE';
+
+/** Special orders (한집배달 only): urgent deliveries with a tight time limit and big group orders */
+export type SpecialOrderKind = 'urgent' | 'group';
+
+export interface SpecialOrderSpec {
+  kind: SpecialOrderKind;
+  icon: string;
+  label: string;
+  /** Extra fee; for an urgent delivery it is only paid when delivered within the (short) time limit */
+  bonus: number;
+  timeLimitSec: number;
+  /** Extra kitchen / counter wait at pickup */
+  extraWaitSec: number;
+  /** Turns the shop's own menu into the special order (e.g. "와퍼 세트" -> "와퍼 세트 · 10인분 단체") */
+  menuFormat: (shopMenu: string) => string;
+}
+
+export const SPECIAL_ORDERS: Record<SpecialOrderKind, SpecialOrderSpec> = {
+  urgent: {
+    kind: 'urgent',
+    icon: '⏱️',
+    label: '급한 배달',
+    bonus: 3000,
+    timeLimitSec: 150,
+    extraWaitSec: 0,
+    menuFormat: (m) => `${m} (급해요!)`,
+  },
+  group: {
+    kind: 'group',
+    icon: '🍱',
+    label: '단체 주문',
+    bonus: 2500,
+    timeLimitSec: 420,
+    extraWaitSec: 8,
+    menuFormat: (m) => `${m} · 10인분 단체`,
+  },
+};
+
+/** A customer becomes a regular (단골 고객) after this many completed deliveries */
+export const REGULAR_CUSTOMER_THRESHOLD = 2;
+/** Regular customers tip this much when the food arrives in good shape (integrity >= 80%) */
+export const REGULAR_CUSTOMER_TIP = 800;
 export type DeliveryInstruction = 'PHOTO_DOOR' | 'KNOCK_DOOR' | 'MEET_FACE';
 
 export interface InstructionMeta {
@@ -181,6 +223,8 @@ export interface DailyFinanceLedger {
   rainBonusTotal: number;
   nightBonusTotal: number;
   peakBonusTotal: number;
+  /** Special order surcharges and regular customer tips */
+  specialBonusTotal: number;
   tierBonusTotal: number;
   tipTotal: number;
   missionBonusTotal: number;
@@ -221,6 +265,11 @@ export interface DeliveryOrder {
   nightBonus: number; // +1200 when generated in Night mode!
   /** +₩1,000 when generated during a lunch / dinner rush (GameClock demand phase) */
   peakBonus?: number;
+  /** Special order (urgent delivery / group order) and its surcharge */
+  special?: SpecialOrderKind;
+  specialBonus?: number;
+  /** Customer already received 2+ of your deliveries (단골 고객): tips when the food arrives in good shape */
+  regularCustomer?: boolean;
   distanceMeters: number;
 }
 
@@ -280,6 +329,9 @@ export interface SettlementResult {
   rainBonus: number;
   nightBonus: number;
   peakBonus: number;
+  /** Special order surcharge actually paid (urgent: only if on time) + regular customer tip */
+  specialBonus: number;
+  regularCustomerTip: number;
   tierBonus: number;
   tierPromotedTo: RiderTierSpec | null;
   foodIntegrity: number;

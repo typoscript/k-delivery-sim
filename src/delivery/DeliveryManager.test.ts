@@ -205,4 +205,23 @@ describe('DeliveryManager mission flow', () => {
     dm.cancelMission(m.order.id);
     expect(dm.clockOut()!.awardedAtClockOut).toEqual([]);
   });
+
+  it('a group order always waits at the counter; a customer becomes a regular after 2 deliveries', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    const m = accept(dm);
+    m.order.special = 'group';
+    const pos = dm.completePosPickup(m.order.id)!;
+    expect(pos.status).toBe('cooking');
+    expect(pos.waitSec).toBeGreaterThanOrEqual(8);
+    dm.cancelMission(m.order.id);
+
+    const customer = LOCATIONS.find((l) => l.id === 'r1')!;
+    expect(dm.isRegularCustomer(customer.id)).toBe(false);
+    for (let i = 0; i < 2; i++) {
+      const a = accept(dm);
+      a.order.customer = customer;
+      deliver(dm, a.order.id);
+    }
+    expect(dm.isRegularCustomer(customer.id)).toBe(true);
+  });
 });

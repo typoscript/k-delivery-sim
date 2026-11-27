@@ -6,6 +6,8 @@ import {
   DispatchOrderType,
   SINGLE_FLAT_FEE,
   SINGLE_TIME_LIMIT_SEC,
+  SPECIAL_ORDERS,
+  SpecialOrderKind,
   classifyMenuFood,
   generateKoreanLobbyPin,
   generateRandomInstruction,
@@ -36,12 +38,17 @@ export function buildDeliveryOrder(opts: {
   shop: DeliveryLocation;
   customer: DeliveryLocation;
   surcharges: OrderSurcharges;
+  /** Make it a special order (한집배달 only) */
+  special?: SpecialOrderKind;
+  regularCustomer?: boolean;
   rand?: () => number;
 }): DeliveryOrder {
   const { shop, customer, type } = opts;
   const rand = opts.rand ?? Math.random;
+  const spec = opts.special && type === 'SINGLE' ? SPECIAL_ORDERS[opts.special] : null;
   const menus = shop.menus ?? ['배달 음식 세트'];
-  const menuName = menus[Math.floor(rand() * menus.length)];
+  const shopMenu = menus[Math.floor(rand() * menus.length)];
+  const menuName = spec ? spec.menuFormat(shopMenu) : shopMenu;
   const distanceMeters = Math.round(Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z));
   const isSingle = type === 'SINGLE';
   const baseFlatFee = isSingle ? SINGLE_FLAT_FEE : ALTTLE_FLAT_FEE;
@@ -53,7 +60,7 @@ export function buildDeliveryOrder(opts: {
     dispatchType: type,
     deliveryInstruction: generateRandomInstruction(),
     baseFlatFee,
-    timeLimitSec: isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
+    timeLimitSec: spec ? spec.timeLimitSec : isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
     shop,
     customer,
     unitNumber: generateUnitNumberForLocation(customer),
@@ -67,8 +74,24 @@ export function buildDeliveryOrder(opts: {
     rainBonus: opts.surcharges.rainBonus,
     nightBonus: opts.surcharges.nightBonus,
     peakBonus: opts.surcharges.peakBonus,
+    ...(spec ? { special: spec.kind, specialBonus: spec.bonus } : {}),
+    ...(opts.regularCustomer ? { regularCustomer: true } : {}),
     distanceMeters,
   };
+}
+
+/** Chance that a 한집배달 call is a special order */
+export const SPECIAL_ORDER_CHANCE = 0.14;
+
+/**
+ * Rolls a special order for a 한집배달 call: none most of the time; urgent deliveries mostly at night,
+ * group orders mostly during the lunch / dinner rush.
+ */
+export function rollSpecialOrder(isNight: boolean, isPeak: boolean, rand: () => number = Math.random): SpecialOrderKind | undefined {
+  if (rand() >= SPECIAL_ORDER_CHANCE) return undefined;
+  const urgentWeight = isNight ? 3 : 1;
+  const groupWeight = isPeak ? 3 : 1;
+  return rand() * (urgentWeight + groupWeight) < urgentWeight ? 'urgent' : 'group';
 }
 
 /** Random order number like "B-07" not already in use (adds it to `used`), or `fallback` after 25 tries */

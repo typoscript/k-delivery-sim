@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeliveryOrder, pickOrderNumber, singleDistanceBonus } from './orderFactory';
+import { buildDeliveryOrder, pickOrderNumber, rollSpecialOrder, singleDistanceBonus } from './orderFactory';
 import { computeSettlementPay } from './settlementPay';
 import { applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent } from './cargoCare';
-import { ActiveMission, ALTTLE_FLAT_FEE, SINGLE_FLAT_FEE, VILLA_STAIR_BONUS } from './deliveryTypes';
+import { ActiveMission, ALTTLE_FLAT_FEE, REGULAR_CUSTOMER_TIP, SINGLE_FLAT_FEE, SPECIAL_ORDERS, VILLA_STAIR_BONUS } from './deliveryTypes';
 import { DeliveryLocation } from '../types';
 
 const shop: DeliveryLocation = { id: 's', name: '가게', x: 0, z: 0, type: 'shop', emoji: '🍗', menus: ['후라이드 치킨'] };
@@ -85,5 +85,42 @@ describe('cargo care', () => {
       if (ev.kind === 'fix_unit_number') expect(m.order.unitNumber).not.toBe(before.unitNumber);
       if (ev.kind === 'extra_tip_careful') expect(m.promisedExtraTip).toBe(1000);
     }
+  });
+});
+
+describe('special orders and regular customers', () => {
+  it('rolls specials only sometimes, urgent mostly at night and group orders mostly at rush hour', () => {
+    let n = 0;
+    const seq = () => ((n = (n * 9301 + 49297) % 233280) / 233280);
+    const count = (isNight: boolean, isPeak: boolean) => {
+      const c = { none: 0, urgent: 0, group: 0 };
+      for (let i = 0; i < 20000; i++) c[rollSpecialOrder(isNight, isPeak, seq) ?? 'none']++;
+      return c;
+    };
+    const day = count(false, false);
+    expect(day.none / 20000).toBeGreaterThan(0.8);
+    const night = count(true, false);
+    expect(night.urgent).toBeGreaterThan(night.group * 2);
+    const rush = count(false, true);
+    expect(rush.group).toBeGreaterThan(rush.urgent * 2);
+  });
+
+  it('an urgent delivery has a short limit and pays its surcharge only when on time', () => {
+    const order = buildDeliveryOrder({ id: 'p', orderNumber: 'A-02', type: 'SINGLE', shop, customer: home, surcharges, special: 'urgent' });
+    expect(order.timeLimitSec).toBe(SPECIAL_ORDERS.urgent.timeLimitSec);
+    expect(order.menuName).toBe('후라이드 치킨 (급해요!)');
+    const onTime = computeSettlementPay(mission({ order, remainingTimeSec: 20 }), 0);
+    const late = computeSettlementPay(mission({ order, remainingTimeSec: 0 }), 0);
+    expect(onTime.specialBonus).toBe(SPECIAL_ORDERS.urgent.bonus);
+    expect(late.specialBonus).toBe(0);
+    expect(onTime.earned - late.earned).toBe(SPECIAL_ORDERS.urgent.bonus);
+  });
+
+  it('special orders are 한집배달 only; regular customers tip when the food is in good shape', () => {
+    const bundle = buildDeliveryOrder({ id: 'b', orderNumber: 'B-02', type: 'ALTTLE_BUNDLE', shop, customer: home, surcharges, special: 'group' });
+    expect(bundle.special).toBeUndefined();
+    const order = buildDeliveryOrder({ id: 'r', orderNumber: 'A-03', type: 'SINGLE', shop, customer: home, surcharges, regularCustomer: true });
+    expect(computeSettlementPay(mission({ order }), 0).regularCustomerTip).toBe(REGULAR_CUSTOMER_TIP);
+    expect(computeSettlementPay(mission({ order, foodIntegrity: 60 }), 0).regularCustomerTip).toBe(0);
   });
 });

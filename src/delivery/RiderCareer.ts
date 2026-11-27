@@ -83,6 +83,8 @@ export interface RiderCareerSave {
   upgrades: UpgradeId[];
   reviews: CustomerReview[];
   shopPickupCounts: Record<string, number>;
+  /** Completed deliveries per customer location (단골 고객 after REGULAR_CUSTOMER_THRESHOLD) */
+  customerDeliveryCounts: Record<string, number>;
   shopNames: Record<string, string>;
   /** Current working day on the game clock (day, time, ledger, goals) so a reload resumes the same shift */
   shift?: ShiftSave;
@@ -330,6 +332,7 @@ export function loadRiderCareer(): RiderCareerSave {
     upgrades: [],
     reviews: [],
     shopPickupCounts: {},
+    customerDeliveryCounts: {},
     shopNames: {},
   };
   try {
@@ -371,14 +374,17 @@ export function loadRiderCareer(): RiderCareerSave {
             tags: Array.isArray(r.tags) ? r.tags.filter((t): t is string => typeof t === 'string') : [],
           }))
       : [];
-    const shopPickupCounts: Record<string, number> = {};
-    if (parsed.shopPickupCounts && typeof parsed.shopPickupCounts === 'object') {
-      for (const [k, v] of Object.entries(parsed.shopPickupCounts)) {
-        if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
-          shopPickupCounts[k] = Math.floor(v);
+    const positiveCounts = (raw: unknown): Record<string, number> => {
+      const out: Record<string, number> = {};
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === 'number' && Number.isFinite(v) && v > 0) out[k] = Math.floor(v);
         }
       }
-    }
+      return out;
+    };
+    const shopPickupCounts = positiveCounts(parsed.shopPickupCounts);
+    const customerDeliveryCounts = positiveCounts(parsed.customerDeliveryCounts);
     const shopNames: Record<string, string> = {};
     if (parsed.shopNames && typeof parsed.shopNames === 'object') {
       for (const [k, v] of Object.entries(parsed.shopNames)) {
@@ -395,6 +401,7 @@ export function loadRiderCareer(): RiderCareerSave {
       upgrades,
       reviews,
       shopPickupCounts,
+      customerDeliveryCounts,
       shopNames,
       shift,
     };
