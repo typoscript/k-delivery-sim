@@ -1,4 +1,54 @@
 import { ScooterState } from '../vehicle/ScooterPhysics';
+import { NoiseSpec, Sfx, ToneSpec, synthNoise, synthTone } from './soundSynth';
+import {
+  playAiCarHorn,
+  playCameraApproachBeep,
+  playCameraShutter,
+  playCrashSound,
+  playLiquidSlosh,
+  playLowBatteryBeep,
+  playLowFuelWarningBeep,
+  playMountSound,
+  playPedestrianAccidentAlert,
+  playPedestrianStartle,
+  playPhoneMountClick,
+  playPhoneScreenTap,
+  playPoliceSiren,
+  playSpeedBumpThud,
+  playSpeedCameraFlash,
+  playThunderRumble,
+  playVisorWipeSound,
+  playWirelessChargeStart,
+} from './sfx/rideSounds';
+import {
+  playCargoBoxSound,
+  playConvenienceChime,
+  playCustomerChatPing,
+  playDispatchCallAlert,
+  playDispatchExpiredSound,
+  playDoorKnockSound,
+  playElevatorDing,
+  playElevatorDoorSlide,
+  playElevatorFloorTick,
+  playFoodReadyDingDong,
+  playFuelPumpTick,
+  playIntercomBellAndVoice,
+  playKeypadBeep,
+  playPaymentCompleteSound,
+  playRepairSound,
+  playSpecialOrderAlert,
+  playStairFootstep,
+  playUrgentTick,
+} from './sfx/deliverySounds';
+import {
+  playChime,
+  playGoalSparkle,
+  playMissionBonusFanfare,
+  playPeakEndChime,
+  playPeakRushJingle,
+  playShiftEndCadence,
+} from './sfx/jingles';
+
 
 export class GameAudio {
   private ctx: AudioContext | null = null;
@@ -22,6 +72,14 @@ export class GameAudio {
 
   public muted = false;
   public masterVolume = 0.8;
+  /** Effect modules (sfx/*) play through these */
+  private readonly sfx: Sfx = {
+    tone: (o) => this.tone(o),
+    noise: (o) => this.noise(o),
+    notes: (notes, type, spacing, peak, length) => this.playNotes(notes, type, spacing, peak, length),
+    ready: () => this.ready(),
+  };
+
   private started = false;
   private lastBlinkPhase = false;
   private lastLowFuelBeepTime = -10;
@@ -158,59 +216,14 @@ export class GameAudio {
     return this.started && !!this.ctx && !!this.masterGain && !this.muted;
   }
 
-  /**
-   * One synthesized note: oscillator (optional frequency sweep) -> optional filter -> gain envelope -> master.
-   * Envelope: start at `peak` (or ramp up from silence over `attack`), optional `hold` step, then an
-   * exponential decay to silence at `decay`; the oscillator stops at `stop`. Times are seconds after `at`.
-   */
+  /** One synthesized note into the master output (see soundSynth.synthTone) */
   private tone(o: ToneSpec): void {
-    if (!this.ready()) return;
-    const ctx = this.ctx!;
-    const t = ctx.currentTime + (o.at ?? 0);
-    const osc = ctx.createOscillator();
-    osc.type = o.type;
-    applyFreq(osc.frequency, o.freq, o.sweep, t);
-    const g = ctx.createGain();
-    envelope(g.gain, t, o);
-    const filter = o.filter ? makeFilter(ctx, o.filter, t) : null;
-    if (filter) {
-      osc.connect(filter);
-      filter.connect(g);
-    } else {
-      osc.connect(g);
-    }
-    g.connect(this.masterGain!);
-    osc.start(t);
-    osc.stop(t + o.stop);
+    if (this.ready()) synthTone(this.ctx!, this.masterGain!, o);
   }
 
-  /**
-   * One noise burst: white noise shaped by `env(x)` (x = 0..1 over the buffer) -> optional filter -> gain.
-   * Without `decay` the gain stays at `peak`.
-   */
+  /** One noise burst into the master output (see soundSynth.synthNoise) */
   private noise(o: NoiseSpec): void {
-    if (!this.ready()) return;
-    const ctx = this.ctx!;
-    const t = ctx.currentTime;
-    const len = Math.floor(ctx.sampleRate * o.duration);
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * o.env(i / len);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const g = ctx.createGain();
-    if (o.decay === undefined) g.gain.value = o.peak;
-    else envelope(g.gain, t, { peak: o.peak, attack: o.attack, decay: o.decay });
-    const filter = o.filter ? makeFilter(ctx, o.filter, t) : null;
-    if (filter) {
-      src.connect(filter);
-      filter.connect(g);
-    } else {
-      src.connect(g);
-    }
-    g.connect(this.masterGain!);
-    src.start(t);
-    if (o.stop !== undefined) src.stop(t + o.stop);
+    if (this.ready()) synthNoise(this.ctx!, this.masterGain!, o);
   }
 
   public setHorn(active: boolean): void {
@@ -219,48 +232,35 @@ export class GameAudio {
   }
 
   public playMountSound(mounting: boolean): void {
-    this.tone({ type: 'triangle', freq: mounting ? 140 : 200, sweep: [[0.14, mounting ? 240 : 95]], peak: 0.22, decay: 0.16, stop: 0.17 });
+    playMountSound(this.sfx, mounting);
   }
 
   public playCrashSound(): void {
-    // Low impact thud + asphalt scrape noise burst
-    this.tone({ type: 'sine', freq: 135, sweep: [[0.28, 34]], peak: 0.65, decay: 0.3, stop: 0.32 });
-    this.noise({ duration: 0.55, env: (x) => Math.pow(1 - x, 1.4), filter: { type: 'bandpass', freq: 1100 }, peak: 0.45, decay: 0.54 });
+    playCrashSound(this.sfx);
   }
 
   public playPhoneMountClick(mounting: boolean): void {
-    this.tone({
-      type: 'triangle',
-      freq: mounting ? 520 : 840,
-      sweep: [[mounting ? 0.045 : 0.055, mounting ? 1120 : 360]],
-      peak: 0.24,
-      decay: 0.065,
-      stop: 0.07,
-    });
+    playPhoneMountClick(this.sfx, mounting);
   }
 
   public playKeypadBeep(ok: boolean): void {
-    this.tone({ type: ok ? 'sine' : 'sawtooth', freq: ok ? 920 : 210, peak: 0.16, decay: ok ? 0.07 : 0.22, stop: ok ? 0.08 : 0.24 });
+    playKeypadBeep(this.sfx, ok);
   }
 
   public playCargoBoxSound(): void {
-    this.tone({ type: 'triangle', freq: 220, sweep: [[0.16, 110]], peak: 0.28, decay: 0.18, stop: 0.19 });
+    playCargoBoxSound(this.sfx);
   }
 
   public playElevatorDing(): void {
-    [880, 1174.66].forEach((freq, i) => this.tone({ type: 'sine', freq, at: i * 0.18, peak: 0.22, decay: 0.55, stop: 0.58 }));
+    playElevatorDing(this.sfx);
   }
 
   public playCameraShutter(): void {
-    this.noise({ duration: 0.09, env: (x) => Math.pow(1 - x, 2), filter: { type: 'highpass', freq: 1800 }, peak: 0.42, decay: 0.085 });
+    playCameraShutter(this.sfx);
   }
 
   public playChime(kind: 'accept' | 'pickup' | 'complete'): void {
-    const notes =
-      kind === 'complete' ? [523.25, 659.25, 783.99, 1046.5] : kind === 'pickup' ? [440, 587.33, 659.25] : [523.25, 659.25];
-    notes.forEach((freq, idx) =>
-      this.tone({ type: 'sine', freq, at: idx * 0.085, attack: 0.015, peak: 0.22, decay: 0.24, stop: 0.26 })
-    );
+    playChime(this.sfx, kind);
   }
 
   private playBlinkerClick(isOnPhase: boolean): void {
@@ -281,116 +281,42 @@ export class GameAudio {
 
   /** Dual-tone realistic car klaxon honk when player cuts in front of an AI sedan/taxi */
   public playAiCarHorn(): void {
-    // Classic Korean sedan dual-horn harmony (F4 ~349Hz + A4 ~440Hz, crisp short warning blast)
-    [349.23, 440.0].forEach((freq) =>
-      this.tone({
-        type: 'sawtooth',
-        freq,
-        filter: { type: 'bandpass', freq: 920, Q: 1.6 },
-        attack: 0.02,
-        peak: 0.24,
-        hold: [0.28, 0.22],
-        decay: 0.36,
-        stop: 0.38,
-      })
-    );
+    playAiCarHorn(this.sfx);
   }
 
   /** Korean GPS navi 80m speed-camera zone chime ("딩동!" entry, or rapid "삐-삐!" when speeding >50km/h) */
   public playCameraApproachBeep(overSpeed: boolean): void {
-    if (overSpeed) {
-      // Urgent T-map style overspeed double-beep ("삐! 삐!")
-      [0, 0.12].forEach((at) =>
-        this.tone({ type: 'square', freq: 1480, at, filter: { type: 'lowpass', freq: 2400 }, attack: 0.008, peak: 0.14, decay: 0.085, stop: 0.095 })
-      );
-    } else {
-      // Friendly 80m camera-ahead notice chime ("딩~동!")
-      [880, 1174.66].forEach((freq, idx) =>
-        this.tone({ type: 'sine', freq, at: idx * 0.12, attack: 0.012, peak: 0.2, decay: 0.22, stop: 0.24 })
-      );
-    }
+    playCameraApproachBeep(this.sfx, overSpeed);
   }
 
   /** Korean police patrol car wail siren ("우~웅 우~웅!") on live patrol enforcement */
   public playPoliceSiren(): void {
-    // 2 classic rising/falling siren sweeps (~1.45s)
-    this.tone({
-      type: 'sawtooth',
-      freq: 620,
-      sweep: [
-        [0.36, 1260, 'lin'],
-        [0.72, 640, 'lin'],
-        [1.08, 1280, 'lin'],
-        [1.44, 600, 'lin'],
-      ],
-      filter: { type: 'bandpass', freq: 1100, Q: 1.8 },
-      attack: 0.06,
-      peak: 0.2,
-      hold: [1.25, 0.18],
-      decay: 1.48,
-      stop: 1.5,
-    });
+    playPoliceSiren(this.sfx);
   }
 
   /** Sharp roadside speed/red-light enforcement camera strobe click + penalty warning beep */
   public playSpeedCameraFlash(): void {
-    if (!this.ready()) return;
-    // 1. Crisp camera shutter snap, 2. two-tone Korean enforcement alert chime (high-low)
-    this.playCameraShutter();
-    [1046.5, 783.99].forEach((freq, i) =>
-      this.tone({ type: 'square', freq, at: 0.08 + i * 0.15, filter: { type: 'lowpass', freq: 2100 }, attack: 0.01, peak: 0.16, decay: 0.14, stop: 0.16 })
-    );
+    playSpeedCameraFlash(this.sfx);
   }
 
   /** Subtle tactile capacitive glass tap click when touching the smartphone screen */
   public playPhoneScreenTap(): void {
-    this.tone({ type: 'sine', freq: 1150, sweep: [[0.026, 380]], attack: 0.004, peak: 0.14, decay: 0.03, stop: 0.034 });
+    playPhoneScreenTap(this.sfx);
   }
 
   /** Short startled pedestrian gasp when scooter passes within 3.5m on the sidewalk */
   public playPedestrianStartle(): void {
-    this.tone({
-      type: 'triangle',
-      freq: 340,
-      sweep: [
-        [0.08, 590],
-        [0.19, 420],
-      ],
-      filter: { type: 'bandpass', freq: 950, Q: 2.0 },
-      attack: 0.02,
-      peak: 0.24,
-      decay: 0.21,
-      stop: 0.23,
-    });
+    playPedestrianStartle(this.sfx);
   }
 
   /** Urgent emergency alert chime for pedestrian contact accident */
   public playPedestrianAccidentAlert(): void {
-    const tones = [
-      { t: 0, f: 880, dur: 0.16 },
-      { t: 0.17, f: 622.25, dur: 0.18 },
-      { t: 0.36, f: 880, dur: 0.16 },
-      { t: 0.53, f: 523.25, dur: 0.32 },
-    ];
-    for (const n of tones) {
-      this.tone({ type: 'sawtooth', freq: n.f, at: n.t, filter: { type: 'lowpass', freq: 1800 }, attack: 0.015, peak: 0.26, decay: n.dur, stop: n.dur + 0.02 });
-    }
+    playPedestrianAccidentAlert(this.sfx);
   }
 
   /** Celebratory fanfare chime for completing the Daily Delivery Mission (+₩5,000 bonus!) */
   public playMissionBonusFanfare(): void {
-    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98];
-    notes.forEach((freq, idx) =>
-      this.tone({
-        type: idx >= 4 ? 'triangle' : 'sine',
-        freq,
-        at: idx * 0.08,
-        attack: 0.014,
-        peak: 0.26,
-        decay: idx === notes.length - 1 ? 0.55 : 0.22,
-        stop: 0.58,
-      })
-    );
+    playMissionBonusFanfare(this.sfx);
   }
 
   /** Short melodic phrase: notes (Hz) played one after another */
@@ -402,273 +328,132 @@ export class GameAudio {
 
   /** Lunch / dinner rush begins: bright rising "rush hour" jingle */
   public playPeakRushJingle(): void {
-    this.playNotes([392, 523.25, 659.25, 783.99, 1046.5, 1318.5], 'triangle', 0.075, 0.2, 0.28);
+    playPeakRushJingle(this.sfx);
   }
 
   /** Rush hour over: gentle falling two-note sign-off */
   public playPeakEndChime(): void {
-    this.playNotes([659.25, 523.25], 'sine', 0.16, 0.14, 0.4);
+    playPeakEndChime(this.sfx);
   }
 
   /** Rain starts: distant low thunder roll (filtered noise) */
   public playThunderRumble(): void {
-    // Two rolling swells
-    this.noise({
-      duration: 2.6,
-      env: (t) => Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.6)), 2) * (1 - t) + 0.5 * Math.pow(Math.sin(Math.PI * t), 4),
-      filter: { type: 'lowpass', freq: 180 },
-      peak: 0.9,
-    });
+    playThunderRumble(this.sfx);
   }
 
   /** Special order call (urgent / group): distinct double alert before the normal call alert */
   public playSpecialOrderAlert(kind: 'urgent' | 'group'): void {
-    if (kind === 'urgent') this.playNotes([1318.5, 987.77, 1318.5, 987.77], 'square', 0.09, 0.08, 0.08);
-    else this.playNotes([523.25, 659.25, 783.99, 659.25, 783.99], 'triangle', 0.07, 0.16, 0.18);
+    playSpecialOrderAlert(this.sfx, kind);
   }
 
   /** Urgent delivery running out (last 30s): short clock tick */
   public playUrgentTick(final: boolean): void {
-    this.playNotes([final ? 1760 : 1320], 'square', 0, final ? 0.1 : 0.06, 0.05);
+    playUrgentTick(this.sfx, final);
   }
 
   /** Daily goal reached (sparkle on top of the mission fanfare) */
   public playGoalSparkle(): void {
-    this.playNotes([1567.98, 2093, 2637, 3135.96], 'sine', 0.05, 0.08, 0.22);
+    playGoalSparkle(this.sfx);
   }
 
   /** Clock-out: warm closing cadence for the end of the working day */
   public playShiftEndCadence(): void {
-    this.playNotes([523.25, 659.25, 783.99, 659.25, 523.25, 392, 523.25], 'triangle', 0.13, 0.17, 0.42);
+    playShiftEndCadence(this.sfx);
   }
 
   /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
   public playFoodReadyDingDong(): void {
-    const tones = [
-      { t: 0, f: 783.99, dur: 0.24 }, // G5
-      { t: 0.16, f: 659.25, dur: 0.28 }, // E5
-      { t: 0.36, f: 1046.5, dur: 0.45 }, // C6 bright finish
-    ];
-    for (const n of tones) {
-      this.tone({ type: 'sine', freq: n.f, at: n.t, attack: 0.012, peak: 0.28, decay: n.dur, stop: n.dur + 0.02 });
-    }
+    playFoodReadyDingDong(this.sfx);
   }
 
   /** Realistic hollow wooden apartment door knock sound ("똑! 똑! 똑!") */
   public playDoorKnockSound(): void {
-    [0, 0.22, 0.44].forEach((at) =>
-      this.tone({ type: 'triangle', freq: 190, at, sweep: [[0.075, 72]], peak: 0.42, decay: 0.085, stop: 0.09 })
-    );
+    playDoorKnockSound(this.sfx);
   }
 
   /** Apartment intercom doorbell ("딩동~") + synthesized friendly dialogue cadence ("누구세요? 배달이요!") */
   public playIntercomBellAndVoice(): void {
-    // 1. Classic Korean apartment "딩~ 동~" chime (E5 -> C5)
-    [659.25, 523.25].forEach((freq, i) =>
-      this.tone({ type: 'sine', freq, at: i * 0.28, attack: 0.015, peak: 0.28, decay: 0.46, stop: 0.48 })
-    );
-    // 2. Intercom speaker cadence: "누-구-세-요?" rising, then "배-달-이-요!" slightly lower rider voice contour
-    const syllables: Array<{ t: number; f: number; dur: number }> = [
-      { t: 0.65, f: 290, dur: 0.08 },
-      { t: 0.75, f: 310, dur: 0.08 },
-      { t: 0.85, f: 340, dur: 0.09 },
-      { t: 0.96, f: 390, dur: 0.12 },
-      { t: 1.22, f: 210, dur: 0.08 },
-      { t: 1.32, f: 230, dur: 0.08 },
-      { t: 1.42, f: 245, dur: 0.08 },
-      { t: 1.52, f: 265, dur: 0.11 },
-    ];
-    for (const sy of syllables) {
-      this.tone({
-        type: 'sawtooth',
-        freq: sy.f,
-        sweep: [], // pitch set at the syllable start (as before), no glide
-        at: sy.t,
-        filter: { type: 'bandpass', freq: 1100, Q: 3.2 },
-        attack: 0.015,
-        peak: 0.11,
-        decay: sy.dur,
-        stop: sy.dur + 0.02,
-      });
-    }
+    playIntercomBellAndVoice(this.sfx);
   }
 
   /** Baemin Connect style crisp double-arpeggio dispatch notification + haptic vibrate pulse */
   public playDispatchCallAlert(): void {
-    // Signature bright "띠리링~ 띠리링~" ascending electronic chime (E6 - G#6 - B6 - E7), twice,
-    // over a low haptic smartphone vibration hum on the handlebar mount
-    const melody = [1318.5, 1661.2, 1975.5, 2637.0];
-    for (let rep = 0; rep < 2; rep++) {
-      const baseT = rep * 0.34;
-      melody.forEach((freq, idx) =>
-        this.tone({
-          type: idx === melody.length - 1 ? 'triangle' : 'sine',
-          freq,
-          at: baseT + idx * 0.062,
-          attack: 0.01,
-          peak: 0.24,
-          decay: 0.16,
-          stop: 0.18,
-        })
-      );
-      this.tone({ type: 'sawtooth', freq: 92, at: baseT, filter: { type: 'lowpass', freq: 180 }, peak: 0.14, decay: 0.2, stop: 0.22 });
-    }
+    playDispatchCallAlert(this.sfx);
   }
 
   /** Soft descending two-tone sound when a 20s call offer expires or is declined */
   public playDispatchExpiredSound(): void {
-    [440, 311.13].forEach((freq, i) => this.tone({ type: 'sine', freq, at: i * 0.12, peak: 0.16, decay: 0.14, stop: 0.16 }));
+    playDispatchExpiredSound(this.sfx);
   }
 
   /** Synthesizes low-fuel dashboard warning double-beep */
   public playLowFuelWarningBeep(): void {
-    [1318.5, 987.77].forEach((freq, i) =>
-      this.tone({ type: 'sine', freq, at: i * 0.13, attack: 0.012, peak: 0.18, decay: 0.1, stop: 0.11 })
-    );
+    playLowFuelWarningBeep(this.sfx);
   }
 
   /** Soft rhythmic pump click while refueling */
   public playFuelPumpTick(): void {
-    this.tone({ type: 'triangle', freq: 340, sweep: [[0.04, 520]], peak: 0.12, decay: 0.05, stop: 0.055 });
+    playFuelPumpTick(this.sfx);
   }
 
   /** Korean self-service POS / card terminal payment complete chime ("결제가 완료되었습니다" tone) */
   public playPaymentCompleteSound(): void {
-    [1046.5, 1318.5, 1567.98, 2093.0].forEach((freq, idx) =>
-      this.tone({ type: 'triangle', freq, at: idx * 0.075, attack: 0.01, peak: 0.24, decay: 0.22, stop: 0.24 })
-    );
+    playPaymentCompleteSound(this.sfx);
   }
 
   /** Mechanic air-wrench whir & confirmation chime for scooter repair */
   public playRepairSound(): void {
-    for (let i = 0; i < 3; i++) {
-      this.tone({ type: 'sawtooth', freq: 220, at: i * 0.14, sweep: [[0.09, 640]], peak: 0.18, decay: 0.11, stop: 0.12 });
-    }
+    playRepairSound(this.sfx);
   }
 
   /** Deep double-thud suspension jolt ("덜컹-덜컹!") when crossing a speed bump */
   public playSpeedBumpThud(intensity = 0.7): void {
-    const vol = Math.min(0.48, 0.18 + intensity * 0.3);
-    [0, 0.095].forEach((at, idx) =>
-      this.tone({
-        type: 'triangle',
-        freq: idx === 0 ? 128 : 104,
-        at,
-        sweep: [[0.11, 38]],
-        peak: vol * (idx === 0 ? 1 : 0.8),
-        decay: 0.13,
-        stop: 0.14,
-      })
-    );
+    playSpeedBumpThud(this.sfx, intensity);
   }
 
   /** Filtered liquid slosh cue when soup/drink spills inside top box from harsh lean/braking */
   public playLiquidSlosh(): void {
-    this.noise({
-      duration: 0.24,
-      env: (x) => Math.sin(x * Math.PI),
-      filter: {
-        type: 'bandpass',
-        freq: 480,
-        sweep: [
-          [0.11, 1150],
-          [0.23, 420],
-        ],
-        Q: 3.2,
-      },
-      peak: 0.24,
-      decay: 0.24,
-    });
+    playLiquidSlosh(this.sfx);
   }
 
   /** Crisp Korean messenger-style two-tone ping ("카톡/띠링!") for live customer chat messages */
   public playCustomerChatPing(): void {
-    const notes = [
-      { t: 0, f: 880, dur: 0.11 },
-      { t: 0.095, f: 1318.5, dur: 0.22 },
-    ];
-    for (const n of notes) {
-      this.tone({ type: 'sine', freq: n.f, at: n.t, attack: 0.01, peak: 0.25, decay: n.dur, stop: n.dur + 0.02 });
-    }
+    playCustomerChatPing(this.sfx);
   }
 
   /** Subtle terrazzo stair footstep click while climbing walk-up villa stairs */
   public playStairFootstep(): void {
-    if (!this.ready()) return;
-    this.tone({ type: 'triangle', freq: 175 + Math.random() * 35, sweep: [[0.055, 62]], peak: 0.14, decay: 0.065, stop: 0.07 });
+    playStairFootstep(this.sfx);
   }
 
   /** Wet rubber glove wiping across helmet visor ("쓱~ 뽀드득!") */
   public playVisorWipeSound(): void {
-    const dur = 0.34;
-    this.noise({
-      duration: dur,
-      env: (x) => Math.sin(x * Math.PI),
-      filter: {
-        type: 'bandpass',
-        freq: 720,
-        sweep: [
-          [dur * 0.55, 1950],
-          [dur, 640],
-        ],
-        Q: 3.8,
-      },
-      peak: 0.26,
-      decay: dur,
-    });
+    playVisorWipeSound(this.sfx);
   }
 
   /** Classic Korean 24h convenience store bright entrance/checkout chime ("띠리링~!") */
   public playConvenienceChime(): void {
-    const notes = [
-      { t: 0, f: 987.77, dur: 0.16 }, // B5
-      { t: 0.13, f: 1318.51, dur: 0.16 }, // E6
-      { t: 0.26, f: 1567.98, dur: 0.32 }, // G6
-    ];
-    for (const n of notes) {
-      this.tone({ type: 'sine', freq: n.f, at: n.t, attack: 0.012, peak: 0.24, decay: n.dur, stop: n.dur + 0.02 });
-    }
+    playConvenienceChime(this.sfx);
   }
 
   /** Soft modern smartphone wireless charging confirmation harmonic ping */
   public playWirelessChargeStart(): void {
-    [587.33, 880, 1174.66].forEach((freq, i) =>
-      this.tone({ type: 'sine', freq, at: i * 0.075, attack: 0.012, peak: 0.16, decay: 0.24, stop: 0.26 })
-    );
+    playWirelessChargeStart(this.sfx);
   }
 
   /** Gentle descending low-battery alert chime */
   public playLowBatteryBeep(): void {
-    [740, 554.37].forEach((freq, i) =>
-      this.tone({ type: 'triangle', freq, at: i * 0.14, attack: 0.01, peak: 0.18, decay: 0.14, stop: 0.16 })
-    );
+    playLowBatteryBeep(this.sfx);
   }
 
   /** Metallic sliding sound for 3D stainless-steel apartment elevator doors */
   public playElevatorDoorSlide(): void {
-    const dur = 0.55;
-    this.noise({
-      duration: dur,
-      env: () => 0.45,
-      filter: {
-        type: 'bandpass',
-        freq: 420,
-        sweep: [
-          [dur * 0.5, 680, 'lin'],
-          [dur, 340, 'lin'],
-        ],
-        Q: 3.2,
-      },
-      attack: 0.08,
-      peak: 0.14,
-      decay: dur,
-      stop: dur + 0.02,
-    });
+    playElevatorDoorSlide(this.sfx);
   }
 
   /** Soft digital LED floor-pass tick inside the 3D apartment elevator */
   public playElevatorFloorTick(): void {
-    this.tone({ type: 'sine', freq: 1120, attack: 0.008, peak: 0.055, decay: 0.055, stop: 0.065 });
+    playElevatorFloorTick(this.sfx);
   }
 
   /** Continuous low traction-motor hum while riding the 3D apartment elevator */
@@ -798,74 +583,4 @@ export class GameAudio {
     }
     this.lastBlinkPhase = blinkPhase;
   }
-}
-
-/** [seconds after the note start, value, curve] frequency automation step (exponential by default) */
-type FreqStep = [number, number, ('exp' | 'lin')?];
-
-interface FilterSpec {
-  type: BiquadFilterType;
-  freq: number;
-  Q?: number;
-  sweep?: FreqStep[];
-}
-
-interface ToneSpec {
-  type: OscillatorType;
-  freq: number;
-  sweep?: FreqStep[];
-  /** Start offset from now (s) */
-  at?: number;
-  peak: number;
-  /** Linear fade-in from silence (s); without it the note starts at `peak` */
-  attack?: number;
-  /** Extra [time, level] step before the decay (sustain then release) */
-  hold?: [number, number];
-  /** Exponential decay to silence at this time (s) */
-  decay: number;
-  /** Oscillator stop time (s) */
-  stop: number;
-  filter?: FilterSpec;
-}
-
-interface NoiseSpec {
-  duration: number;
-  /** Amplitude shape over the buffer, x = 0..1 */
-  env: (x: number) => number;
-  filter?: FilterSpec;
-  peak: number;
-  attack?: number;
-  decay?: number;
-  stop?: number;
-}
-
-function applyFreq(param: AudioParam, freq: number, sweep: FreqStep[] | undefined, t: number): void {
-  if (!sweep) {
-    param.value = freq;
-    return;
-  }
-  param.setValueAtTime(freq, t);
-  for (const [dt, value, curve] of sweep) {
-    if (curve === 'lin') param.linearRampToValueAtTime(value, t + dt);
-    else param.exponentialRampToValueAtTime(value, t + dt);
-  }
-}
-
-function envelope(gain: AudioParam, t: number, o: { peak: number; attack?: number; hold?: [number, number]; decay: number }): void {
-  if (o.attack !== undefined) {
-    gain.setValueAtTime(0.001, t);
-    gain.linearRampToValueAtTime(o.peak, t + o.attack);
-  } else {
-    gain.setValueAtTime(o.peak, t);
-  }
-  if (o.hold) gain.setValueAtTime(o.hold[1], t + o.hold[0]);
-  gain.exponentialRampToValueAtTime(0.001, t + o.decay);
-}
-
-function makeFilter(ctx: BaseAudioContext, f: FilterSpec, t: number): BiquadFilterNode {
-  const filter = ctx.createBiquadFilter();
-  filter.type = f.type;
-  applyFreq(filter.frequency, f.freq, f.sweep, t);
-  if (f.Q !== undefined) filter.Q.value = f.Q;
-  return filter;
 }
