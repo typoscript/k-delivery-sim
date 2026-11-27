@@ -1,6 +1,7 @@
 import { PlayerState } from '../../player/PlayerController';
 import { clamp } from '../../types';
 import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
+import { DoubleTapZoomGesture, MAX_MAP_ZOOM, MIN_MAP_ZOOM } from './doubleTapZoom';
 
 /** Mutable GPS map camera / pan-drag state shared between input handlers and the map renderer. */
 export interface MapViewState {
@@ -40,12 +41,12 @@ export function setupMapZoomButtons(
 ): void {
   zoomInBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    view.zoomLevel = clamp(view.zoomLevel + 0.32, 0.42, 3.2);
+    view.zoomLevel = clamp(view.zoomLevel + 0.32, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
   });
 
   zoomOutBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    view.zoomLevel = clamp(view.zoomLevel - 0.32, 0.42, 3.2);
+    view.zoomLevel = clamp(view.zoomLevel - 0.32, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
   });
 
   followBtn.addEventListener('click', (e) => {
@@ -64,7 +65,10 @@ export function setupMapZoomButtons(
   });
 }
 
-/** Enables free touch/mouse press-and-drag panning + wheel zoom on the zoomed smartphone GPS map */
+/**
+ * Enables press-and-drag panning, wheel zoom and map-app style one-finger zoom (tap, then press again and drag:
+ * down = zoom in, up = zoom out; a plain double tap zooms in) on the zoomed smartphone GPS map
+ */
 export function setupMapPanAndZoom(
   zoomCanvas: HTMLCanvasElement,
   followBtn: HTMLElement,
@@ -78,9 +82,12 @@ export function setupMapPanAndZoom(
     return Math.max(0.15, baseScale * view.zoomLevel);
   };
 
+  const zoomGesture = new DoubleTapZoomGesture();
+
   zoomCanvas.addEventListener('pointerdown', (e) => {
     if (!isZoomed() || e.button !== 0) return;
-    view.isMapDragging = true;
+    // Second press of a double tap: vertical drag zooms (no panning)
+    view.isMapDragging = !zoomGesture.down(performance.now(), e.clientX, e.clientY, view.zoomLevel);
     view.dragPointerId = e.pointerId;
     view.dragLastX = e.clientX;
     view.dragLastY = e.clientY;
@@ -95,7 +102,16 @@ export function setupMapPanAndZoom(
   });
 
   zoomCanvas.addEventListener('pointermove', (e) => {
-    if (!view.isMapDragging || e.pointerId !== view.dragPointerId) return;
+    if (e.pointerId !== view.dragPointerId) return;
+    const gestureZoom = zoomGesture.move(e.clientX, e.clientY);
+    if (gestureZoom !== null) {
+      e.stopPropagation();
+      view.zoomLevel = gestureZoom;
+      touchHandEl.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+      touchHandEl.classList.add('active', 'tapping');
+      return;
+    }
+    if (!view.isMapDragging) return;
     e.stopPropagation();
 
     const dx = e.clientX - view.dragLastX;
@@ -128,9 +144,9 @@ export function setupMapPanAndZoom(
   });
 
   const endDrag = (e: PointerEvent) => {
-    if (!view.isMapDragging || (view.dragPointerId !== null && e.pointerId !== view.dragPointerId)) {
-      return;
-    }
+    if (view.dragPointerId === null || e.pointerId !== view.dragPointerId) return;
+    const tapZoom = zoomGesture.up(performance.now(), e.clientX, e.clientY);
+    if (tapZoom !== null && e.type === 'pointerup') view.zoomLevel = tapZoom;
     view.isMapDragging = false;
     view.dragPointerId = null;
     zoomCanvas.classList.remove('dragging');
@@ -155,7 +171,7 @@ export function setupMapPanAndZoom(
       e.preventDefault();
       e.stopPropagation();
       const factor = e.deltaY < 0 ? 1.14 : 1 / 1.14;
-      view.zoomLevel = clamp(view.zoomLevel * factor, 0.42, 3.2);
+      view.zoomLevel = clamp(view.zoomLevel * factor, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
     },
     { passive: false }
   );
