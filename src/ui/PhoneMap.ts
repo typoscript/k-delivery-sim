@@ -296,7 +296,7 @@ export class PhoneMap {
     } else if (next === 'nav') {
       if (this.activeTab !== 'route' && this.activeTab !== 'checklist') this.activeTab = 'route';
     } else {
-      if (this.activeTab !== 'finance' && this.activeTab !== 'reviews') this.activeTab = 'finance';
+      if (this.activeTab !== 'finance' && this.activeTab !== 'reviews' && this.activeTab !== 'career') this.activeTab = 'finance';
     }
     this.syncTopNavHighlight();
     this.lastSheetFingerprint = '';

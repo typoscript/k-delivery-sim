@@ -3,7 +3,7 @@ import { DeliveryManager, MAX_CONCURRENT_ORDERS, NavigationPlan } from '../../de
 import type { PhoneTab, PhoneTopNav } from './types';
 import { renderAcceptedTab, renderCallsTab } from './sheetCallsTabs';
 import { renderChecklistTab, renderRouteTab } from './sheetNavTabs';
-import { renderDailyMissionWidget, renderFinanceTab, renderReviewsTab } from './sheetEarningsTabs';
+import { renderCareerTab, renderDailyMissionWidget, renderFinanceTab, renderReviewsTab } from './sheetEarningsTabs';
 
 /** Cheap change-detection key so the zoomed bottom sheet HTML is only rebuilt when content changes */
 export function computeDeliverySheetFingerprint(
@@ -21,7 +21,7 @@ export function computeDeliverySheetFingerprint(
   const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}:${o.nightBonus}:${o.peakBonus ?? 0}:${o.special ?? ''}`).join(',');
   const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
   const finFp = `${delivery.totalEarnings}:${delivery.fuelExpense}:${delivery.repairExpense}:${delivery.fineExpense}`;
-  const revFp = `${delivery.getRecentReviews().length}:${delivery.getRegularShops().length}`;
+  const revFp = `${delivery.getRecentReviews().length}:${delivery.getRegularShops().length}:${delivery.getDayHistory().length}:${delivery.lifetimeCompleted}`;
   const fingerprint = `${activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|n:${delivery.isNightMode}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|rv:${revFp}|${player.inCorridor}`;
   return fingerprint;
 }
@@ -65,12 +65,15 @@ export function renderDeliverySheetHtml(
     `;
   } else if (topNav === 'earnings') {
     subNavHtml = `
-      <div class="bc-sub-pills">
+      <div class="bc-sub-pills three">
         <button class="bc-sub-btn ${activeTab === 'finance' ? 'active' : ''}" data-action="tab" data-tab="finance">
-          🧾 수익 정산
+          🧾 정산
         </button>
         <button class="bc-sub-btn ${activeTab === 'reviews' ? 'active' : ''}" data-action="tab" data-tab="reviews">
-          ⭐ 고객 리뷰 (${revCnt})
+          ⭐ 리뷰 (${revCnt})
+        </button>
+        <button class="bc-sub-btn ${activeTab === 'career' ? 'active' : ''}" data-action="tab" data-tab="career">
+          🏆 커리어
         </button>
       </div>
     `;
@@ -87,6 +90,8 @@ export function renderDeliverySheetHtml(
     bodyHtml = renderRouteTab(delivery, navPlan);
   } else if (activeTab === 'reviews') {
     bodyHtml = renderReviewsTab(delivery);
+  } else if (activeTab === 'career') {
+    bodyHtml = renderCareerTab(delivery);
   } else {
     bodyHtml = renderFinanceTab(delivery);
   }

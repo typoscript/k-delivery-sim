@@ -55,6 +55,18 @@ import {
 import { OrderSurcharges, buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { MissionRoutePlanner } from './missionRoute';
 import { Reputation, computeReputation } from './reputation';
+import {
+  AchievementSpec,
+  AchievementStatus,
+  CareerStats,
+  DayRecord,
+  STAR_COUNT_COUNTER,
+  STAR_SUM_COUNTER,
+  achievementStatuses,
+  appendDay,
+  makeDayRecord,
+  newlyUnlocked,
+} from './careerHistory';
 import { computeSettlementPay } from './settlementPay';
 import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent, stepFoodCondition } from './cargoCare';
 export class DeliveryManager {
@@ -182,8 +194,41 @@ export class DeliveryManager {
     return shiftGoalStatuses(this.todaysGoals(), this.goalState());
   }
 
-  private bumpGoalCounter(key: string): void {
-    this.goalCounters[key] = (this.goalCounters[key] ?? 0) + 1;
+  /** Today's goal counter (+ its lifetime total for achievements) */
+  private bumpGoalCounter(key: string, amount = 1): void {
+    this.goalCounters[key] = (this.goalCounters[key] ?? 0) + amount;
+    if (!key.startsWith('_')) {
+      const life = (this.career.lifetimeCounters ??= {});
+      life[key] = (life[key] ?? 0) + amount;
+    }
+  }
+
+  /** Finished working days, oldest first */
+  public getDayHistory(): readonly DayRecord[] {
+    return this.career.history ?? [];
+  }
+
+  private careerStats(): CareerStats {
+    return {
+      lifetimeCompleted: this.lifetimeCompleted,
+      counters: this.career.lifetimeCounters ?? {},
+      history: this.getDayHistory(),
+      districtIds: deliverableDistricts().map((d) => d.id),
+    };
+  }
+
+  public getAchievements(): AchievementStatus[] {
+    return achievementStatuses(this.careerStats(), this.career.achievements ?? {});
+  }
+
+  /** Records and returns achievements reached since the last call (after a delivery / clock-out) */
+  public collectNewAchievements(): AchievementSpec[] {
+    const unlocked = (this.career.achievements ??= {});
+    const fresh = newlyUnlocked(this.careerStats(), unlocked);
+    if (fresh.length === 0) return [];
+    for (const a of fresh) unlocked[a.id] = this.shiftDay;
+    this.persistCareer();
+    return fresh;
   }
 
   private awardGoals(goals: ShiftGoalSpec[]): number {
@@ -208,6 +253,20 @@ export class DeliveryManager {
     const day = this.shiftDay;
     const ledger = this.getDailyLedger();
     const goals = this.getShiftGoals();
+    this.career.history = appendDay(
+      this.getDayHistory(),
+      makeDayRecord({
+        day,
+        completedCount: ledger.completedCount,
+        grossIncome: ledger.grossIncome,
+        totalExpenses: ledger.totalExpenses,
+        netProfit: ledger.netProfit,
+        pedestrianAccidentCount: ledger.pedestrianAccidentCount,
+        goalsMet: goals.filter((g) => g.claimed).length,
+        goalsTotal: goals.length,
+        counters: this.goalCounters,
+      })
+    );
 
     this.shiftDay = day + 1;
     this.shiftClockMinute = SHIFT_START_MINUTE;
@@ -825,6 +884,8 @@ export class DeliveryManager {
       createdAt: completedAt,
     });
     this.career.reviews.unshift(review);
+    this.bumpGoalCounter(STAR_SUM_COUNTER, review.stars);
+    this.bumpGoalCounter(STAR_COUNT_COUNTER);
     if (this.career.reviews.length > MAX_STORED_REVIEWS) {
       this.career.reviews.length = MAX_STORED_REVIEWS;
     }

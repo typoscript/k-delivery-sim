@@ -1,4 +1,5 @@
 import { DeliveryManager } from '../../delivery/DeliveryManager';
+import { bestDay, safeDayStreak } from '../../delivery/careerHistory';
 import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, lineValue } from '../receiptLines';
 
 /** [수익] top-nav tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
@@ -126,5 +127,68 @@ export function renderReviewsTab(delivery: DeliveryManager): string {
       <div class="reg-strip-chips">${regularChipsHtml}</div>
     </div>
     <div class="order-list">${reviewCardsHtml}</div>
+  `;
+}
+
+/** [수익] → 🏆 커리어: day-by-day history (last 7 days chart + list) and achievements */
+export function renderCareerTab(delivery: DeliveryManager): string {
+  const history = delivery.getDayHistory();
+  const achievements = delivery.getAchievements();
+  const unlockedCnt = achievements.filter((a) => a.unlocked).length;
+  const best = bestDay(history);
+  const streak = safeDayStreak(history);
+  const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString()}`;
+
+  const last7 = history.slice(-7);
+  const maxAbs = Math.max(1, ...last7.map((d) => Math.abs(d.net)));
+  const chartHtml =
+    last7.length > 0
+      ? `<div class="career-chart">${last7
+          .map((d) => {
+            const h = Math.max(4, Math.round((Math.abs(d.net) / maxAbs) * 100));
+            return `<div class="career-bar-col" title="${d.day}일차 ${won(d.net)}">
+              <div class="career-bar ${d.net < 0 ? 'neg' : ''}" style="height:${h}%"></div>
+              <span>${d.day}</span>
+            </div>`;
+          })
+          .join('')}</div>`
+      : '<div class="empty-tab-msg">아직 마친 근무일이 없어요.<br/>[수익 정산]에서 🏁 퇴근하면 하루 기록이 쌓입니다.</div>';
+
+  const rowsHtml = [...history]
+    .reverse()
+    .slice(0, 10)
+    .map(
+      (d) => `<div class="career-day-row">
+        <span class="cd-day">${d.day}일차</span>
+        <span>📦 ${d.deliveries}건</span>
+        <span>${d.avgStars !== null ? `★ ${d.avgStars.toFixed(1)}` : '★ -'}</span>
+        <span>🎯 ${d.goalsMet}/${d.goalsTotal}</span>
+        <span class="cd-net ${d.net < 0 ? 'neg' : ''}">${won(d.net)}</span>
+      </div>`
+    )
+    .join('');
+
+  const achHtml = achievements
+    .map(
+      (a) => `<div class="career-ach ${a.unlocked ? 'on' : ''}" title="${a.desc}">
+        <div class="ca-icon">${a.icon}</div>
+        <div class="ca-title">${a.title}</div>
+        <div class="ca-sub">${a.unlocked ? (a.unlockedDay ? `${a.unlockedDay}일차 달성` : '달성') : a.target >= 1000 ? `${Math.round((a.current / a.target) * 100)}%` : `${a.current}/${a.target}`}</div>
+      </div>`
+    )
+    .join('');
+
+  return `
+    <div class="career-summary">
+      <div><b>${history.length}</b><span>근무일</span></div>
+      <div><b>${delivery.lifetimeCompleted}</b><span>누적 배달</span></div>
+      <div><b>${best ? won(best.net) : '-'}</b><span>최고 하루${best ? ` (${best.day}일차)` : ''}</span></div>
+      <div><b>${streak}일</b><span>무사고 연속</span></div>
+    </div>
+    <div class="career-section-title">📈 최근 7일 순수익</div>
+    ${chartHtml}
+    ${rowsHtml ? `<div class="career-day-list">${rowsHtml}</div>` : ''}
+    <div class="career-section-title">🏆 업적 (${unlockedCnt}/${achievements.length})</div>
+    <div class="career-ach-grid">${achHtml}</div>
   `;
 }

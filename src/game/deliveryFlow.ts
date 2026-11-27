@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GameContext } from './GameContext';
 import { setWeatherMode } from './clockSync';
 import { REPUTATION_ORDER } from '../delivery/reputation';
+import type { AchievementSpec } from '../delivery/careerHistory';
 import { getInstructionMeta } from '../delivery/DeliveryManager';
 import { validateDeliveryPhotoFrame } from '../camera/PhotoProofValidator';
 import { BikeGarageSave } from '../vehicle/ScooterModels';
@@ -145,6 +146,16 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
   };
 
 
+  /** Toasts newly unlocked achievements one after another */
+  const announceAchievements = (fresh: AchievementSpec[], delayMs: number) => {
+    fresh.forEach((a, i) =>
+      window.setTimeout(() => {
+        audio.playChime('accept');
+        hud.showToast(`🏆 업적 달성! ${a.icon} ${a.title} · ${a.desc}`, 4600);
+      }, delayMs + i * 4800)
+    );
+  };
+
   const finalizeCorridorSettlement = () => {
     renderer.render(scene, camera);
     const photoDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
@@ -182,6 +193,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       window.setTimeout(() => {
         modalUi.showSettlement(result, photoDataUrl);
       }, 200);
+      announceAchievements(delivery.collectNewAchievements(), 2600);
     }
   };
 

@@ -2913,6 +2913,10 @@ kbd {
   flex-shrink: 0;
 }
 
+.bc-sub-pills.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .bc-sub-btn {
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 8px;
@@ -4858,4 +4862,133 @@ body.phone-3d-hover canvas {
 .phone-device.night .review-tag {
   background: rgba(255, 255, 255, 0.08);
   color: #cbd5e1;
+}
+
+/* [수익] → 🏆 커리어 tab */
+.career-summary,
+.career-day-list,
+.career-ach-grid,
+.career-section-title {
+  flex-shrink: 0;
+}
+.career-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-bottom: 7px;
+}
+.career-summary > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  border-radius: 9px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+.career-summary b {
+  font-size: 12px;
+  font-weight: 900;
+}
+.career-summary span {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+}
+.career-section-title {
+  font-size: 10.5px;
+  font-weight: 900;
+  margin: 7px 0 4px;
+}
+.career-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 70px;
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border-radius: 9px;
+  background: rgba(148, 163, 184, 0.12);
+}
+.career-bar-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+}
+.career-bar-col span {
+  font-size: 8px;
+  font-weight: 700;
+  color: #64748b;
+}
+.career-bar {
+  width: 100%;
+  max-width: 22px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #34d399, #10b981);
+}
+.career-bar.neg {
+  background: linear-gradient(180deg, #f87171, #ef4444);
+}
+.career-day-list {
+  margin-top: 5px;
+}
+.career-day-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 0.9fr 0.8fr 1.3fr;
+  gap: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 4px 2px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+}
+.career-day-row .cd-day {
+  font-weight: 900;
+}
+.career-day-row .cd-net {
+  text-align: right;
+  color: #059669;
+}
+.career-day-row .cd-net.neg {
+  color: #dc2626;
+}
+.career-ach-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.career-ach {
+  padding: 6px 3px;
+  border-radius: 9px;
+  text-align: center;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+.career-ach.on {
+  opacity: 1;
+  filter: none;
+  background: rgba(250, 204, 21, 0.16);
+  border-color: rgba(234, 179, 8, 0.55);
+}
+.career-ach .ca-icon {
+  font-size: 16px;
+}
+.career-ach .ca-title {
+  font-size: 9.5px;
+  font-weight: 900;
+}
+.career-ach .ca-sub {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #64748b;
+}
+.phone-device.night .career-summary span,
+.phone-device.night .career-bar-col span,
+.phone-device.night .career-ach .ca-sub {
+  color: #94a3b8;
 }

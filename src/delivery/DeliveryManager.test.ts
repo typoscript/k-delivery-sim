@@ -204,6 +204,19 @@ describe('DeliveryManager mission flow', () => {
     expect(dm.shiftClockMinute).toBe(SHIFT_START_MINUTE);
   });
 
+  it('clock-out records the day in the career history and unlocks achievements once', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);
+    expect(dm.collectNewAchievements().map((a) => a.id)).toContain('first');
+    expect(dm.collectNewAchievements()).toEqual([]);
+    const res = dm.clockOut()!;
+    const [rec] = dm.getDayHistory();
+    expect(dm.getDayHistory()).toHaveLength(1);
+    expect(rec).toMatchObject({ day: 1, deliveries: 3, net: res.ledger.netProfit, accidents: 0, goalsTotal: res.goals.length });
+    expect(rec.avgStars).not.toBeNull();
+    expect(dm.getAchievements().find((a) => a.id === 'first')).toMatchObject({ unlocked: true, unlockedDay: 1 });
+  });
+
   it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {
     const dm = new DeliveryManager(LOCATIONS);
     for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);

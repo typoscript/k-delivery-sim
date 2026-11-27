@@ -1,4 +1,5 @@
 import { ShiftSave, parseShiftSave } from './ShiftDay';
+import { DayRecord, parseCountMap, parseDayHistory } from './careerHistory';
 
 export type UpgradeId =
   | 'thermal_box'
@@ -88,6 +89,12 @@ export interface RiderCareerSave {
   shopNames: Record<string, string>;
   /** Current working day on the game clock (day, time, ledger, goals) so a reload resumes the same shift */
   shift?: ShiftSave;
+  /** Finished working days (oldest first, newest MAX_DAY_HISTORY) */
+  history?: DayRecord[];
+  /** Lifetime totals of the daily goal counters (villa, rain, far, district:<id> ...) */
+  lifetimeCounters?: Record<string, number>;
+  /** Unlocked achievement id -> working day it was unlocked */
+  achievements?: Record<string, number>;
 }
 
 /** Local calendar date key (YYYY-MM-DD) for daily mission persistence */
@@ -395,6 +402,9 @@ export function loadRiderCareer(): RiderCareerSave {
     }
     const shift = parseShiftSave(parsed.shift);
     return {
+      history: parseDayHistory(parsed.history),
+      lifetimeCounters: parseCountMap(parsed.lifetimeCounters),
+      achievements: parseCountMap(parsed.achievements),
       walletBalance,
       lifetimeCompleted,
       riderRating,
