@@ -16,7 +16,7 @@ function bruteWithin(x: number, z: number, minR: number, maxR: number): number[]
 }
 
 describe('PedestrianGraph on the active (unified) map', () => {
-  it('builds sidewalks for the whole road graph quickly', () => {
+  it('builds sidewalks for the whole road graph within its size budget', () => {
     const t0 = performance.now();
     const g = new PedestrianGraph();
     const ms = performance.now() - t0;
@@ -24,8 +24,9 @@ describe('PedestrianGraph on the active (unified) map', () => {
       `[PedestrianGraph] ${ACTIVE_MAP_DATA.edges.length} OSM edges -> ${g.nodes.length} sidewalk nodes in ${ms.toFixed(1)}ms`
     );
     expect(g.nodes.length).toBeGreaterThan(ACTIVE_MAP_DATA.edges.length);
-    // ~45-55ms on an idle machine; generous margin so a busy CI / dev box (game running) does not flake
-    expect(ms).toBeLessThan(300);
+    // Build time (~50ms idle) is only logged: wall-clock limits flake on a busy machine. Bound the work instead
+    // (~3.9 sidewalk nodes per road edge when written).
+    expect(g.nodes.length).toBeLessThanOrEqual(ACTIVE_MAP_DATA.edges.length * 5);
   });
 
   it('nodesWithin matches a brute-force ring query', () => {
