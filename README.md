@@ -177,6 +177,17 @@ npm run dev
 npm test
 ```
 
+## 수원 통합 오픈월드 맵 데이터 (개발 중)
+
+4개 구역과 그 사이 지역 전체(약 6.2km × 4.25km)를 하나의 맵으로 합치기 위한 OpenStreetMap 데이터 파이프라인입니다. 현재는 데이터 생성 단계이며, 게임에서 플레이어 주변 청크만 불러오는 스트리밍은 다음 단계에서 연결됩니다.
+
+```bash
+npm run map:fetch   # OSM 원본 다운로드 (Overpass API)
+npm run map:build   # public/map/suwon/ 생성 (도로 그래프 + 200m 청크 635개)
+```
+
+자세한 규칙은 [tools/osm/README.md](./tools/osm/README.md)를 참고하세요. 지도 데이터 © OpenStreetMap contributors (ODbL).
+
 ## 기술 스택 & 배포
 
 - **Frontend:** TypeScript, Three.js, Vite, Web Audio API
