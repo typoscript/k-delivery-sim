@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
 import { mergeStaticByMaterial } from './instancing';
 import {
-  createBuildingMaterials,
   createSidewalkTexture,
   createSignTexture,
 } from './cityTextures';
@@ -40,13 +39,6 @@ import { buildSuwonOsmBuildings, buildSuwonStationLandmark } from './cityBuildin
 import { buildBusStops, buildStreetLamps } from './streetFurniture';
 import { WorldSky } from './worldSky';
 
-
-/** Sun direction (target -> sun) used by the stabilized follow-the-player shadow frustum */
-const SUN_OFFSET = new THREE.Vector3(160, 240, 120);
-const SUN_DISTANCE = SUN_OFFSET.length();
-const SUN_OFFSET_DIR = SUN_OFFSET.clone().normalize();
-const SUN_LIGHT_RIGHT = new THREE.Vector3(0, 1, 0).cross(SUN_OFFSET_DIR).normalize();
-const SUN_LIGHT_UP = SUN_OFFSET_DIR.clone().cross(SUN_LIGHT_RIGHT).normalize();
 export interface MapBuildingFootprint {
   x: number;
   z: number;
@@ -78,6 +70,24 @@ export interface CityMapInfo {
   areaPlazas?: OsmPlazaData[];
 }
 
+
+import {
+  initOpenWorldStreaming as initOpenWorldStreamingFn,
+  updateStreaming as updateStreamingFn,
+  placeSunStabilized as placeSunStabilizedFn,
+  getCollisionObstacles as getCollisionObstaclesFn,
+} from './cityStreaming';
+import {
+  buildBaseGround as buildBaseGroundFn,
+  initDeliveryLocations as initDeliveryLocationsFn,
+} from './cityGround';
+import {
+  setOutdoorVisible as setOutdoorVisibleFn,
+  setWeather as setWeatherFn,
+  updateWeatherVisuals as updateWeatherVisualsFn,
+  applySkyTheme as applySkyThemeFn,
+  setNightness as setNightnessFn,
+} from './cityAtmosphere';
 
 /**
  * Real OpenStreetMap 3D City World for Suwon-si Paldal-gu Ingye-dong (Suwon City Hall Station area).
@@ -111,18 +121,25 @@ export class CityWorld {
   };
   /** Gas station / repair shop / convenience store sets (serviceStations.ts) */
   private readonly stations: ServiceStations;
-  private streamer?: ChunkStreamer;
+  /** @internal split modules */
+  streamer?: ChunkStreamer;
   /** @internal world builders */
   readonly culler?: ProximityCuller;
-  private streamerVersionSeen = -1;
-  private collisionCache: ObstacleBox[] = [];
-  private collisionStreamedRef: ObstacleBox[] | null = null;
+  /** @internal split modules */
+  streamerVersionSeen = -1;
+  /** @internal split modules */
+  collisionCache: ObstacleBox[] = [];
+  /** @internal split modules */
+  collisionStreamedRef: ObstacleBox[] | null = null;
   /** @internal world builders */
   plazaMat?: THREE.MeshStandardMaterial;
-  private readonly tmpSunTarget = new THREE.Vector3();
+  /** @internal split modules */
+  readonly tmpSunTarget = new THREE.Vector3();
 
-  private readonly scene: THREE.Scene;
-  private readonly dirLight: THREE.DirectionalLight;
+  /** @internal split modules */
+  readonly scene: THREE.Scene;
+  /** @internal split modules */
+  readonly dirLight: THREE.DirectionalLight;
   private readonly hemiLight: THREE.HemisphereLight;
   /** @internal world builders */
   readonly lampGlowMat: THREE.MeshStandardMaterial;
@@ -140,7 +157,8 @@ export class CityWorld {
 
   public isNight = false;
   /** Sky, fog, sun / sky light and night glow for weather x time of day (worldSky.ts) */
-  private sky!: WorldSky;
+  /** @internal split modules */
+  sky!: WorldSky;
   public weatherMode: WeatherMode = 'clear';
 
   // Wet-road shader & slip-surface materials
@@ -260,7 +278,8 @@ export class CityWorld {
   }
 
   /** Sidewalk paving keeps the legacy tile size (110 repeats per 820m) on any world size */
-  private sizedSidewalkTexture(): THREE.CanvasTexture {
+  /** @internal split modules */
+  sizedSidewalkTexture(): THREE.CanvasTexture {
     const tex = createSidewalkTexture();
     const r = (110 * CITY_WORLD_LIMIT * 2) / 820;
     tex.repeat.set(r, r);
@@ -288,40 +307,7 @@ export class CityWorld {
 
   /** Unified open world: buildings, road surfaces, parks, water & pedestrian streets stream per 200m chunk */
   private initOpenWorldStreaming(): void {
-    if (!this.unified) return;
-    const b = createBuildingMaterials();
-    this.buildingNightMats.push(b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat);
-    this.streamer = new ChunkStreamer(
-      this.root,
-      SUWON_OPEN_WORLD,
-      {
-        walls: { shop: b.shopWallMat, apt: b.aptWallMat, villa: b.villaWallMat, public: b.publicWallMat },
-        roof: b.roofMat,
-        road: this.asphaltMat,
-        roadLine: new THREE.MeshBasicMaterial({ color: 0xfacc15 }),
-        park: new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 }),
-        water: new THREE.MeshStandardMaterial({
-          color: 0x0284c7,
-          emissive: 0x0369a1,
-          emissiveIntensity: 0.18,
-          roughness: 0.14,
-          metalness: 0.38,
-        }),
-        plaza: this.plazaMat ?? new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
-        farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
-      },
-      { chunkBaseUrl: './map/suwon/chunks/' }
-    );
-    // Fog hides everything past ~400m: a tighter shadow frustum (±220m instead of ±310m) gives
-    // sharper shadows for the same map size
-    const sc = this.dirLight.shadow.camera;
-    sc.left = -220;
-    sc.right = 220;
-    sc.top = 220;
-    sc.bottom = -220;
-    sc.updateProjectionMatrix();
-    const spawn = ACTIVE_MAP_DATA.meta.playerSpawn;
-    this.updateStreaming(spawn.x, spawn.z);
+    initOpenWorldStreamingFn(this);
   }
 
   /**
@@ -329,59 +315,21 @@ export class CityWorld {
    * player, keeps the sun's shadow frustum centred on the player and refreshes the phone-map overlays.
    */
   public updateStreaming(px: number, pz: number): void {
-    if (!this.streamer) return;
-    this.streamer.update(px, pz);
-    this.culler?.update(px, pz);
-    this.placeSunStabilized(px, pz);
-    if (this.streamer.version !== this.streamerVersionSeen) {
-      this.streamerVersionSeen = this.streamer.version;
-      const chunks = this.streamer.getBuiltChunkData();
-      this.buildings.length = 0;
-      const parks: OsmParkData[] = [];
-      const waters: OsmParkData[] = [];
-      const plazas: OsmPlazaData[] = [];
-      for (const c of chunks) {
-        for (const bd of c.buildings) {
-          this.buildings.push({ x: bd.cx, z: bd.cz, w: bd.w, d: bd.d, pts: bd.pts, label: bd.name ? bd.name.slice(0, 12) : undefined, kind: bd.kind });
-        }
-        parks.push(...c.parks);
-        waters.push(...c.waters);
-        plazas.push(...c.pedestrianPlazas);
-      }
-      this.mapInfo.areaParks = parks;
-      this.mapInfo.areaWaters = waters;
-      this.mapInfo.areaPlazas = plazas;
-    }
+    updateStreamingFn(this, px, pz);
   }
 
   /**
    * Sun + shadow frustum follow the player, snapped to whole shadow-map texels in light space so
    * shadow edges don't shimmer/crawl as the rider moves (standard shadow stabilization).
    */
-  private placeSunStabilized(px: number, pz: number): void {
-    const cam = this.dirLight.shadow.camera;
-    const texel = (cam.right - cam.left) / Math.max(1, this.dirLight.shadow.mapSize.x);
-    // Light-space basis of the shadow camera (it looks from the sun toward the target, up = +Y)
-    const z = SUN_OFFSET_DIR;
-    const x = SUN_LIGHT_RIGHT;
-    const y = SUN_LIGHT_UP;
-    const t = this.tmpSunTarget.set(px, 0, pz);
-    const tx = t.dot(x);
-    const ty = t.dot(y);
-    t.addScaledVector(x, Math.round(tx / texel) * texel - tx).addScaledVector(y, Math.round(ty / texel) * texel - ty);
-    this.dirLight.target.position.copy(t);
-    this.dirLight.position.copy(t).addScaledVector(z, SUN_DISTANCE);
+  /** @internal split modules */
+  placeSunStabilized(px: number, pz: number): void {
+    placeSunStabilizedFn(this, px, pz);
   }
 
   /** Building / prop colliders relevant to the player (streamed 3x3 chunks in the unified city) */
   public getCollisionObstacles(): ObstacleBox[] {
-    if (!this.streamer) return this.obstacles;
-    const streamed = this.streamer.collisionObstacles;
-    if (streamed !== this.collisionStreamedRef) {
-      this.collisionStreamedRef = streamed;
-      this.collisionCache = this.obstacles.length > 0 ? [...this.obstacles, ...streamed] : streamed;
-    }
-    return this.collisionCache;
+    return getCollisionObstaclesFn(this);
   }
 
   /** Static containers (world root, streamed chunk root, lamp pools) skip per-frame forced matrix updates */
@@ -402,39 +350,7 @@ export class CityWorld {
   }
 
   private buildBaseGround(): void {
-    // Outer Suwon suburban backdrop greenbelt
-    const outerGround = new THREE.Mesh(
-      new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2 + 600, CITY_WORLD_LIMIT * 2 + 600),
-      new THREE.MeshStandardMaterial({ color: 0x527358, roughness: 0.95 })
-    );
-    outerGround.rotation.x = -Math.PI / 2;
-    outerGround.position.y = -0.02;
-    this.root.add(outerGround);
-
-    // Korean urban sidewalk interlocking brick base across playable Suwon Ingye-dong district
-    const sidewalkBase = new THREE.Mesh(
-      new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2, CITY_WORLD_LIMIT * 2),
-      new THREE.MeshStandardMaterial({ map: this.sizedSidewalkTexture(), roughness: 0.88 })
-    );
-    sidewalkBase.rotation.x = -Math.PI / 2;
-    sidewalkBase.position.y = 0;
-    sidewalkBase.receiveShadow = true;
-    this.root.add(sidewalkBase);
-
-    // Subtle perimeter boundary walls at ±CITY_WORLD_LIMIT
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 });
-    const lim = CITY_WORLD_LIMIT;
-    const walls: Array<[number, number, number, number]> = [
-      [0, lim, lim * 2, 1.4],
-      [0, -lim, lim * 2, 1.4],
-      [lim, 0, 1.4, lim * 2],
-      [-lim, 0, 1.4, lim * 2],
-    ];
-    for (const [x, z, w, l] of walls) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.4, l), wallMat);
-      m.position.set(x, 0.7, z);
-      this.root.add(m);
-    }
+    buildBaseGroundFn(this);
   }
 
   /** Checks if position (x, z) is currently crossing any rotated speed bump */
@@ -509,30 +425,7 @@ export class CityWorld {
   }
 
   private initDeliveryLocations(): void {
-    for (const s of ACTIVE_MAP_DATA.shops) {
-      this.locations.push({
-        id: s.id,
-        name: s.name,
-        x: s.x,
-        z: s.z,
-        type: 'shop',
-        emoji: s.emoji,
-        facingHeading: s.facingHeading,
-        menus: s.menus,
-      });
-    }
-    for (const r of ACTIVE_MAP_DATA.residences) {
-      this.locations.push({
-        id: r.id,
-        name: r.name,
-        x: r.x,
-        z: r.z,
-        type: 'residential',
-        residenceKind: r.residenceKind,
-        emoji: r.emoji,
-        facingHeading: r.facingHeading,
-      });
-    }
+    initDeliveryLocationsFn(this);
   }
 
   public setLobbyDoorOpen(locationId: string | null): void {
@@ -565,41 +458,21 @@ export class CityWorld {
   }
 
   public setOutdoorVisible(visible: boolean): void {
-    this.root.visible = visible;
-    if (!visible) {
-      this.scene.background = new THREE.Color(0x11151c);
-      this.scene.fog = null;
-    } else {
-      this.applySkyTheme();
-    }
+    setOutdoorVisibleFn(this, visible);
   }
 
   public setWeather(mode: WeatherMode): void {
-    this.weatherMode = mode;
-    if (this.root.visible) {
-      this.applySkyTheme();
-    }
+    setWeatherFn(this, mode);
   }
 
   public updateWeatherVisuals(rainIntensity: number, elapsedTime: number): void {
-    this.roadShaderUniforms.uRainWetness.value = rainIntensity;
-    this.roadShaderUniforms.uTime.value = elapsedTime;
-
-    const wetMetal = 0.04 + rainIntensity * 0.34;
-    const wetTint = 1.0 - rainIntensity * 0.32;
-    this.asphaltMat.metalness = wetMetal;
-    this.asphaltMat.color.setRGB(wetTint * 0.95, wetTint * 0.98, wetTint * 1.05);
-
-    this.crosswalkPaintMat.roughness = 0.78 - rainIntensity * 0.62;
-    this.crosswalkPaintMat.metalness = 0.05 + rainIntensity * 0.25;
-
-    this.manholeMat.roughness = 0.55 - rainIntensity * 0.43;
-    this.manholeMat.metalness = 0.78 + rainIntensity * 0.16;
+    updateWeatherVisualsFn(this, rainIntensity, elapsedTime);
   }
 
   /** Re-applies sky, fog, lights and night glow for the current weather and time of day */
-  private applySkyTheme(): void {
-    this.sky.apply(this.weatherMode, this.isNight);
+  /** @internal split modules */
+  applySkyTheme(): void {
+    applySkyThemeFn(this);
   }
 
   /**
@@ -607,11 +480,6 @@ export class CityWorld {
    * Re-applies the sky only when it visibly changed. Returns isNight (the darker half).
    */
   public setNightness(nightness: number): boolean {
-    const n = Math.max(0, Math.min(1, nightness));
-    const wasNight = this.isNight;
-    this.isNight = n >= 0.5;
-    if (!this.sky.setNightness(n, wasNight !== this.isNight)) return this.isNight;
-    if (this.root.visible) this.applySkyTheme();
-    return this.isNight;
+    return setNightnessFn(this, nightness);
   }
 }
