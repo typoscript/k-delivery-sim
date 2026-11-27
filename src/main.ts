@@ -38,6 +38,7 @@ import { SUWON_OPEN_WORLD, nearestLegacyDistrictId } from './data/suwonUnified';
 import { GameContext } from './game/GameContext';
 import { installKeyboardInput } from './game/keyboardInput';
 import { startGameLoop } from './game/gameLoop';
+import { GraphicsRuntime } from './game/GraphicsRuntime';
 
 const app = document.getElementById('app')!;
 
@@ -118,16 +119,16 @@ const playerMesh = new PlayerMesh(scene);
 const camController = new CameraController(renderer.domElement);
 const audio = new GameAudio();
 
+const graphics = new GraphicsRuntime(renderer, world.sunLight);
+
 const applyGameSettings = (s: GameSettings) => {
   audio.setMasterVolume(s.masterVolume);
   voiceNav.setEnabled(s.voiceNaviEnabled);
   voiceNav.setVolume(Math.min(1, s.masterVolume * 1.05));
   camController.sensitivity = s.mouseSensitivity;
 
-  const dprCap = s.graphicsQuality === 'high' ? 2 : s.graphicsQuality === 'medium' ? 1.35 : 1;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
-  renderer.shadowMap.enabled = s.graphicsQuality !== 'low';
-  renderer.shadowMap.needsUpdate = true;
+  // Resolution range, shadow map size / refresh rate and dynamic resolution per quality level
+  graphics.apply(s);
 };
 
 /** Unified open world: [P] district list moves the rider there instantly (missions, cargo & career kept) */
@@ -147,6 +148,7 @@ const teleportToDistrict = (id: SuwonDistrictId) => {
   delivery.setReferencePosition(d.playerSpawn.x, d.playerSpawn.z);
   delivery.invalidateNavCache();
   world.updateStreaming(d.playerSpawn.x, d.playerSpawn.z);
+  graphics.invalidateShadows();
   hud.showToast(`${d.badgeLabel.replace(' ▾', '')}(으)로 이동했습니다! 진행 중인 배달은 그대로 유지됩니다`, 3600);
 };
 
@@ -1196,9 +1198,10 @@ startGameLoop(gameCtx, {
   exitCorridorToStreet,
   isPlayerNearCargoBox,
   isNpcHoldingFoodBag: () => npcTookFoodBag,
+  graphics,
 });
 
 // Dev-only handle for automated playtests (stripped from production builds)
 if (import.meta.env.DEV) {
-  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer };
+  (window as unknown as { __kds: unknown }).__kds = { world, scooterPhysics, playerCtrl, traffic, roadHazards, delivery, roadNavigator, pedestrians, renderer, graphics, onboardingSettings };
 }

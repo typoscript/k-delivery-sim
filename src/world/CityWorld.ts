@@ -34,6 +34,13 @@ import { ProximityCuller } from './openworld/ProximityCuller';
 import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 
+
+/** Sun direction (target -> sun) used by the stabilized follow-the-player shadow frustum */
+const SUN_OFFSET = new THREE.Vector3(160, 240, 120);
+const SUN_DISTANCE = SUN_OFFSET.length();
+const SUN_OFFSET_DIR = SUN_OFFSET.clone().normalize();
+const SUN_LIGHT_RIGHT = new THREE.Vector3(0, 1, 0).cross(SUN_OFFSET_DIR).normalize();
+const SUN_LIGHT_UP = SUN_OFFSET_DIR.clone().cross(SUN_LIGHT_RIGHT).normalize();
 export interface MapBuildingFootprint {
   x: number;
   z: number;
@@ -101,6 +108,7 @@ export class CityWorld {
   private collisionCache: ObstacleBox[] = [];
   private collisionStreamedRef: ObstacleBox[] | null = null;
   private plazaMat?: THREE.MeshStandardMaterial;
+  private readonly tmpSunTarget = new THREE.Vector3();
 
   private readonly scene: THREE.Scene;
   private readonly dirLight: THREE.DirectionalLight;
@@ -367,6 +375,14 @@ export class CityWorld {
       },
       { chunkBaseUrl: './map/suwon/chunks/' }
     );
+    // Fog hides everything past ~400m: a tighter shadow frustum (±220m instead of ±310m) gives
+    // sharper shadows for the same map size
+    const sc = this.dirLight.shadow.camera;
+    sc.left = -220;
+    sc.right = 220;
+    sc.top = 220;
+    sc.bottom = -220;
+    sc.updateProjectionMatrix();
     const spawn = ACTIVE_MAP_DATA.meta.playerSpawn;
     this.updateStreaming(spawn.x, spawn.z);
   }
@@ -379,8 +395,7 @@ export class CityWorld {
     if (!this.streamer) return;
     this.streamer.update(px, pz);
     this.culler?.update(px, pz);
-    this.dirLight.position.set(px + 160, 240, pz + 120);
-    this.dirLight.target.position.set(px, 0, pz);
+    this.placeSunStabilized(px, pz);
     if (this.streamer.version !== this.streamerVersionSeen) {
       this.streamerVersionSeen = this.streamer.version;
       const chunks = this.streamer.getBuiltChunkData();
@@ -400,6 +415,25 @@ export class CityWorld {
       this.mapInfo.areaWaters = waters;
       this.mapInfo.areaPlazas = plazas;
     }
+  }
+
+  /**
+   * Sun + shadow frustum follow the player, snapped to whole shadow-map texels in light space so
+   * shadow edges don't shimmer/crawl as the rider moves (standard shadow stabilization).
+   */
+  private placeSunStabilized(px: number, pz: number): void {
+    const cam = this.dirLight.shadow.camera;
+    const texel = (cam.right - cam.left) / Math.max(1, this.dirLight.shadow.mapSize.x);
+    // Light-space basis of the shadow camera (it looks from the sun toward the target, up = +Y)
+    const z = SUN_OFFSET_DIR;
+    const x = SUN_LIGHT_RIGHT;
+    const y = SUN_LIGHT_UP;
+    const t = this.tmpSunTarget.set(px, 0, pz);
+    const tx = t.dot(x);
+    const ty = t.dot(y);
+    t.addScaledVector(x, Math.round(tx / texel) * texel - tx).addScaledVector(y, Math.round(ty / texel) * texel - ty);
+    this.dirLight.target.position.copy(t);
+    this.dirLight.position.copy(t).addScaledVector(z, SUN_DISTANCE);
   }
 
   /** Building / prop colliders relevant to the player (streamed 3x3 chunks in the unified city) */

@@ -68,6 +68,8 @@ class GpuTimer {
   private readonly pool: WebGLQuery[] = [];
   private active: PendingQuery | null = null;
   readonly stats = new Map<string, RollingStat>();
+  /** Most recent result per pass label (drives adaptive resolution) */
+  readonly latest = new Map<string, number>();
 
   constructor(renderer: THREE.WebGLRenderer) {
     const gl = renderer.getContext();
@@ -107,6 +109,7 @@ class GpuTimer {
         let st = this.stats.get(q.label);
         if (!st) this.stats.set(q.label, (st = new RollingStat()));
         st.push(ns / 1e6);
+        this.latest.set(q.label, ns / 1e6);
       }
       this.pool.push(q.query);
     }
@@ -168,6 +171,11 @@ export class PerfMonitor {
     this.sceneInfo = fn;
   }
 
+  /** True while the A/B benchmark is toggling render settings (adaptive systems should hold still) */
+  public get isBenchmarking(): boolean {
+    return this.benchmarking;
+  }
+
   public get enabled(): boolean {
     return this.active || this.benchmarking;
   }
@@ -199,10 +207,11 @@ export class PerfMonitor {
 
   public beginFrame(now: number): void {
     this.renderer.info.reset();
+    // GPU pass timing runs always (cheap) - adaptive resolution needs it even with the overlay hidden
+    this.gpu.poll();
     if (!this.enabled) return;
     if (this.lastFrameAt > 0) this.frameInterval.push(now - this.lastFrameAt);
     this.lastFrameAt = now;
-    this.gpu.poll();
     this.frameStart = performance.now();
     this.lapStart = this.frameStart;
   }
@@ -218,11 +227,30 @@ export class PerfMonitor {
   }
 
   public gpuBegin(label: string): void {
-    if (this.enabled) this.gpu.begin(label);
+    this.gpu.begin(label);
   }
 
   public gpuEnd(): void {
-    if (this.enabled) this.gpu.end();
+    this.gpu.end();
+  }
+
+  /** True when the browser exposes GPU timer queries (Chrome/Edge desktop) */
+  public get gpuAvailable(): boolean {
+    return this.gpu.available;
+  }
+
+  /** Latest measured GPU time of one frame (main + mirror passes), or null if unknown */
+  public get gpuFrameMs(): number | null {
+    if (!this.gpu.available || this.gpu.latest.size === 0) return null;
+    let t = 0;
+    for (const v of this.gpu.latest.values()) t += v;
+    return t;
+  }
+
+  /** Forget the latest GPU samples (e.g. mirrors stopped rendering after dismounting) */
+  public clearGpuLatest(label?: string): void {
+    if (label) this.gpu.latest.delete(label);
+    else this.gpu.latest.clear();
   }
 
   public endFrame(): void {

@@ -116,6 +116,8 @@ export interface GameSettings {
   voiceNaviEnabled: boolean;
   mouseSensitivity: number; // 0.5..2.0
   graphicsQuality: GraphicsQuality;
+  /** Dynamic resolution: lower the render resolution automatically when the GPU can't keep 60fps */
+  autoResolution: boolean;
 }
 
 export interface UpcomingCameraAlert {

@@ -1,3 +1,4 @@
+import { GraphicsRuntime } from './GraphicsRuntime';
 import { makeStaticContainer, skipHiddenChildrenInMatrixUpdates } from '../world/renderLayers';
 import { PerfMonitor } from './PerfMonitor';
 import { CORRIDOR_ORIGIN_Y } from '../world/CorridorRoom';
@@ -17,6 +18,8 @@ export interface GameLoopHooks {
   isPlayerNearCargoBox: () => boolean;
   /** True once the MEET_FACE customer NPC has taken the food bag */
   isNpcHoldingFoodBag: () => boolean;
+  /** Dynamic resolution + shadow scheduling */
+  graphics: GraphicsRuntime;
 }
 
 /** Upper bound for simulated & rendered frames per second */
@@ -51,9 +54,14 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
   perf.setSceneInfo((): Record<string, string | number> => {
     const st = world.streamingStats;
     const p = playerCtrl.state;
+    const g = hooks.graphics;
+    const gfx = {
+      해상도: `${g.pixelRatio.toFixed(2)}x${g.autoResolution ? ' (자동)' : ''}`,
+      그림자: g.profile.shadows ? `${g.profile.shadowMapSize}px/${g.profile.shadowInterval}f` : '끔',
+    };
     return st
-      ? { 청크: st.built, 건물: st.buildings, 충돌체: st.colliders, 위치: `${Math.round(p.x)},${Math.round(p.z)}` }
-      : { 위치: `${Math.round(p.x)},${Math.round(p.z)}` };
+      ? { ...gfx, 청크: st.built, 건물: st.buildings, 위치: `${Math.round(p.x)},${Math.round(p.z)}` }
+      : { ...gfx, 위치: `${Math.round(p.x)},${Math.round(p.z)}` };
   });
   (window as unknown as { __perf: PerfMonitor }).__perf = perf;
   // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
@@ -65,6 +73,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
   function animate(now: number): void {
     requestAnimationFrame(animate);
     if (now - lastFrameAt < MIN_FRAME_MS) return;
+    const frameIntervalMs = lastFrameAt > 0 ? now - lastFrameAt : 16.7;
     lastFrameAt = now;
     perf.beginFrame(now);
 
@@ -481,10 +490,14 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
     scene.updateMatrixWorld();
     perf.lap('matrices');
     // Only render scooter mirrors when outdoors & riding
+    // Shadow refresh schedule + dynamic resolution (driven by the measured GPU frame time)
+    hooks.graphics.frame(dt, perf.gpuFrameMs, frameIntervalMs, perf.isBenchmarking);
     if (!inCorridor && isRiding && !perf.flags.skipMirrors) {
       perf.gpuBegin('mirrors');
       scooterMesh.renderMirrors(renderer, scene, scooterPhysics.state);
       perf.gpuEnd();
+    } else {
+      perf.clearGpuLatest('mirrors');
     }
     perf.lap('mirrors');
 

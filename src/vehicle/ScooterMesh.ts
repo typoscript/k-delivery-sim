@@ -844,7 +844,11 @@ export class ScooterMesh {
     // Reuse this frame's shadow map instead of re-rendering it for every mirror pass
     // (each renderer.render() would otherwise redraw the whole shadow map again)
     const prevShadowAuto = renderer.shadowMap.autoUpdate;
+    const prevShadowNeeds = renderer.shadowMap.needsUpdate;
     renderer.shadowMap.autoUpdate = false;
+    // A scheduled shadow refresh must happen in the MAIN pass (the mirror cameras don't see the
+    // main-camera-only props, so a mirror pass would bake a shadow map without them)
+    renderer.shadowMap.needsUpdate = false;
     // Alternate the mirrors: each one refreshes every other frame (~30Hz at 60fps), halving the cost
     this.mirrorFrame++;
     const doLeft = this.mirrorFrame % 2 === 0;
@@ -881,6 +885,7 @@ export class ScooterMesh {
 
     renderer.setRenderTarget(prevTarget);
     renderer.shadowMap.autoUpdate = prevShadowAuto;
+    renderer.shadowMap.needsUpdate = prevShadowNeeds;
     for (const m of this.mirrorGlassMeshes) m.visible = true;
   }
 
