@@ -99,6 +99,9 @@ export interface ConstructionZoneMarker {
   x: number;
   z: number;
   label: string;
+  /** Road graph nodes of the narrowed segment (route planning detours around it) */
+  edgeA: number;
+  edgeB: number;
 }
 
 export interface RivalRiderMarker {

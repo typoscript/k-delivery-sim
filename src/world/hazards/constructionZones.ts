@@ -123,7 +123,7 @@ export function buildConstructionZones(host: RoadHazardManager): void {
     const id = `const-${host.constructionZones.length + 1}`;
     const label = e.name ? `${e.name} 공사구간` : `인계동 도로 공사구간 ${host.constructionZones.length + 1}`;
     host.constructionZones.push({ id, label, x: cx, z: cz, strobeMat });
-    host.constructionMarkers.push({ id, x: cx, z: cz, label });
+    host.constructionMarkers.push({ id, x: cx, z: cz, label, edgeA: e.a, edgeB: e.b });
   }
 }
 

@@ -123,6 +123,7 @@ export class MissionRoutePlanner {
         const pathRes = navigator.findShortestPath(playerX, playerZ, targetPos.x, targetPos.z);
         route = pathRes.points;
         guidance = navigator.computeTurnGuidance(route, pathRes.distance, playerHeading);
+        if (pathRes.roadworks) guidance.instructionText += ' · 🚧 공사 구간 서행';
       }
     }
 

@@ -8,6 +8,14 @@ export interface RoutePoint {
 export interface AStarPathResult {
   points: RoutePoint[];
   distance: number;
+  /** Construction-zone road segments the path still runs through (0 when it could detour) */
+  roadworks?: number;
+}
+
+/** A road segment narrowed by construction (graph node ids of its ends) */
+export interface RoadworkEdge {
+  edgeA: number;
+  edgeB: number;
 }
 
 export type TurnDirection = 'straight' | 'left' | 'right' | 'uturn' | 'arrive';
@@ -41,6 +49,10 @@ interface ProjectedPoint {
 }
 
 const TURN_PENALTY_METERS = 3.5;
+/** Extra route cost of a construction segment: the planner detours unless the way around is much longer */
+export const ROADWORK_DETOUR_METERS = 220;
+
+const edgeKey = (a: number, b: number) => (a < b ? a * 1_000_000 + b : b * 1_000_000 + a);
 
 /**
  * General OpenStreetMap Road Network Graph & A* Shortest-Path Navigator
@@ -50,6 +62,7 @@ export class RoadNavigator {
   private readonly baseNodes: GraphNode[] = [];
   private readonly baseEdges: GraphEdge[] = [];
   private readonly baseAdj: Array<Array<{ to: number; cost: number }>> = [];
+  private readonly roadworkKeys = new Set<number>();
 
   constructor() {
     for (const n of ACTIVE_MAP_DATA.nodes) {
@@ -65,6 +78,16 @@ export class RoadNavigator {
       this.baseAdj[e.a].push({ to: e.b, cost });
       this.baseAdj[e.b].push({ to: e.a, cost });
     }
+  }
+
+  /** Marks construction segments: routes avoid them when a reasonable detour exists */
+  public setRoadworks(edges: readonly RoadworkEdge[]): void {
+    this.roadworkKeys.clear();
+    for (const e of edges) this.roadworkKeys.add(edgeKey(e.edgeA, e.edgeB));
+  }
+
+  public isRoadwork(a: number, b: number): boolean {
+    return this.roadworkKeys.has(edgeKey(a, b));
   }
 
   /** Projects an arbitrary world coordinate (x, z) onto the closest real Suwon OSM road segment */
@@ -132,12 +155,14 @@ export class RoadNavigator {
 
     // Same road segment -> direct along that road!
     if (startProj.edgeIdx === goalProj.edgeIdx) {
-      return this.finalizePath([
+      const direct = this.finalizePath([
         { x: fromX, z: fromZ },
         { x: startProj.x, z: startProj.z },
         { x: goalProj.x, z: goalProj.z },
         { x: toX, z: toZ },
       ]);
+      if (this.isRoadwork(startProj.a, startProj.b)) direct.roadworks = 1;
+      return direct;
     }
 
     const baseCount = this.baseNodes.length;
@@ -172,7 +197,7 @@ export class RoadNavigator {
     // --- Standard A* Search (Euclidean admissible heuristic for arbitrary OSM angles) ---
     const gScore = new Float64Array(totalNodes).fill(Infinity);
     const fScore = new Float64Array(totalNodes).fill(Infinity);
-    const cameFrom = new Int16Array(totalNodes).fill(-1);
+    const cameFrom = new Int32Array(totalNodes).fill(-1);
     const closed = new Uint8Array(totalNodes);
     const inOpen = new Uint8Array(totalNodes);
 
@@ -228,7 +253,11 @@ export class RoadNavigator {
           }
         }
 
-        const tentativeG = gScore[current] + edgeCost + turnPenalty;
+        const roadwork =
+          this.roadworkKeys.size > 0 && current < baseCount && to < baseCount && this.roadworkKeys.has(edgeKey(current, to))
+            ? ROADWORK_DETOUR_METERS
+            : 0;
+        const tentativeG = gScore[current] + edgeCost + turnPenalty + roadwork;
         if (tentativeG < gScore[to]) {
           cameFrom[to] = current;
           gScore[to] = tentativeG;
@@ -254,10 +283,13 @@ export class RoadNavigator {
     }
 
     const roadNodes: RoutePoint[] = [];
+    let roadworks = 0;
     let curr = GOAL_ID;
     let safety = 0;
     while (curr !== -1 && safety <= totalNodes) {
       roadNodes.push({ x: nodes[curr].x, z: nodes[curr].z });
+      const from = cameFrom[curr];
+      if (from !== -1 && curr < baseCount && from < baseCount && this.isRoadwork(curr, from)) roadworks++;
       if (curr === START_ID) break;
       curr = cameFrom[curr];
       safety++;
@@ -271,7 +303,9 @@ export class RoadNavigator {
       ]);
     }
 
-    return this.finalizePath([{ x: fromX, z: fromZ }, ...roadNodes, { x: toX, z: toZ }]);
+    const result = this.finalizePath([{ x: fromX, z: fromZ }, ...roadNodes, { x: toX, z: toZ }]);
+    if (roadworks > 0) result.roadworks = roadworks;
+    return result;
   }
 
   /** Removes duplicate and redundant collinear vertices and computes exact polyline length */

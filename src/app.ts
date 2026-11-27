@@ -87,6 +87,7 @@ const roadHazards = new RoadHazardManager(world.root); // Speed cameras, police 
 world.mapInfo.speedCameras = roadHazards.cameraMarkers;
 world.mapInfo.policePatrols = roadHazards.patrolMarkers;
 world.mapInfo.constructionZones = roadHazards.constructionMarkers;
+roadNavigator.setRoadworks(roadHazards.constructionMarkers); // Mission routes detour around construction
 world.mapInfo.rivalRiders = roadHazards.rivalRiderMarkers;
 const weather = new WeatherManager(scene);
 const visorRain = new VisorRainOverlay();
