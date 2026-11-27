@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PedestrianManager behaviour > moves the same way every run 1`] = `
+{
+  "collisions": 5,
+  "hash": 1277982450,
+  "recycled": 82,
+  "startles": 3,
+  "visible": 0,
+}
+`;
