@@ -121,6 +121,19 @@ describe('PedestrianManager open-world streaming', () => {
   });
 
   it('recycles hidden far-away agents to 60~180m around a player who moved far away', () => {
+    // Deterministic spawns / target node (a random spot can land where no sidewalks lie 60~180m around,
+    // and then nothing is recycled by design)
+    let seed = 20261127;
+    const origRandom = Math.random;
+    Math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    try {
+      checkFarRecycle();
+    } finally {
+      Math.random = origRandom;
+    }
+  });
+
+  function checkFarRecycle(): void {
     const mgr = new PedestrianManager(new THREE.Group());
     // Teleport the player into the busy district farthest from the spawn (a random spot ~2km away could land
     // at the map edge with too few sidewalk nodes around to respawn on)
@@ -145,7 +158,7 @@ describe('PedestrianManager open-world streaming', () => {
     }
     // Nobody pops in right next to the player (preferred ring starts just outside the 80m view range)
     expect(mgr.visibleCount).toBeLessThanOrEqual(Math.ceil(mgr.agents.length * 0.25));
-  });
+  }
 
   it('never recycles visible agents or ones within the keep radius', () => {
     const mgr = new PedestrianManager(new THREE.Group());
