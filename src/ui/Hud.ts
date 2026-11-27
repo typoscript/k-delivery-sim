@@ -18,6 +18,8 @@ import { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
 import { ElevatorPhase } from '../world/CorridorRoom';
 
 export interface InteractionContext {
+  /** Nearest gas station while fuel is low (null otherwise) */
+  nearestGas: { name: string; dist: number } | null;
   nearCargoBox: boolean;
   nearGasPump: boolean;
   scooterOnGasPad: boolean;
@@ -396,10 +398,11 @@ export class Hud {
         delivery.activeSpillWarning);
     if (showSlip) {
       if (scooter.outOfFuel) {
+        const where = ctx.nearestGas ? ` (가장 가까운 ${ctx.nearestGas.name} ${Math.round(ctx.nearestGas.dist)}m)` : '';
         this.slipWarningEl.textContent =
           SCOOTER_MODELS[scooter.modelId].isElectric
-            ? '⚡ EV 배터리 방전! 하차(F) 후 K-오일 충전소에서 급속 충전하세요!'
-            : '⛽ 연료 고갈! 가속 불가 — 하차(F) 후 K-오일 주유소에서 주유하세요!';
+            ? `⚡ EV 배터리 방전! 하차(F) 후 주유소 충전기에서 급속 충전하세요${where}`
+            : `⛽ 연료 고갈! 가속 불가 — 오토바이를 밀고 주유소로 가세요${where}`;
       } else if (scooter.wetSlipWarning === 'manhole') {
         this.slipWarningEl.textContent =
           '⚠ 빗길 금속 맨홀 뚜껑! 브레이크·급회전 시 접지력 상실로 전도됩니다!';
@@ -435,7 +438,8 @@ export class Hud {
         riskPct >= 75 ? 'lean-fill danger' : riskPct >= 45 ? 'lean-fill warn' : 'lean-fill safe';
 
       const fuelPct = Math.round(scooter.fuel);
-      this.fuelVal.textContent = scooter.outOfFuel ? '고갈 (0%)' : `${fuelPct}%`;
+      const gasHint = ctx.nearestGas && fuelPct <= 30 ? ` · ⛽${Math.round(ctx.nearestGas.dist)}m` : '';
+      this.fuelVal.textContent = scooter.outOfFuel ? `고갈 (0%)${gasHint}` : `${fuelPct}%${gasHint}`;
       this.fuelBar.style.width = `${fuelPct}%`;
       this.fuelBar.className =
         scooter.lowFuelWarning ? 'lean-fill danger' : fuelPct <= 30 ? 'lean-fill warn' : 'lean-fill safe';

@@ -502,6 +502,10 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       elapsed,
       world.mapInfo,
       {
+        nearestGas:
+          !inCorridor && scooterPhysics.state.fuel <= 30
+            ? world.nearestGasStation(scooterPhysics.state.x, scooterPhysics.state.z)
+            : null,
         nearCargoBox: isPlayerNearCargoBox(),
         nearGasPump: !inCorridor && world.isPlayerNearGasPump(playerCtrl.state.x, playerCtrl.state.z),
         scooterOnGasPad:

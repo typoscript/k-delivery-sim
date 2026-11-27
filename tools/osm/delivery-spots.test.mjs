@@ -169,4 +169,16 @@ describe('generateDeliverySpots', () => {
     expect(shops).toHaveLength(0); // the restaurant at z = 220 is inside the district square
     expect(residences.map((r) => r.id)).toEqual(['gen-res-w3']);
   });
+
+  it('places OSM gas stations on the curb with their name, keeping clear of buildings', () => {
+    const fuel = { type: 'node', id: 30, lat: -40, lon: 18, tags: { amenity: 'fuel', name: 'S-OIL' } };
+    const { fuelStations } = generateDeliverySpots({ ...base, elements: [...elements, fuel] });
+    expect(fuelStations).toHaveLength(1);
+    const f = fuelStations[0];
+    expect(f.name).toBe('S-OIL 주유소');
+    expect(Math.abs(f.x)).toBeCloseTo(4.3 + 2.5, 1); // station centre 2.5m outside the road edge
+    expect(Math.abs(f.roadX)).toBeLessThan(0.2); // nearest road point on the centre line
+    for (const b of buildings) expect(pointInRing(f.x, f.z, b.ring)).toBe(false);
+  });
 });
+

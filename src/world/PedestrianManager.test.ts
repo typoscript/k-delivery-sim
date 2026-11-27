@@ -9,6 +9,7 @@ import {
   ScooterProximityInfo,
 } from './PedestrianManager';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
 import { SignalStateSnapshot } from './TrafficSystem';
 
 const SIGNAL: SignalStateSnapshot = { ns: 'green', ew: 'red', remainingSec: 30 };
@@ -121,8 +122,13 @@ describe('PedestrianManager open-world streaming', () => {
 
   it('recycles hidden far-away agents to 60~180m around a player who moved far away', () => {
     const mgr = new PedestrianManager(new THREE.Group());
-    // Teleport the player ~2km away onto a sidewalk node
-    const far = mgr.graph.randomNodeWithin(spawn.x, spawn.z, 1800, 2400);
+    // Teleport the player into the busy district farthest from the spawn (a random spot ~2km away could land
+    // at the map edge with too few sidewalk nodes around to respawn on)
+    const target = [...SUWON_OPEN_WORLD.legacyDistricts]
+      .map((d) => d.playerSpawn)
+      .sort((a, b) => Math.hypot(b.x - spawn.x, b.z - spawn.z) - Math.hypot(a.x - spawn.x, a.z - spawn.z))[0];
+    expect(Math.hypot(target.x - spawn.x, target.z - spawn.z)).toBeGreaterThan(1000);
+    const far = mgr.graph.randomNodeWithin(target.x, target.z, 0, 250);
     expect(far).toBeGreaterThanOrEqual(0);
     const p = mgr.graph.getNode(far);
     const noScooter: ScooterProximityInfo = { x: p.x, z: p.z, heading: 0, speedMps: 0, isRiding: false, crashed: false };

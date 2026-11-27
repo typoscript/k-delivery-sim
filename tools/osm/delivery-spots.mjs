@@ -23,6 +23,12 @@ export const MAX_SHOPS_PER_CHUNK = 3;
 /** Gap-filling local shops (no OSM food place nearby) need this much room from any other shop */
 export const FILL_SHOP_SPACING_M = 150;
 export const MAX_RESIDENCES_PER_CHUNK = 4;
+/** Gas stations: station centre this far outside the road edge (like the hand-tuned ones), canopy footprint */
+export const FUEL_FOOTPRINT = { curbOffset: 2.5, halfWidth: 3.3, depths: [1.2, 2.4], wide: true };
+/** Generic stations fill in wherever no gas station is within this distance */
+export const FUEL_SPACING_M = 1100;
+/** Two OSM stations closer than this are one stop for the game */
+export const FUEL_MIN_SPACING_M = 250;
 
 // ---------------------------------------------------------------- shop categories
 // Menu names carry the keywords DeliveryManager.classifyMenuFood() uses for hot/cold & spill physics.
@@ -173,7 +179,7 @@ export function projectOnSegment(px, pz, ax, az, bx, bz) {
  * Curbside spot for a target point beside a road edge: stands CURB_OFFSET_M outside the road edge on the
  * target's side, facing the road. Returns the spot and the prop centre (PROP_BACK_M behind, toward the target).
  */
-export function curbSpot(tx, tz, ax, az, bx, bz, roadWidth) {
+export function curbSpot(tx, tz, ax, az, bx, bz, roadWidth, curbOffset = CURB_OFFSET_M) {
   const p = projectOnSegment(tx, tz, ax, az, bx, bz);
   const len = Math.hypot(bx - ax, bz - az) || 1;
   const fx = (bx - ax) / len;
@@ -185,7 +191,7 @@ export function curbSpot(tx, tz, ax, az, bx, bz, roadWidth) {
     nx = -nx;
     nz = -nz;
   }
-  const off = roadWidth / 2 + CURB_OFFSET_M;
+  const off = roadWidth / 2 + curbOffset;
   const x = p.x + nx * off;
   const z = p.z + nz * off;
   return {
@@ -321,7 +327,12 @@ export function generateDeliverySpots({ elements, buildings, nodes, edges, busSt
   };
 
   /** Curbside spot for target points (a POI or a building outline), or null with a counted reason */
-  const place = (targets, own, majorOnly = false) => {
+  /**
+   * Curbside spot for target points (a POI or a building outline), or null with a counted reason.
+   * `footprint` describes what stands behind the spot: its half width and the depths (toward the building)
+   * that must stay off other roads and out of other buildings (default: the 3m counter / lobby 1.1m back).
+   */
+  const place = (targets, own, majorOnly = false, footprint = { curbOffset: CURB_OFFSET_M, halfWidth: 1.5, depths: [PROP_BACK_M] }) => {
     let best = null;
     const probe = targets[0];
     for (const i of edgeIdx.query(probe[0], probe[1], MAX_ROAD_DIST_M + 60)) {
@@ -340,18 +351,28 @@ export function generateDeliverySpots({ elements, buildings, nodes, edges, busSt
     const e = edges[best.i];
     const a = nodes[e.a];
     const b = nodes[e.b];
-    const s = curbSpot(best.tx, best.tz, a.x, a.z, b.x, b.z, e.width);
+    const s = curbSpot(best.tx, best.tz, a.x, a.z, b.x, b.z, e.width, footprint.curbOffset);
     if (inLegacy(s.x, s.z)) return reject('legacyArea');
-    // the 3m-wide counter / lobby must stay off every other road surface (no props inside crossings)
+    // what stands behind the spot (counter / lobby / gas station) must stay off every other road surface
     const tx = -s.nz;
     const tz = s.nx;
-    for (const [px, pz] of [[s.x, s.z], [s.propX, s.propZ], [s.propX + tx * 1.5, s.propZ + tz * 1.5], [s.propX - tx * 1.5, s.propZ - tz * 1.5]]) {
+    const samples = [[s.x, s.z]];
+    for (const d of footprint.depths) {
+      const cx = s.x + s.nx * d;
+      const cz = s.z + s.nz * d;
+      samples.push([cx, cz], [cx + tx * footprint.halfWidth, cz + tz * footprint.halfWidth], [cx - tx * footprint.halfWidth, cz - tz * footprint.halfWidth]);
+    }
+    for (const [px, pz] of samples) {
       if (onOtherRoad(px, pz, best.i, 0.4)) return reject('otherRoad');
     }
     if (near(junctionIdx, s.x, s.z, JUNCTION_CLEARANCE_M)) return reject('junction');
-    for (const bd of bIdx.query(s.x, s.z, 4)) {
+    // other buildings: the counter / lobby checks its centre; a wide footprint (gas station) every sample
+    const wide = footprint.wide === true;
+    const bldgSamples = wide ? samples.slice(1) : [samples[1]];
+    for (const bd of bIdx.query(s.x, s.z, 4 + (wide ? footprint.halfWidth : 0))) {
       if (pointInRing(s.x, s.z, bd.ring) || ringDist(s.x, s.z, bd.ring) < 0.6) return reject('blockedByBuilding');
-      if (bd !== own && pointInRing(s.propX, s.propZ, bd.ring)) return reject('blockedByBuilding');
+      if (bd === own) continue;
+      for (const [px, pz] of bldgSamples) if (pointInRing(px, pz, bd.ring)) return reject('blockedByBuilding');
     }
     if (near(anyIdx, s.x, s.z, ANY_SPOT_SPACING_M)) return reject('crowded');
     return s;
@@ -507,5 +528,78 @@ export function generateDeliverySpots({ elements, buildings, nodes, edges, busSt
   stats.residences = residences.length;
   stats.shopCategories = categories;
   stats.residenceKinds = kinds;
-  return { shops, residences, stats };
+  // ---- gas stations: OSM amenity=fuel, then generic stations on arterials where none is within FUEL_SPACING_M
+  const fuelIdx = new GridIndex(400);
+  for (const d of legacyDistricts) fuelIdx.add({ x: d.serviceSpots.gas.x, z: d.serviceSpots.gas.z }, d.serviceSpots.gas.x, d.serviceSpots.gas.z, d.serviceSpots.gas.x, d.serviceSpots.gas.z);
+  const fuelStations = [];
+  const addFuel = (s, name, id) => {
+    const r = edgeIdx.query(s.x, s.z, 30);
+    let road = null;
+    for (const i of r) {
+      const e = edges[i];
+      const p = projectOnSegment(s.x, s.z, nodes[e.a].x, nodes[e.a].z, nodes[e.b].x, nodes[e.b].z);
+      if (!road || p.d < road.d) road = p;
+    }
+    fuelStations.push({
+      id,
+      name,
+      x: r1(s.x),
+      z: r1(s.z),
+      roadX: r1(road ? road.x : s.x),
+      roadZ: r1(road ? road.z : s.z),
+      facingHeading: r3(s.facingHeading),
+    });
+    fuelIdx.add({ x: s.x, z: s.z }, s.x, s.z, s.x, s.z);
+    occupy(s.x, s.z);
+  };
+  const fuelEls = elements
+    .filter((el) => el.tags?.amenity === 'fuel')
+    .map((el) => {
+      let p;
+      if (el.type === 'node') p = project(el.lat, el.lon);
+      else {
+        const ring = outerRing(el);
+        if (!ring?.length) return null;
+        p = { x: ring.reduce((a, q) => a + q.x, 0) / ring.length, z: ring.reduce((a, q) => a + q.z, 0) / ring.length };
+      }
+      return { el, p };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.el.id - b.el.id);
+  let osmFuel = 0;
+  for (const { el, p } of fuelEls) {
+    if (inLegacy(p.x, p.z) || near(fuelIdx, p.x, p.z, FUEL_MIN_SPACING_M)) continue;
+    const own = buildingAt(p.x, p.z);
+    const s = place(own ? own.ring : [[p.x, p.z]], own, false, FUEL_FOOTPRINT);
+    if (!s) continue;
+    const name = String(el.tags.name ?? el.tags.brand ?? '주유소').trim();
+    addFuel(s, /주유소/.test(name) ? name : `${name} 주유소`, `gen-fuel-${el.type[0]}${el.id}`);
+    osmFuel++;
+  }
+  // Generic local stations along arterials so no part of the city is far from fuel
+  const arterials = edges
+    .map((e, i) => ({ e, i, h: hash01(i, 9) }))
+    .filter(({ e }) => e.isMajor && e.dist > 40)
+    .sort((a, b) => a.h - b.h);
+  let fillFuel = 0;
+  for (const { e, i } of arterials) {
+    const a = nodes[e.a];
+    const b = nodes[e.b];
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    if (inLegacy(mx, mz) || near(fuelIdx, mx, mz, FUEL_SPACING_M)) continue;
+    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    const side = hash01(i, 10) < 0.5 ? 1 : -1;
+    // a target point beside the road; place() snaps it to the curb on that side
+    const tx = mx + (-(b.z - a.z) / len) * side * (e.width / 2 + 6);
+    const tz = mz + ((b.x - a.x) / len) * side * (e.width / 2 + 6);
+    const s = place([[tx, tz]], null, true, FUEL_FOOTPRINT);
+    if (!s || near(fuelIdx, s.x, s.z, FUEL_SPACING_M)) continue;
+    addFuel(s, `${pick(VILLA_PREFIX, hash01(i, 11))} 셀프주유소`, `gen-fuel-e${i}`);
+    fillFuel++;
+  }
+  stats.osmFuelStations = osmFuel;
+  stats.fillFuelStations = fillFuel;
+
+  return { shops, residences, fuelStations, stats };
 }

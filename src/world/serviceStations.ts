@@ -25,6 +25,10 @@ export class ServiceStations {
 
   /** Builds K-Oil Self-Service Gas Station & Lightning Motorcycle Repair Center in open roadside bays */
   public build(): void {
+    // Unified open world: OSM / generic gas stations between the districts (gas only)
+    for (const f of ACTIVE_MAP_DATA.fuelStations ?? []) {
+      this.buildGas(f, `⛽ ${f.name}`, f.name);
+    }
     if (!this.unified || !ACTIVE_MAP_DATA.serviceSpotList) {
       this.buildSet(ACTIVE_MAP_DATA.serviceSpots.gas, ACTIVE_MAP_DATA.serviceSpots.repair, '인계', ACTIVE_MAP_DATA.meta.scooterSpawn, this.obstacles);
       return;
@@ -43,15 +47,8 @@ export class ServiceStations {
     }
   }
 
-  private buildSet(
-    gas: OsmServiceSpot,
-    rep: OsmServiceSpot,
-    label: string,
-    spawn: { x: number; z: number },
-    buildingBoxes: ObstacleBox[]
-  ): void {
-
-    // 1. 인계 K-오일 셀프주유소
+  /** Gas station: yellow pad, canopy with sign, pillars and a pump; the [E] fuel interaction works on the pad */
+  private buildGas(gas: OsmServiceSpot, signTitle: string, stationName: string): void {
     const gasGroup = new THREE.Group();
     gasGroup.position.set(gas.x, 0, gas.z);
     gasGroup.rotation.y = gas.facingHeading;
@@ -64,7 +61,7 @@ export class ServiceStations {
     canopy.position.set(0, 3.85, 0.6);
     const gasSign = new THREE.Mesh(
       new THREE.BoxGeometry(6.2, 0.85, 0.18),
-      new THREE.MeshBasicMaterial({ map: this.host.createSignTexture('⛽ 인계 K-오일 셀프주유소', '#eab308', '#0f172a') })
+      new THREE.MeshBasicMaterial({ map: this.host.createSignTexture(signTitle, '#eab308', '#0f172a') })
     );
     gasSign.position.set(0, 4.45, 2.95);
 
@@ -83,7 +80,7 @@ export class ServiceStations {
     this.host.addProp(gasGroup, gas.x, gas.z, 3);
 
     this.stations.push({
-      name: `${label} K-오일 셀프주유소`,
+      name: stationName,
       kind: 'gas',
       padMinX: gas.x - 5.2,
       padMaxX: gas.x + 5.2,
@@ -93,6 +90,18 @@ export class ServiceStations {
       interactZ: gas.z,
       interactRadius: 5.5,
     });
+  }
+
+  private buildSet(
+    gas: OsmServiceSpot,
+    rep: OsmServiceSpot,
+    label: string,
+    spawn: { x: number; z: number },
+    buildingBoxes: ObstacleBox[]
+  ): void {
+
+    // 1. K-오일 셀프주유소
+    this.buildGas(gas, `⛽ ${label} K-오일 셀프주유소`, `${label} K-오일 셀프주유소`);
 
     // 2. 인계 번개 오토바이 센터
     const repGroup = new THREE.Group();
@@ -283,5 +292,16 @@ export class ServiceStations {
     return this.stations.some(
       (st) => st.kind === 'repair' && Math.hypot(px - st.interactX, pz - st.interactZ) <= st.interactRadius
     );
+  }
+
+  /** Nearest gas station to a position (any kind of station set) */
+  public nearestGas(x: number, z: number): { name: string; dist: number } | null {
+    let best: { name: string; dist: number } | null = null;
+    for (const st of this.stations) {
+      if (st.kind !== 'gas') continue;
+      const d = Math.hypot(st.interactX - x, st.interactZ - z);
+      if (!best || d < best.dist) best = { name: st.name, dist: d };
+    }
+    return best;
   }
 }

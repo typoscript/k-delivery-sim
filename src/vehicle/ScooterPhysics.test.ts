@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ScooterPhysics } from './ScooterPhysics';
+import { OUT_OF_FUEL_PUSH_SPEED, ScooterPhysics } from './ScooterPhysics';
 
 /**
  * Coordinate convention (CLAUDE.md): heading = 0 faces +Z, +X is LEFT of travel, -X is RIGHT.
@@ -29,5 +29,20 @@ describe('ScooterPhysics crash slide', () => {
   it('keeps forward momentum along +Z', () => {
     const s = crashAtSpeed(-1);
     expect(s.slideVz).toBeGreaterThan(0);
+  });
+});
+
+describe('ScooterPhysics out of fuel', () => {
+  it('cannot ride on an empty tank but can be pushed along at walking pace', () => {
+    const physics = new ScooterPhysics();
+    physics.setMounted(true);
+    physics.state.fuel = 0;
+    physics.state.outOfFuel = true;
+    const input = { throttle: true, brake: false, steerLeft: false, steerRight: false, handbrake: false };
+    const road = { isRaining: false, surface: 'none' as const, onSpeedBump: false };
+    for (let i = 0; i < 300; i++) physics.step(1 / 60, input, [], road);
+    expect(physics.state.speed).toBeGreaterThan(OUT_OF_FUEL_PUSH_SPEED * 0.9);
+    expect(physics.state.speed).toBeLessThanOrEqual(OUT_OF_FUEL_PUSH_SPEED + 0.05);
+    expect(physics.state.fuel).toBe(0);
   });
 });

@@ -104,4 +104,6 @@ export interface SuwonMapDataset {
   serviceSpots: { gas: OsmServiceSpot; repair: OsmServiceSpot };
   /** Unified open world only: every district's gas station & repair shop (serviceSpots = spawn district's) */
   serviceSpotList?: Array<{ districtId: SuwonDistrictId; gas: OsmServiceSpot; repair: OsmServiceSpot }>;
+  /** Unified open world only: extra gas stations across the city (OSM + generic) */
+  fuelStations?: Array<OsmServiceSpot & { id: string; name: string }>;
 }

@@ -1120,6 +1120,11 @@ export class CityWorld {
     return this.stations.isScooterOnRepairPad(sx, sz);
   }
 
+  /** Nearest gas station (name, straight-line distance) for low-fuel hints */
+  public nearestGasStation(x: number, z: number): { name: string; dist: number } | null {
+    return this.stations.nearestGas(x, z);
+  }
+
   public isPlayerNearRepairShop(px: number, pz: number): boolean {
     return this.stations.isPlayerNearRepairShop(px, pz);
   }

@@ -643,6 +643,7 @@ async function main() {
     legacyDistricts,
     generatedShops: generated.shops,
     generatedResidences: generated.residences,
+    generatedFuelStations: generated.fuelStations,
     chunks: chunkIndex,
   };
   const worldBody = JSON.stringify(world);

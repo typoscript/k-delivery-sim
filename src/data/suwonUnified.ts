@@ -47,6 +47,7 @@ export function buildUnifiedSuwonDataset(spawnDistrictId: SuwonDistrictId): Suwo
       gas: d.serviceSpots.gas,
       repair: d.serviceSpots.repair,
     })),
+    fuelStations: w.generatedFuelStations ?? [],
   };
 }
 

@@ -24,7 +24,7 @@ const TILES_X = 3;
 const TILES_Y = 2;
 
 // Roads (drivable), signals, bus stops, buildings, parks/green, water, pedestrian areas & streets,
-// food places (generated delivery shops) and named residential areas (apartment complex names)
+// food places (generated delivery shops), named residential areas (apartment complex names) and gas stations
 const buildQuery = (bb) => `
 [out:json][timeout:300];
 (
@@ -44,6 +44,8 @@ const buildQuery = (bb) => `
   node["amenity"~"^(restaurant|fast_food|cafe|food_court|ice_cream|pub|bar)$"](${bb});
   way["amenity"~"^(restaurant|fast_food|cafe|food_court|ice_cream|pub|bar)$"](${bb});
   node["shop"~"^(bakery|pastry|confectionery|deli)$"](${bb});
+  node["amenity"="fuel"](${bb});
+  way["amenity"="fuel"](${bb});
   way["landuse"="residential"]["name"](${bb});
   relation["landuse"="residential"]["name"](${bb});
 );

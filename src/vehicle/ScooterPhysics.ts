@@ -76,6 +76,9 @@ export interface ScooterState {
   braking: boolean;
 }
 
+/** Walking pace (m/s) at which the rider can push a scooter that ran out of fuel */
+export const OUT_OF_FUEL_PUSH_SPEED = 1.5;
+
 export const SCOOTER_SPECS = {
   wheelbase: 1.38,
   wheelRadius: 0.28,
@@ -465,6 +468,9 @@ export class ScooterPhysics {
       } else if (!s.outOfFuel) {
         accel = maxAccel;
         throttleAmt = 1;
+      } else if (s.speed < OUT_OF_FUEL_PUSH_SPEED) {
+        // Out of fuel: the rider pushes the scooter along at walking pace (to the nearest gas station)
+        accel = Math.min(1.6, (OUT_OF_FUEL_PUSH_SPEED - s.speed) / Math.max(dt, 1e-3));
       }
     } else if (input.brake) {
       if (s.speed > 0.15) {

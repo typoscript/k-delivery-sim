@@ -83,6 +83,8 @@ export interface OpenWorldData {
   generatedShops?: OsmDeliverySpot[];
   /** Customer lobbies generated from OSM residential buildings across the whole map */
   generatedResidences?: OsmDeliverySpot[];
+  /** Gas stations from OSM (amenity=fuel) plus generic ones on arterials, outside the legacy districts */
+  generatedFuelStations?: Array<OsmServiceSpot & { id: string; name: string }>;
   chunks: ChunkIndexEntry[];
 }
 
