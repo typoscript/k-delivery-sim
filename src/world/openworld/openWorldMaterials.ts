@@ -23,18 +23,12 @@ export function createOpenWorldMaterials(): ChunkMaterials {
   };
 }
 
-/** White road markings and concrete curbs of chunk roads */
-export function createRoadEdgeMaterials(): { roadLineWhite: THREE.Material; curb: THREE.Material } {
-  return {
-    roadLineWhite: new THREE.MeshBasicMaterial({ color: 0xe5e7eb }),
-    curb: new THREE.MeshLambertMaterial({ color: 0xb8bcc2 }),
-  };
+/** Road paint (yellow / white) and concrete curbs of chunk roads: one vertex-coloured material */
+export function createRoadEdgeMaterials(): { roadMarkings: THREE.Material } {
+  return { roadMarkings: new THREE.MeshLambertMaterial({ vertexColors: true }) };
 }
 
-/** Ground-floor shopfronts: dark glass with a warm lit interior; signboards unlit so they read at night too */
-export function createStorefrontMaterials(): { storefrontGlass: THREE.Material; storefrontSign: THREE.Material } {
-  return {
-    storefrontGlass: new THREE.MeshLambertMaterial({ color: 0x3b5068, emissive: 0x3d3322, emissiveIntensity: 0.5 }),
-    storefrontSign: new THREE.MeshBasicMaterial({ vertexColors: true }),
-  };
+/** Ground-floor shopfronts (glass + signboards): unlit vertex colours so signs read at night too */
+export function createStorefrontMaterials(): { storefront: THREE.Material } {
+  return { storefront: new THREE.MeshBasicMaterial({ vertexColors: true }) };
 }

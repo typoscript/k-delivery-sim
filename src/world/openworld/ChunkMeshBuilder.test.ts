@@ -217,8 +217,7 @@ describe('buildChunkMeshes', () => {
 describe('ground-floor storefronts', () => {
   // a road running along z = 0 (curb at |z| = 4); buildings stand north of it
   const curbOffset = (_x: number, z: number) => Math.abs(z) - 4;
-  const glass = new THREE.MeshBasicMaterial();
-  const sign = new THREE.MeshBasicMaterial();
+  const shopMat = new THREE.MeshBasicMaterial();
   const chunkOf = (buildings: OsmBuildingData[]): ChunkData => ({
     ix: 0,
     iz: 0,
@@ -234,30 +233,32 @@ describe('ground-floor storefronts', () => {
     const found: THREE.Mesh[] = [];
     r.group.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh && (m.material === glass || m.material === sign)) found.push(m);
+      if (m.isMesh && m.material === shopMat) found.push(m);
     });
     return { r, found };
   };
-  const STORE = { ...MATS, storefrontGlass: glass, storefrontSign: sign };
+  const STORE = { ...MATS, storefront: shopMat };
 
   it('a low building beside the road gets shopfront units with signboards only on its road side', () => {
     // 24m wide, wall facing the road at z = 8 (4m from the curb)
     const { found, r } = meshesWith([{ ...box(0, 14, 24, 12, 12), kind: 'shop' }], STORE);
-    expect(found.map((m) => m.material)).toEqual([glass, sign]);
+    // glass and signboards share one vertex-coloured mesh (one draw call)
+    expect(found).toHaveLength(1);
     const g = found[0].geometry;
     const pos = g.getAttribute('position');
-    // every shopfront vertex is on the road-facing wall (z ~ 8)
-    for (let i = 0; i < pos.count; i++) expect(pos.getZ(i)).toBeLessThan(8.1);
-    expect(pos.count / 6).toBe(4); // 24m / ~6m units
-    // signboards carry colours
-    expect(found[1].geometry.getAttribute('color')).toBeDefined();
+    // every shopfront vertex is on the road-facing wall (z ~ 8, signboards stick out 0.22m)
+    for (let i = 0; i < pos.count; i++) expect(pos.getZ(i)).toBeLessThan(8.3);
+    // 24m / ~6m units: per unit 6 glass + 18 signboard vertices
+    expect(pos.count / 24).toBe(4);
+    expect(g.getAttribute('color')).toBeDefined();
+    expectFrontFacing(g);
     r.dispose();
   });
 
   it('no shopfronts away from roads, on big public buildings, on apartment towers, or without the materials', () => {
     expect(meshesWith([box(0, 60, 20, 12, 12)], STORE).found).toHaveLength(0); // far from the road
     expect(meshesWith([{ ...box(0, 14, 60, 40, 12), kind: 'public', area: 2400 }], STORE).found).toHaveLength(0); // school
-    expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'public', area: 240 }], STORE).found).toHaveLength(2); // small office
+    expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'public', area: 240 }], STORE).found).toHaveLength(1); // small office
     expect(meshesWith([box(0, 14, 20, 12, 60)], STORE).found).toHaveLength(0); // 60m apartment
     expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'shop' }], MATS).found).toHaveLength(0);
   });
@@ -265,9 +266,7 @@ describe('ground-floor storefronts', () => {
 
 describe('storefronts anywhere on the map', () => {
   it('builds at negative and large coordinates too (every unit gets a sign colour)', () => {
-    const glass = new THREE.MeshBasicMaterial();
-    const sign = new THREE.MeshBasicMaterial();
-    const mats = { ...MATS, storefrontGlass: glass, storefrontSign: sign };
+    const mats = { ...MATS, storefront: new THREE.MeshBasicMaterial() };
     for (const [ox, oz] of [
       [-3417.3, -2211.8],
       [5120.6, -987.2],
@@ -335,9 +334,8 @@ describe('facade tints and rooftops', () => {
 });
 
 describe('lane markings and curbs', () => {
-  const white = new THREE.MeshBasicMaterial();
-  const curb = new THREE.MeshBasicMaterial();
-  const mats = { ...MATS, roadLineWhite: white, curb };
+  const markings = new THREE.MeshBasicMaterial();
+  const mats = { ...MATS, roadMarkings: markings };
   const roadsOf = (width: number, signalA: boolean, isMajor = true) => ({
     nodes: [
       { id: 0, x: 0, z: 0, isSignal: signalA },
@@ -348,43 +346,63 @@ describe('lane markings and curbs', () => {
     nodeMaxWidth: new Float32Array([width, width]),
   });
   const empty: ChunkData = { ix: 0, iz: 0, buildings: [], parks: [], waters: [], waterLines: [], pedestrianPlazas: [] };
-  const meshFor = (roads: ReturnType<typeof roadsOf>, mat: THREE.Material) => {
+  /** Vertices of the merged markings mesh, by paint colour */
+  const paint = (roads: ReturnType<typeof roadsOf>) => {
     const r = buildChunkMeshes(empty, roads, mats);
-    return { r, mesh: meshesOf(r.group).find((m) => m.material === mat) };
+    const mesh = meshesOf(r.group).find((m) => m.material === markings);
+    const out = { yellow: [] as THREE.Vector3[], white: [] as THREE.Vector3[], curb: [] as THREE.Vector3[], mesh, r };
+    if (mesh) {
+      const pos = mesh.geometry.getAttribute('position');
+      const col = mesh.geometry.getAttribute('color');
+      for (let i = 0; i < pos.count; i++) {
+        const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+        const [cr, cb] = [col.getX(i), col.getZ(i)];
+        if (cb < 0.3) out.yellow.push(v);
+        else if (cr > 0.7)
+          out.white.push(v); // linear colour space: #e5e7eb -> ~0.78, curb #b8bcc2 -> ~0.48
+        else out.curb.push(v);
+      }
+    }
+    return out;
   };
 
-  it('major roads get white edge lines and front-facing curbs on both sides', () => {
-    const { r, mesh: lines } = meshFor(roadsOf(10, false), white);
-    const curbMesh = meshesOf(r.group).find((m) => m.material === curb)!;
-    expect(lines).toBeDefined();
-    expectFrontFacing(curbMesh.geometry);
-    // curbs sit just outside both road edges (x = +-5 .. +-5.25)
-    const pos = curbMesh.geometry.getAttribute('position');
-    for (let i = 0; i < pos.count; i++) {
-      const ax = Math.abs(pos.getX(i));
-      expect(ax).toBeGreaterThanOrEqual(5 - 1e-6);
-      expect(ax).toBeLessThanOrEqual(5.25 + 1e-6);
+  it('all paint and curbs of a chunk are one front-facing mesh; curbs sit just outside both edges', () => {
+    const p = paint(roadsOf(10, false));
+    expect(p.yellow.length).toBeGreaterThan(0);
+    expect(p.white.length).toBeGreaterThan(0);
+    expect(p.curb.length).toBeGreaterThan(0);
+    expectFrontFacing(p.mesh!.geometry);
+    for (const v of p.curb) {
+      expect(Math.abs(v.x)).toBeGreaterThanOrEqual(5 - 1e-6);
+      expect(Math.abs(v.x)).toBeLessThanOrEqual(5.25 + 1e-6);
     }
-    r.dispose();
+    expect(new Set(p.curb.map((v) => Math.sign(v.x)))).toEqual(new Set([-1, 1]));
+    p.r.dispose();
   });
 
-  it('wide roads add dashed lane dividers; minor roads and alleys get nothing', () => {
-    const narrow = meshFor(roadsOf(10, false), white);
-    const wide = meshFor(roadsOf(16, false), white);
-    expect(wide.mesh!.geometry.attributes.position.count).toBeGreaterThan(
-      narrow.mesh!.geometry.attributes.position.count * 3,
-    );
-    expect(meshFor(roadsOf(10, false, false), white).mesh).toBeUndefined();
-    expect(meshFor(roadsOf(6, false), white).mesh).toBeUndefined();
-    for (const x of [narrow, wide]) x.r.dispose();
+  it('wide roads add dashed lane dividers; narrow major roads only the centre line; alleys nothing', () => {
+    const narrow = paint(roadsOf(10, false));
+    const wide = paint(roadsOf(16, false));
+    expect(wide.white.length).toBeGreaterThan(narrow.white.length * 3);
+    const six = paint(roadsOf(6, false));
+    expect(six.white).toHaveLength(0);
+    expect(six.curb).toHaveLength(0);
+    expect(six.yellow.length).toBeGreaterThan(0);
+    expect(paint(roadsOf(10, false, false)).mesh).toBeUndefined();
+    for (const x of [narrow, wide, six]) x.r.dispose();
   });
 
-  it('markings and curbs stop before a signal junction (crosswalk + stop line)', () => {
-    const { r, mesh } = meshFor(roadsOf(10, true), curb);
-    const pos = mesh!.geometry.getAttribute('position');
-    let minZ = Infinity;
-    for (let i = 0; i < pos.count; i++) minZ = Math.min(minZ, pos.getZ(i));
-    expect(minZ).toBeGreaterThanOrEqual(11.5 - 1e-6);
+  it('white lines and curbs stop before a signal junction (crosswalk + stop line)', () => {
+    const p = paint(roadsOf(10, true));
+    for (const v of [...p.white, ...p.curb]) expect(v.z).toBeGreaterThanOrEqual(11.5 - 1e-6);
+    p.r.dispose();
+  });
+
+  it('without the markings material only the yellow centre dashes are drawn (roadLine)', () => {
+    const r = buildChunkMeshes(empty, roadsOf(10, false), MATS);
+    const lines = meshesOf(r.group).filter((m) => m.material === MATS.roadLine);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].geometry.getAttribute('color')).toBeUndefined();
     r.dispose();
   });
 });

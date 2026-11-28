@@ -23,12 +23,13 @@ export interface ChunkMaterials {
   plaza: THREE.Material;
   /** Far LOD: untextured vertex-coloured buildings (one mesh per chunk) */
   farBuildings: THREE.Material;
-  /** White lane markings (edge lines, lane dividers) and raised curbs on major roads; none when omitted */
-  roadLineWhite?: THREE.Material;
-  curb?: THREE.Material;
-  /** Ground-floor shopfronts (glass) and their signboards (vertex-coloured); none when omitted */
-  storefrontGlass?: THREE.Material;
-  storefrontSign?: THREE.Material;
+  /**
+   * Vertex-coloured material for ALL road paint and curbs of a chunk (yellow centre dashes, white edge lines and
+   * lane dividers, raised curbs) in one draw call; without it only the yellow dashes are drawn with `roadLine`
+   */
+  roadMarkings?: THREE.Material;
+  /** Vertex-coloured material for ground-floor shopfronts (glass + signboards in one draw call); none when omitted */
+  storefront?: THREE.Material;
 }
 
 /** Chunks whose centre is farther than this from the camera draw the single-mesh far LOD */
@@ -181,6 +182,12 @@ const SIGN_COLORS = [0xdc2626, 0x1d4ed8, 0xfacc15, 0x16a34a, 0xf8fafc, 0x0f172a,
   (c) => new THREE.Color(c)
 );
 const SHOPFRONT_UNIT_M = 6.2;
+/** Shopfront glass (unlit: reads as a lit interior at night, dark glass by day) */
+const SHOPFRONT_GLASS_COLOR = new THREE.Color(0x253447);
+/** Road paint / curb colours (vertex colours of the merged road-markings mesh) */
+const CENTRE_LINE_COLOR = new THREE.Color(0xfacc15);
+const WHITE_LINE_COLOR = new THREE.Color(0xe5e7eb);
+const CURB_COLOR = new THREE.Color(0xb8bcc2);
 const SHOPFRONT_TOP_M = 3.0;
 const SIGN_BOTTOM_M = 3.2;
 const SIGN_TOP_M = 4.15;
@@ -263,6 +270,7 @@ export function addStorefronts(
       const az = pz + uz * s0;
       const bx = px + ux * s1;
       const bz = pz + uz * s1;
+      if (glass.col) glass.color.copy(SHOPFRONT_GLASS_COLOR);
       addWallQuad(glass, ax, az, bx, bz, nx, nz, 0.25, SHOPFRONT_TOP_M, 0.05);
       sign.color.copy(SIGN_COLORS[Math.floor(hash01(ax, az, 7) * SIGN_COLORS.length)]);
       // signboard: front face + top and bottom edges
@@ -281,7 +289,8 @@ export function addStorefronts(
           [ax + ox, az + oz],
           [bx + ox, bz + oz],
         ];
-        if (ny < 0) tri.reverse();
+        // (a, a+o, b) winds downward: flip it for the top face so both caps face outward
+        if (ny > 0) tri.reverse();
         for (const [x, z] of tri) sign.vertex(x, y, z, 0, ny, 0, 0, 0);
       }
       units++;
@@ -395,6 +404,7 @@ export function addRoadEdges(
   const at = (off: number, x: number, z: number): [number, number] => [x + rx * off, z + rz * off];
   const hw = width / 2;
   if (white) {
+    if (white.col) white.color.copy(WHITE_LINE_COLOR);
     for (const side of [-1, 1]) {
       const off = side * (hw - 0.45);
       addRibbon(white, [at(off, sx, sz), at(off, ex, ez)], 0.15, y + 0.012, 0);
@@ -414,6 +424,7 @@ export function addRoadEdges(
     }
   }
   if (curb) {
+    if (curb.col) curb.color.copy(CURB_COLOR);
     for (const side of [-1, 1]) {
       const inner = side * hw;
       const outer = side * (hw + CURB_W);
@@ -524,9 +535,8 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const roofTall = new GeoBuffer();
   const roofLow = new GeoBuffer();
   const farBuf = new GeoBuffer(true);
-  const shopGlass = new GeoBuffer();
-  const shopSign = new GeoBuffer(true);
-  const withStorefronts = !!(roads.curbOffset && mats.storefrontGlass && mats.storefrontSign);
+  const shopfronts = new GeoBuffer(true);
+  const withStorefronts = !!(roads.curbOffset && mats.storefront);
   const obstacles: ObstacleBox[] = [];
   let minX = Infinity;
   let maxX = -Infinity;
@@ -542,7 +552,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     wb.color.copy(wallTintOf(cat, b));
     addBuilding(wb, tall ? roofTall : roofLow, b, farBuf);
     addRooftop(tall ? roofTall : roofLow, b);
-    if (withStorefronts) addStorefronts(shopGlass, shopSign, b, roads.curbOffset!);
+    if (withStorefronts) addStorefronts(shopfronts, shopfronts, b, roads.curbOffset!);
     obstacles.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, pts: b.pts });
     minX = Math.min(minX, b.minX);
     maxX = Math.max(maxX, b.maxX);
@@ -568,8 +578,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     addMesh(roofTall, mats.roof, { cast: true, parent: near });
     addMesh(roofLow, mats.roof, { parent: near });
     if (withStorefronts) {
-      addMesh(shopGlass, mats.storefrontGlass!, { parent: near });
-      addMesh(shopSign, mats.storefrontSign!, { parent: near });
+      addMesh(shopfronts, mats.storefront!, { parent: near });
     }
     addMesh(farBuf, mats.farBuildings, { parent: far, countDraw: false });
     lod.addLevel(near, 0);
@@ -579,9 +588,9 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
 
   // --- Roads: merged ribbons + junction discs + yellow centre dashes on arterials
   const road = new GeoBuffer();
-  const lines = new GeoBuffer();
-  const white = mats.roadLineWhite ? new GeoBuffer() : null;
-  const curbs = mats.curb ? new GeoBuffer() : null;
+  // With roadMarkings every bit of paint and curb shares one vertex-coloured mesh
+  const lines = new GeoBuffer(!!mats.roadMarkings);
+  const edges = mats.roadMarkings ? lines : null;
   // markings / curbs stop short of junction discs, and of crosswalks + stop lines at signals
   const trimAt = (id: number) => Math.max(roads.nodeMaxWidth[id] * 0.55 + 0.5, roads.nodes[id].isSignal ? 11.5 : 0);
   for (const e of roads.edges) {
@@ -589,11 +598,12 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     const b = roads.nodes[e.b];
     const y = e.isMajor ? ROAD_Y_MAJOR : ROAD_Y_MINOR;
     addRibbon(road, [[a.x, a.z], [b.x, b.z]], e.width, y, ROAD_UV_SCALE);
-    if (e.isMajor && e.width >= 8 && (white || curbs)) addRoadEdges(white, curbs, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b));
+    if (e.isMajor && e.width >= 8 && edges) addRoadEdges(edges, edges, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b));
     if (e.isMajor && e.dist >= 10) {
       const dx = b.x - a.x;
       const dz = b.z - a.z;
       const count = Math.floor((e.dist - 4) / 9);
+      if (lines.col) lines.color.copy(CENTRE_LINE_COLOR);
       for (let i = 0; i < count; i++) {
         const f0 = (i + 0.5) / count - 2 / e.dist;
         const f1 = (i + 0.5) / count + 2 / e.dist;
@@ -607,9 +617,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     if (w > 0) addDisc(road, n.x, n.z, w * 0.51, w >= 11 ? ROAD_Y_MAJOR + 0.001 : ROAD_Y_MINOR + 0.001);
   }
   addMesh(road, mats.road, {});
-  addMesh(lines, mats.roadLine, { receive: false });
-  if (white) addMesh(white, mats.roadLineWhite!, { receive: false });
-  if (curbs) addMesh(curbs, mats.curb!, {});
+  addMesh(lines, mats.roadMarkings ?? mats.roadLine, { receive: !!mats.roadMarkings });
 
   // --- Ground cover: parks, water bodies, rivers/streams, pedestrian streets
   const park = new GeoBuffer();
