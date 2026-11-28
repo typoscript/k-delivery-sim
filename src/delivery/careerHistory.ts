@@ -24,6 +24,9 @@ export interface DayRecord {
   accidents: number;
   /** Traffic violations of the day (missing on days recorded before violations were counted) */
   violations?: number;
+  /** Deliveries in the rain / snow, and messenger quick replies (missing on days recorded before) */
+  weatherDeliveries?: number;
+  quickReplies?: number;
 }
 
 export interface CareerStats {
@@ -58,6 +61,14 @@ export interface AchievementStatus {
 }
 
 const counter = (key: string) => (s: CareerStats) => s.counters[key] ?? 0;
+
+/** Counters of the weather / season achievements (bumped by the delivery manager and the game loop) */
+export const MONSOON_COUNTER = 'monsoon';
+export const HEAT_COLD_COUNTER = 'heatCold';
+export const QUICK_REPLY_COUNTER = 'quickReply';
+export const ICE_PASS_COUNTER = 'icePass';
+/** One counter per season: deliveries made in it */
+export const SEASON_COUNTERS = ['season:autumn', 'season:winter', 'season:spring', 'season:summer'] as const;
 
 /** Consecutive finished days (newest first) with at least 3 deliveries and no pedestrian accident */
 export function safeDayStreak(history: readonly DayRecord[]): number {
@@ -132,6 +143,18 @@ export const ACHIEVEMENTS: readonly AchievementSpec[] = [
   { id: 'soup', icon: '🍲', title: '국물 장인', desc: '비 오는 날 국물 콜을 안 쏟고 20건 (이벤트 할증)', target: 20, progress: counter('eventSoup') },
   { id: 'snowrider', icon: '❄️', title: '눈길 라이더', desc: '눈 오는 날 배달 10건', target: 10, progress: counter('snow') },
   { id: 'walker', icon: '🚶', title: '정문 밖 주차의 정석', desc: '지상 차량 출입 금지 단지에 오토바이를 밖에 세우고 걸어서 20건', target: 20, progress: counter('walkIn') },
+  {
+    id: 'four_seasons',
+    icon: '🍂',
+    title: '사계절 라이더',
+    desc: '가을·겨울·봄·여름 모두 배달하기',
+    target: 4,
+    progress: (s) => SEASON_COUNTERS.filter((k) => (s.counters[k] ?? 0) > 0).length,
+  },
+  { id: 'monsoon', icon: '☔', title: '장마 라이더', desc: '장마 빗속 배달 10건', target: 10, progress: counter(MONSOON_COUNTER) },
+  { id: 'heatcool', icon: '🧊', title: '폭염 속 시원 배달', desc: '폭염 때 보냉 음식을 시원하게(70% 이상) 10건', target: 10, progress: counter(HEAT_COLD_COUNTER) },
+  { id: 'reply20', icon: '💬', title: '친절 답장', desc: '메신저 빠른 답장 20회', target: 20, progress: counter(QUICK_REPLY_COUNTER) },
+  { id: 'icepass', icon: '⛸️', title: '빙판 마스터', desc: '블랙아이스 구간 넘어지지 않고 5번 통과', target: 5, progress: counter(ICE_PASS_COUNTER) },
   { id: 'snack', icon: '🍗', title: '야식 배달왕', desc: '야식 콜을 따뜻하게 30건 (이벤트 할증)', target: 30, progress: counter('eventSnack') },
 ];
 
@@ -183,6 +206,8 @@ export function makeDayRecord(i: DayRecordInput): DayRecord {
     goalsTotal: i.goalsTotal,
     accidents: i.pedestrianAccidentCount,
     violations: i.counters[VIOLATION_COUNTER] ?? 0,
+    weatherDeliveries: (i.counters.rain ?? 0) + (i.counters.snow ?? 0),
+    quickReplies: i.counters[QUICK_REPLY_COUNTER] ?? 0,
   };
 }
 
@@ -216,6 +241,8 @@ export function parseDayHistory(raw: unknown): DayRecord[] {
       goalsTotal,
       accidents: finite(o.accidents) ? Math.max(0, Math.floor(o.accidents)) : 0,
       ...(finite(o.violations) ? { violations: Math.max(0, Math.floor(o.violations)) } : {}),
+      ...(finite(o.weatherDeliveries) ? { weatherDeliveries: Math.max(0, Math.floor(o.weatherDeliveries)) } : {}),
+      ...(finite(o.quickReplies) ? { quickReplies: Math.max(0, Math.floor(o.quickReplies)) } : {}),
     });
   }
   let merged: DayRecord[] = [];
@@ -254,6 +281,9 @@ export interface WeekSummary {
   avgStars: number | null;
   /** Days with 3+ deliveries and no pedestrian accident */
   safeDays: number;
+  /** Rain / snow deliveries and messenger quick replies of the week */
+  weatherDeliveries: number;
+  quickReplies: number;
   /** Achievements unlocked during the week */
   achievements: AchievementStatus[];
 }
@@ -278,6 +308,8 @@ export function weekSummary(history: readonly DayRecord[], day: number, achievem
     bestDay: bestDay(days),
     avgStars: starred.length > 0 ? Math.round((starred.reduce((a, d) => a + (d.avgStars ?? 0), 0) / starred.length) * 10) / 10 : null,
     safeDays: days.filter((d) => d.deliveries >= 3 && d.accidents === 0).length,
+    weatherDeliveries: days.reduce((a, d) => a + (d.weatherDeliveries ?? 0), 0),
+    quickReplies: days.reduce((a, d) => a + (d.quickReplies ?? 0), 0),
     achievements: achievements.filter((a) => a.unlockedDay !== undefined && a.unlockedDay >= firstDay && a.unlockedDay <= lastDay),
   };
 }

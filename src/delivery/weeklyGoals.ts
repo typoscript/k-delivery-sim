@@ -46,6 +46,8 @@ export const ROTATING_WEEK_GOALS: readonly WeekGoalSpec[] = [
   { id: 'week_net', icon: '💰', title: '주간 순수익 ₩400,000', target: 400000, bonus: 25000, progress: (w) => w.net, unit: 'won' },
   { id: 'week_all_days', icon: '📅', title: '7일 모두 출근', target: 7, bonus: 10000, progress: (w) => w.days.length, unit: 'count' },
   { id: 'week_stars', icon: '⭐', title: '평균 별점 4.5 이상', target: 4.5, bonus: 15000, progress: (w) => w.avgStars ?? 0, unit: 'stars' },
+  { id: 'week_weather', icon: '🌧️', title: '비·눈 오는 날 배달 10건', target: 10, bonus: 15000, progress: (w) => w.weatherDeliveries, unit: 'count' },
+  { id: 'week_replies', icon: '💬', title: '메신저 빠른 답장 8회', target: 8, bonus: 10000, progress: (w) => w.quickReplies, unit: 'count' },
 ];
 
 /** Deterministic 0..1 from the week number (same goals after reloads) */

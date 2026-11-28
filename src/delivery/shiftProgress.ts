@@ -2,6 +2,7 @@
  * Today's goal progress (counters + claimed goals) and the career progress built on it (lifetime counters,
  * finished days, achievements). Owned by DeliveryManager, which keeps the money: claim() only reports the bonus.
  */
+import { HEAT_COLD_COUNTER, MONSOON_COUNTER } from './careerHistory';
 import { deliverableDistricts, districtIdAt } from '../data/suwonDistricts';
 import { RiderCareerSave } from './RiderCareer';
 import {
@@ -37,7 +38,9 @@ export function settlementGoalCounters(
   m: ActiveMission,
   pay: Pick<SettlementPay, 'peakBonus' | 'rainBonus' | 'nightBonus' | 'specialBonus'> &
     Partial<Pick<SettlementPay, 'eventBonus' | 'walkInBonus'>>,
-  districtOf: (x: number, z: number) => string = districtIdAt
+  districtOf: (x: number, z: number) => string = districtIdAt,
+  /** Season / weather of the delivery (season, 장마, heatwave achievements) */
+  ctx: { season?: string | null; monsoon?: boolean; heatwave?: boolean } = {}
 ): string[] {
   const keys: string[] = [];
   if (pay.peakBonus > 0) keys.push('peak');
@@ -59,6 +62,9 @@ export function settlementGoalCounters(
     if (m.order.demandEvent === 'snow_warm') keys.push('eventSnow');
   }
   keys.push(`district:${districtOf(m.order.customer.x, m.order.customer.z)}`);
+  if (ctx.season) keys.push(`season:${ctx.season}`);
+  if (ctx.monsoon && pay.rainBonus > 0 && !m.order.snowDay) keys.push(MONSOON_COUNTER);
+  if (ctx.heatwave && m.order.foodTempType === 'cold' && m.foodTemp >= 70) keys.push(HEAT_COLD_COUNTER);
   return keys;
 }
 

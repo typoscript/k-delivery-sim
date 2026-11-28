@@ -1,4 +1,5 @@
 /** Delivery completion: the doorstep photo settlement (pay, tips, reviews, regulars, records) */
+import { isMonsoonDay } from '../game/seasons';
 import type { DeliveryManager } from './DeliveryManager';
 import { generateCustomerReview } from './RiderCareer';
 import { SettlementResult } from './deliveryTypes';
@@ -52,7 +53,12 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
   host.completedCount += 1;
   host.lifetimeCompleted += 1;
   // Counters for today's rotating goals
-  for (const key of settlementGoalCounters(m, pay)) host.progress.bump(key);
+  for (const key of settlementGoalCounters(m, pay, undefined, {
+    season: host.season,
+    monsoon: isMonsoonDay(host.shiftDay),
+    heatwave: host.heatwave,
+  }))
+    host.progress.bump(key);
   const nextTier = host.getCurrentTier();
   const tierPromotedTo = nextTier.id !== prevTier.id ? nextTier : null;
 

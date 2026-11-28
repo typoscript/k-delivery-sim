@@ -30,12 +30,21 @@ describe('weekly goals', () => {
   });
 
   it('checks a week against every goal kind', () => {
-    const full = [1, 2, 3, 4, 5, 6, 7].map((d) => day(d, 4, 60000)); // ₩60,000 a day clears ₩400,000
+    // ₩60,000 a day clears ₩400,000; 2 rain / snow deliveries and 2 quick replies a day clear those goals
+    const full = [1, 2, 3, 4, 5, 6, 7].map((d) => ({ ...day(d, 4, 60000), weatherDeliveries: 2, quickReplies: 2 }));
     const w = weekSummary(full, 7);
     const byId = Object.fromEntries(
       [WEEK_DELIVERIES_GOAL, ...ROTATING_WEEK_GOALS].map((g) => [g.id, g.progress(w) >= g.target])
     );
-    expect(byId).toEqual({ week_deliveries: true, week_safe: true, week_net: true, week_all_days: true, week_stars: true });
+    expect(byId).toEqual({
+      week_deliveries: true,
+      week_safe: true,
+      week_net: true,
+      week_all_days: true,
+      week_stars: true,
+      week_weather: true,
+      week_replies: true,
+    });
     const weak = weekSummary([day(1, 2, 9000, 1, 3.9), day(3, 3, 12000)], 7);
     expect(weekGoalStatuses(weak).every((g) => !g.met)).toBe(true);
   });

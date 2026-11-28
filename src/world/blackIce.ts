@@ -74,6 +74,9 @@ export class BlackIceField {
   private active = false;
   /** The last patch the rider was warned about (warn once per patch) */
   public warnedId = -1;
+  /** The patch the rider is crossing right now (-1: none) and whether they went down on it */
+  public crossingId = -1;
+  public crashedOnCrossing = false;
 
   constructor(
     private readonly nodes: readonly OsmGraphNode[],

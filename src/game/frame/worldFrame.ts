@@ -11,6 +11,7 @@ import { PLAYER_RADIUS } from '../../player/PlayerController';
 import { pushOutOfBodies } from '../../world/vehicleBodies';
 import { getInstructionMeta } from '../../delivery/DeliveryManager';
 import { NO_GROUND_WALK_BONUS } from '../../delivery/apartmentRules';
+import { ICE_PASS_COUNTER } from '../../delivery/careerHistory';
 
 /** Puddles slow the scooter (speed decay per second) above this speed (m/s) */
 const PUDDLE_DRAG = 1.4;
@@ -84,6 +85,24 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
             hud.showToast('💦 첨벙! 물웅덩이 — 속도가 줄고 바이저에 물이 튀었어요 ([G]로 닦기)', 2400);
           }
         }
+      }
+    }
+    // Crossing black ice without going down counts toward the 빙판 마스터 achievement
+    if (isRiding && world.blackIce.isActive) {
+      const sp = scooterPhysics.state;
+      const on = world.blackIce.patchAt(sp.x, sp.z, sp.heading);
+      const bi = world.blackIce;
+      if (on && bi.crossingId !== on.id) {
+        bi.crossingId = on.id;
+        bi.crashedOnCrossing = false;
+      }
+      if (bi.crossingId >= 0 && sp.crashed) bi.crashedOnCrossing = true;
+      if (!on && bi.crossingId >= 0) {
+        if (!bi.crashedOnCrossing) {
+          delivery.progress.bump(ICE_PASS_COUNTER);
+          hud.showToast('⛸️ 빙판 무사 통과! (빙판 마스터 업적)', 1800);
+        }
+        bi.crossingId = -1;
       }
     }
     // Black ice ahead (winter nights): warn once per patch while riding toward it

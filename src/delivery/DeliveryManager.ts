@@ -1,6 +1,7 @@
 import { DeliveryLocation } from '../types';
 import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
+import { QUICK_REPLY_COUNTER } from './careerHistory';
 import {
   CUSTOMER_REPLIES,
   LATE_ASK_SEC,
@@ -617,7 +618,10 @@ export class DeliveryManager {
     if (m) {
       // an apology for running late softens the review; answering a request earns the 빠른 답장 tip
       if (LATE_REPLIES.some((r) => r.id === replyId)) m.lateApologized = true;
-      else m.chatReplied = true;
+      else {
+        m.chatReplied = true;
+        this.progress.bump(QUICK_REPLY_COUNTER);
+      }
     }
     return true;
   }
