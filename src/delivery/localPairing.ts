@@ -34,15 +34,25 @@ export function pickLocalShop(
   return pool[Math.floor(rand() * pool.length)];
 }
 
-/** 하천 산책로 통제 (flooded walkways): no new calls for the bench customers while it is on */
-export const riversideAccess = { closed: false };
+/**
+ * The stream benches today: `closed` (하천 산책로 통제, flooded) stops their calls; `outing` (🌿 나들이 콜, a clear
+ * weekend afternoon) makes them OUTING_WEIGHT times as likely
+ */
+export const riversideAccess = { closed: false, outing: false };
+export const OUTING_WEIGHT = 4;
 
 export function pickLocalCustomer(
   residences: readonly DeliveryLocation[],
   shop: { x: number; z: number },
   rand: () => number = Math.random
 ): DeliveryLocation {
-  const open = riversideAccess.closed ? residences.filter((r) => r.residenceKind !== 'riverside') : residences;
+  let open: readonly DeliveryLocation[] = riversideAccess.closed
+    ? residences.filter((r) => r.residenceKind !== 'riverside')
+    : residences;
+  if (riversideAccess.outing && !riversideAccess.closed) {
+    const benches = open.filter((r) => r.residenceKind === 'riverside');
+    open = [...open, ...Array.from({ length: OUTING_WEIGHT - 1 }, () => benches).flat()];
+  }
   const local = localCandidates(open, shop.x, shop.z, LOCAL_CUSTOMER_RADIUS_M);
   const far = local.filter((r) => Math.hypot(r.x - shop.x, r.z - shop.z) >= MIN_CUSTOMER_DIST_M);
   const pool = far.length >= MIN_CANDIDATES ? far : local;

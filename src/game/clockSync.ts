@@ -1,8 +1,10 @@
+import { relocateBenchOrders } from '../delivery/riversideHandoff';
+import { activeRoadProximity } from '../world/roadProximity';
 import { riversideAccess } from '../delivery/localPairing';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
-import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/demandEvents';
+import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS, isOutingTime } from '../delivery/demandEvents';
 import { isMonsoonDay, seasonOfDay, weatherOddsOfDay } from './seasons';
 import { blackIceStage } from '../world/blackIce';
 import { ION_DRINK_COST, heatwaveActive } from './heatwave';
@@ -122,6 +124,12 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   const flood = world.streamFlood.step(dtGameMin, world.weatherMode === 'rain', monsoon);
   if (flood) {
     riversideAccess.closed = world.streamFlood.closed;
+    // bench orders on their way: the customer moves up to the nearest sidewalk
+    if (flood === 'closed') {
+      const grid = activeRoadProximity();
+      const moved = relocateBenchOrders(delivery, (x, z) => grid.curbOffset(x, z));
+      if (moved > 0 && announce) hud.showToast('🌊 산책로 쉼터 손님이 물을 피해 근처 인도로 옮겼어요 (메신저 · 지도 확인)', 4200);
+    }
     if (announce) {
       weatherPush(
         hud,
@@ -133,6 +141,20 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     }
   }
   world.syncFloodOverlay();
+  // 🌿 나들이 콜: clear weekend afternoons bring people out to the stream benches
+  const outing = isOutingTime(
+    delivery.shiftDay,
+    clock.minute,
+    world.weatherMode === 'rain',
+    world.weatherMode === 'snow',
+    world.streamFlood.closed,
+  );
+  if (outing !== riversideAccess.outing) {
+    riversideAccess.outing = outing;
+    if (outing && announce) {
+      weatherPush(hud, `🌿 맑은 주말 오후 · 하천 산책로 나들이 콜이 늘어요 (제한시간 안에 쉼터 배달 시 +₩${DEMAND_EVENTS.riverside_outing.bonus.toLocaleString()})`, 4800);
+    }
+  }
   // the navigator routes around today's frozen segments (patch id = road edge index)
   if (world.blackIce.version !== lastIceVersion) {
     lastIceVersion = world.blackIce.version;
@@ -200,6 +222,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       blackIce: icy,
       blackIceBridgesOnly: iceStage === 'bridges',
       streams: world.streamFlood.closed ? 'closed' : world.streamFlood.rising ? 'rising' : 'normal',
+      outing: riversideAccess.outing,
       puddles: world.puddles.puddles.length,
       night: world.isNight,
       gear: { raincoat, winterGear },

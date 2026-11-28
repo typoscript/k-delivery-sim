@@ -98,6 +98,7 @@ export class BenchCustomers {
     const r = s.rig;
     const toRider = Math.atan2(px - seat.x, pz - seat.z);
     setPedestrianDetail(r, true);
+    if (pose === 'sitting' && s.loc.relocated) pose = 'standing'; // moved off the flooded bench: waits standing
     if (pose === 'sitting') {
       // on the seat (0.45 m) looking at the water: hips down, thighs forward, arms resting
       r.root.position.set(seat.x, -0.42, seat.z);

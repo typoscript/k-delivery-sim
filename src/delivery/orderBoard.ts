@@ -1,3 +1,4 @@
+import { riversideAccess } from './localPairing';
 /** Open order board: surcharges, filling / refreshing the call list, accepting calls and rival steals */
 import type { DeliveryManager } from './DeliveryManager';
 import { activeDemandEvents } from './demandEvents';
@@ -29,6 +30,7 @@ export function orderSurcharges(host: DeliveryManager): OrderSurcharges {
       host.demandPhase.id,
       host.isWeatherSnowing,
       host.season,
+      riversideAccess.outing && !riversideAccess.closed,
     ),
   };
 }

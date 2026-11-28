@@ -59,6 +59,8 @@ export interface DeliveryLocation {
   emoji: string;
   facesNorth?: boolean;
   facingHeading?: number;
+  /** 산책로 쉼터 customer who moved off a flooded walkway to the nearest sidewalk (waits standing there) */
+  relocated?: boolean;
 }
 
 export interface BusStopPoint {

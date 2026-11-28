@@ -1,5 +1,5 @@
 import { DeliveryLocation } from '../types';
-import { DemandEventSpec, eventForMenu, pickMenu } from './demandEvents';
+import { DemandEventSpec, eventForOrder, pickMenu } from './demandEvents';
 import {
   ALTTLE_FLAT_FEE,
   ActiveMission,
@@ -55,7 +55,7 @@ export function buildDeliveryOrder(opts: {
   const menus = shop.menus ?? ['배달 음식 세트'];
   const events = opts.surcharges.events ?? [];
   const shopMenu = pickMenu(menus, events, rand);
-  const event = eventForMenu(shopMenu, events);
+  const event = eventForOrder(shopMenu, customer, events);
   const menuName = spec ? spec.menuFormat(shopMenu) : shopMenu;
   const distanceMeters = Math.round(Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z));
   const isSingle = type === 'SINGLE';

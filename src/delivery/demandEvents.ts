@@ -16,7 +16,8 @@ export type DemandEventId =
   | 'winter_snack'
   | 'spring_picnic'
   | 'summer_cool'
-  | 'autumn_baseball';
+  | 'autumn_baseball'
+  | 'riverside_outing';
 
 export interface DemandEventSpec {
   id: DemandEventId;
@@ -36,6 +37,8 @@ export interface DemandEventSpec {
   missedText: string;
   /** What people order more of (toasts: "🍲 국물 요리 주문 증가") */
   menuNoun: string;
+  /** Applies to orders for this kind of customer (any menu) instead of matching menus */
+  customerKind?: 'riverside';
 }
 
 /** Soups / stews / noodles in broth (탕수육 is not a soup) */
@@ -58,7 +61,23 @@ const BASEBALL_MENU = /치킨|통닭|후라이드|양념|닭강정|피자|맥주
 /** Summer cold dishes and iced drinks */
 const SUMMER_MENU = /냉면|밀면|콩국수|빙수|스무디|에이드|아이스|콜드브루|프라푸치노/;
 
+/** Never matches a menu (customer-based events) */
+const NO_MENU = /(?!)/;
+
 export const DEMAND_EVENTS: Record<DemandEventId, DemandEventSpec> = {
+  riverside_outing: {
+    id: 'riverside_outing',
+    icon: '🌿',
+    label: '나들이 콜',
+    bonus: 1000,
+    pickChance: 0,
+    menu: NO_MENU,
+    condition: { onTime: true },
+    conditionText: '제한시간 안에 산책로 쉼터로 배달 시',
+    missedText: '늦게 도착해',
+    menuNoun: '산책로 쉼터',
+    customerKind: 'riverside',
+  },
   winter_snack: {
     id: 'winter_snack',
     icon: '🥟',
@@ -179,8 +198,10 @@ export function activeDemandEvents(
   phaseId = '',
   snowing = false,
   season: SeasonId | null = null,
+  outing = false,
 ): DemandEventSpec[] {
   const out: DemandEventSpec[] = [];
+  if (outing) out.push(DEMAND_EVENTS.riverside_outing);
   if (raining) out.push(DEMAND_EVENTS.rain_soup);
   else if (snowing) out.push(DEMAND_EVENTS.snow_warm);
   // the season's own call
@@ -206,6 +227,27 @@ export function eventForMenu(menu: string, events: readonly DemandEventSpec[]): 
 }
 
 /**
+ * 🌿 나들이 콜: a clear (or cloudy) weekend afternoon - the 6th and 7th working day of each week, 13:00-18:00 - with
+ * the walkways open brings people out to the stream benches
+ */
+export function isOutingTime(day: number, minute: number, raining: boolean, snowing: boolean, flooded: boolean): boolean {
+  const dow = ((day - 1) % 7) + 1;
+  return (dow === 6 || dow === 7) && minute >= 13 * 60 && minute < 18 * 60 && !raining && !snowing && !flooded;
+}
+
+/**
+ * The event a new order joins (one per order): a customer-based one first (나들이 콜 for a bench customer - it is why
+ * they ordered), else its menu's event
+ */
+export function eventForOrder(
+  menu: string,
+  customer: { residenceKind?: string },
+  events: readonly DemandEventSpec[],
+): DemandEventSpec | null {
+  return events.find((e) => e.customerKind && e.customerKind === customer.residenceKind) ?? eventForMenu(menu, events);
+}
+
+/**
  * Menu for a new call: during an event a shop that has matching menus picks one of them `pickChance` of the time,
  * otherwise any menu. With no events running it draws exactly like before (one random number).
  */
@@ -213,6 +255,7 @@ export function pickMenu(menus: readonly string[], events: readonly DemandEventS
   const any = () => menus[Math.floor(rand() * menus.length)];
   if (events.length === 0) return any();
   for (const e of events) {
+    if (e.customerKind) continue; // about who orders, not what
     const matching = menus.filter((m) => e.menu.test(m));
     if (matching.length > 0 && rand() < e.pickChance) return matching[Math.floor(rand() * matching.length)];
   }
