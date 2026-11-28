@@ -27,6 +27,7 @@ import {
   project,
 } from './suwon-config.mjs';
 import { generateDeliverySpots, riversideSpots } from './delivery-spots.mjs';
+import { crossingPoints, snapCrossings } from './crossings.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -605,6 +606,16 @@ async function main() {
     };
   }
 
+  // ---------- 4a. pedestrian crossings (cache/suwon-crossings.json from `fetch-suwon.mjs --crossings`, optional)
+  let crossings = [];
+  try {
+    const cr = JSON.parse(await readFile(join(HERE, 'cache', 'suwon-crossings.json'), 'utf8'));
+    crossings = snapCrossings(crossingPoints(cr.elements, project), nodes, outEdges);
+  } catch {
+    console.warn('no crossings cache (node tools/osm/fetch-suwon.mjs --crossings): only signal crosswalks');
+  }
+  stats.crossings = crossings.length;
+
   // ---------- 4b. riverside spots: customers on the stream walkways (walk in along the walkway)
   const riverside = riversideSpots(streamLinesAll, nodes, outEdges);
   stats.riverside = riverside.length;
@@ -663,6 +674,7 @@ async function main() {
     nodes,
     edges: outEdges,
     busStops,
+    crossings,
     legacyDistricts,
     generatedShops: generated.shops,
     generatedResidences: [...generated.residences, ...riverside],

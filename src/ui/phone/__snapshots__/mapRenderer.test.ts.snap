@@ -3,12 +3,12 @@
 exports[`phone map renderer > draws the same canvas calls for the same inputs 1`] = `
 {
   "heading-up night": {
-    "calls": 2209,
-    "hash": -1310882929,
+    "calls": 2361,
+    "hash": -120868263,
   },
   "north-up day": {
-    "calls": 2834,
-    "hash": 1688970698,
+    "calls": 3042,
+    "hash": -307370571,
   },
 }
 `;

@@ -41,6 +41,7 @@ export function buildUnifiedSuwonDataset(spawnDistrictId: SuwonDistrictId): Suwo
     shops: [...districts.flatMap((d) => d.shops), ...(w.generatedShops ?? [])],
     residences: [...districts.flatMap((d) => d.residences), ...(w.generatedResidences ?? [])],
     busStops: w.busStops,
+    crossings: w.crossings ?? [],
     serviceSpots: spawn.serviceSpots,
     serviceSpotList: districts.map((d) => ({
       districtId: d.id as SuwonDistrictId,

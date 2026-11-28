@@ -104,6 +104,8 @@ export interface SuwonMapDataset {
   shops: OsmDeliverySpot[];
   residences: OsmDeliverySpot[];
   busStops: OsmBusStopData[];
+  /** Unified open world only: marked crossings away from signalized junctions (painted like the signal ones) */
+  crossings?: Array<{ x: number; z: number; h: number; w: number; sig?: boolean }>;
   serviceSpots: { gas: OsmServiceSpot; repair: OsmServiceSpot };
   /** Unified open world only: every district's gas station & repair shop (serviceSpots = spawn district's) */
   serviceSpotList?: Array<{ districtId: SuwonDistrictId; gas: OsmServiceSpot; repair: OsmServiceSpot }>;

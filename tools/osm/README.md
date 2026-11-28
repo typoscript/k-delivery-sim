@@ -5,6 +5,7 @@
 
 ```bash
 npm run map:fetch   # Overpass API에서 원본 다운로드 → tools/osm/cache/suwon-raw.json (git 제외, --force로 재다운로드)
+node tools/osm/fetch-suwon.mjs --crossings   # 횡단보도만 따로 → cache/suwon-crossings.json (나머지 원본은 그대로)
 npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map/suwon/chunks/c_<ix>_<iz>.json
 ```
 
@@ -33,3 +34,10 @@ npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map
 - 게임은 이 지점의 카운터·로비 소품을 플레이어 주변 청크에서만 만들고 멀어지면 해제합니다(`ProximityCuller.registerLazy`).
 
 생성 파일(`src/data/openworld/`, `public/map/`)은 직접 수정하지 말고 스크립트를 고친 뒤 `npm run map:build`로 다시 만듭니다.
+
+## 횡단보도 (crossings.mjs)
+
+`highway=crossing` 노드와 `footway=crossing` 길을 도로 그래프에 붙여(`snapCrossings`) `suwonWorld.json`의 `crossings`
+(중심 · 도로 방향 · 도로 폭 · 자체 신호 여부)로 내보냅니다. 페인트가 없는(`unmarked`) 곳, 붙인 자리가 신호 교차로
+14m 안(교차로 횡단보도는 따로 그림)인 곳, 6m 안에 겹치는 중복(노드 + 같은 길)은 뺍니다. 캐시 파일이 없으면 신호 교차로
+횡단보도만 그립니다.

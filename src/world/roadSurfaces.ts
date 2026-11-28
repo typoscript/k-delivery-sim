@@ -201,6 +201,37 @@ export function buildSuwonOsmRoads(host: CityWorld): void {
       }
     }
   }
+  // Real crosswalks from OSM away from the signalized junctions (mid-block, school / alley crossings), with stop
+  // lines on both approaches where they have their own lights
+  for (const c of ACTIVE_MAP_DATA.crossings ?? []) {
+    const ux = Math.sin(c.h);
+    const uz = Math.cos(c.h);
+    const rx = -uz;
+    const rz = ux;
+    const halfW = c.w * 0.42;
+    for (let off = -halfW; off <= halfW; off += 1.65) {
+      crosswalkMatrices.push(placeMatrix(c.x + rx * off, 0.054, c.z + rz * off, c.h));
+    }
+    host.crossingPaintZones.push({ x: c.x, z: c.z, ux, uz, halfWidth: c.w / 2 });
+    if (c.sig && c.w >= 6) {
+      const span = c.w / 2 - 0.5;
+      for (const dir of [1, -1]) {
+        // traffic heading along dir * u drives on its right (forward x up = dir * r) and stops before the crosswalk
+        const mid = dir * (0.15 + span / 2);
+        const back = -dir * STOP_LINE_FROM_CROSSWALK_M;
+        crosswalkMatrices.push(
+          placeMatrix(
+            c.x + ux * back + rx * mid,
+            0.054,
+            c.z + uz * back + rz * mid,
+            c.h,
+            new THREE.Matrix4().makeScale(span / STRIPE_W, 1, STOP_LINE_W / STRIPE_L),
+          ),
+        );
+      }
+    }
+  }
+
   // Every zebra stripe in the city is one instance of a single InstancedMesh (1 draw call)
   if (crosswalkMatrices.length > 0) {
     const stripes = buildInstanced(stripeGeo, host.crosswalkPaintMat, crosswalkMatrices);

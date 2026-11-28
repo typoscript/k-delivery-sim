@@ -129,6 +129,28 @@ export function drawMapMarkers(f: MapFrame): void {
 
   const sigHex = (c: 'green' | 'yellow' | 'red') => signalHex(c);
 
+  // mid-block crosswalks (OSM): a few zebra bars across the road when zoomed in
+  if (f.scale > 0.6) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = Math.max(1, 0.9 * f.scale);
+    for (const c of ACTIVE_MAP_DATA.crossings ?? []) {
+      if (!inView(c.x, c.x, c.z, c.z)) continue;
+      const ux = Math.sin(c.h);
+      const uz = Math.cos(c.h);
+      const half = c.w * 0.42;
+      ctx.beginPath();
+      for (let off = -half; off <= half; off += 1.65) {
+        const sx = c.x - uz * off;
+        const sz = c.z + ux * off;
+        ctx.moveTo(toX(sx - ux * 1), toY(sz - uz * 1));
+        ctx.lineTo(toX(sx + ux * 1), toY(sz + uz * 1));
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   for (const sn of ACTIVE_MAP_DATA.nodes) {
     if (!sn.isSignal || !inView(sn.x, sn.x, sn.z, sn.z)) continue;
     const mx = toX(sn.x);

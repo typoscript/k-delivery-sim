@@ -213,6 +213,8 @@ export class CityWorld {
   asphaltMat!: THREE.MeshStandardMaterial;
   /** @internal world builders */
   crosswalkPaintMat!: THREE.MeshStandardMaterial;
+  /** Mid-block crosswalks (OSM): their paint is slippery in the rain like the junction ones */
+  readonly crossingPaintZones: Array<{ x: number; z: number; ux: number; uz: number; halfWidth: number }> = [];
   /** @internal world builders */
   manholeMat!: THREE.MeshStandardMaterial;
   /** @internal world builders */
@@ -615,6 +617,15 @@ export class CityWorld {
       if (d >= 6.4 && d <= 9.2) {
         return 'crosswalk_paint';
       }
+    }
+    for (const c of this.crossingPaintZones) {
+      const dx = x - c.x;
+      const dz = z - c.z;
+      if (dx * dx + dz * dz > 100) continue;
+      // within the painted band: ~1.2 m along the road, the road's width across
+      const along = Math.abs(dx * c.ux + dz * c.uz);
+      const across = Math.abs(dx * -c.uz + dz * c.ux);
+      if (along <= 1.25 && across <= c.halfWidth) return 'crosswalk_paint';
     }
     return 'none';
   }

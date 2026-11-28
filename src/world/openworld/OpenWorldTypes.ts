@@ -78,6 +78,8 @@ export interface OpenWorldData {
   nodes: OsmGraphNode[];
   edges: OsmGraphEdge[];
   busStops: OsmBusStopData[];
+  /** Marked pedestrian crossings away from the signalized junctions (OSM), snapped onto their road */
+  crossings?: CrossingData[];
   legacyDistricts: LegacyDistrictData[];
   /** Curbside shops generated from OSM food places across the whole map (outside the legacy districts) */
   generatedShops?: OsmDeliverySpot[];
@@ -90,4 +92,13 @@ export interface OpenWorldData {
 
 export function gridSpecOf(world: OpenWorldData): ChunkGridSpec {
   return { ...world.meta.chunkGrid, size: world.meta.chunkSize };
+}
+
+/** A painted crosswalk across a road: centre, the road's heading and width, signalized (mid-block lights) or not */
+export interface CrossingData {
+  x: number;
+  z: number;
+  h: number;
+  w: number;
+  sig?: boolean;
 }

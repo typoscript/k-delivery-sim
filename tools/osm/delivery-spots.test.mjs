@@ -213,3 +213,42 @@ describe('riverside spots', () => {
     expect(new Set(spots.map((s) => s.id)).size).toBe(spots.length);
   });
 });
+
+describe('pedestrian crossings', () => {
+  it('snaps marked crossings onto their road, skipping junction / unmarked / duplicate ones', async () => {
+    const { snapCrossings, crossingPoints } = await import('./crossings.mjs');
+    // a 200 m road along +Z with a signal at its start
+    const nodes = [
+      { id: 0, x: 0, z: 0, isSignal: true },
+      { id: 1, x: 0, z: 200, isSignal: false },
+    ];
+    const edges = [{ a: 0, b: 1, width: 12 }];
+    const out = snapCrossings(
+      [
+        { x: 1.5, z: 100, kind: 'marked' }, // mid-block: kept, snapped to the centre line
+        { x: -1, z: 102, kind: 'uncontrolled' }, // same crossing drawn as a way: merged
+        { x: 0, z: 8, kind: 'traffic_signals' }, // the junction's own crosswalk: skipped
+        { x: 0, z: 150, kind: 'unmarked' }, // no paint: skipped
+        { x: 40, z: 150, kind: 'marked' }, // not on this road: skipped
+        { x: 0, z: 160, kind: 'traffic_signals' }, // a signalized mid-block crossing: kept
+      ],
+      nodes,
+      edges,
+    );
+    expect(out).toEqual([
+      { x: 0, z: 100, h: 0, w: 12 },
+      { x: 0, z: 160, h: 0, w: 12, sig: true },
+    ]);
+    const pts = crossingPoints(
+      [
+        { type: 'node', lat: 1, lon: 2, tags: { highway: 'crossing', crossing: 'marked' } },
+        { type: 'way', tags: { footway: 'crossing' , 'crossing:markings': 'zebra' }, geometry: [{ lat: 0, lon: 0 }, { lat: 0, lon: 10 }] },
+      ],
+      (lat, lon) => ({ x: lon, z: lat }),
+    );
+    expect(pts).toEqual([
+      { x: 2, z: 1, kind: 'marked' },
+      { x: 5, z: 0, kind: 'marked' },
+    ]);
+  });
+});

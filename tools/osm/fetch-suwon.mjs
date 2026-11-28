@@ -2,7 +2,9 @@
 // Downloads raw OpenStreetMap data for the whole Suwon play area (all 4 districts + the land between)
 // from the public Overpass API and caches it in tools/osm/cache/suwon-raw.json.
 //
-// Usage:  node tools/osm/fetch-suwon.mjs [--force]   (OVERPASS_URL=... to use a single mirror)
+// Usage:  node tools/osm/fetch-suwon.mjs [--force] [--crossings]   (OVERPASS_URL=... to use a single mirror)
+//         --crossings: only the pedestrian crossings (highway=crossing nodes, footway=crossing ways) into
+//         cache/suwon-crossings.json, so they can be added without re-downloading (and changing) the rest
 // Data:   © OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)
 
 import { mkdir, writeFile, stat } from 'node:fs/promises';
@@ -11,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { SUWON_BBOX } from './suwon-config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT = join(HERE, 'cache', 'suwon-raw.json');
+const CROSSINGS_ONLY = process.argv.includes('--crossings');
+const OUT = join(HERE, 'cache', CROSSINGS_ONLY ? 'suwon-crossings.json' : 'suwon-raw.json');
 /** OVERPASS_URL=<interpreter url> forces one mirror (useful when the others are down or timing out) */
 const ENDPOINTS = process.env.OVERPASS_URL ? [process.env.OVERPASS_URL] : [
   'https://overpass-api.de/api/interpreter',
@@ -52,6 +55,16 @@ const buildQuery = (bb) => `
 out body geom qt;
 `;
 
+/** Pedestrian crossings: crossing nodes on the roads and the crossing ways drawn over them */
+const buildCrossingsQuery = (bb) => `
+[out:json][timeout:180];
+(
+  node["highway"="crossing"](${bb});
+  way["footway"="crossing"](${bb});
+);
+out body geom qt;
+`;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchTile(bb, label) {
@@ -66,7 +79,7 @@ async function fetchTile(bb, label) {
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'k-delivery-sim-map-builder/1.0 (https://github.com/typoscript/k-delivery-sim)',
         },
-        body: 'data=' + encodeURIComponent(buildQuery(bb)),
+        body: 'data=' + encodeURIComponent((CROSSINGS_ONLY ? buildCrossingsQuery : buildQuery)(bb)),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
