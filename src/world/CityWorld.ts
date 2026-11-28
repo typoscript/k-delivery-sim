@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { planStreetProps, registerStreetProps } from './streetProps';
+import { activeRoadProximity } from './roadProximity';
 import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
 import { mergeStaticByMaterial } from './instancing';
 import {
@@ -254,6 +256,19 @@ export class CityWorld {
     this.deliveryProps = new DeliveryLocationProps(this.propHost, this.root, this.culler, this.locations);
     this.deliveryProps.build();
     buildStreetLamps(this);
+    if (this.culler) {
+      // Roadside trees / alley utility poles: planned from the road graph, built per chunk around the player
+      const nodes = SUWON_OPEN_WORLD.nodes;
+      const edges = SUWON_OPEN_WORLD.edges;
+      const nodeMaxWidth = new Float32Array(nodes.length);
+      for (const e of edges) {
+        nodeMaxWidth[e.a] = Math.max(nodeMaxWidth[e.a], e.width);
+        nodeMaxWidth[e.b] = Math.max(nodeMaxWidth[e.b], e.width);
+      }
+      const roads = activeRoadProximity();
+      const props = planStreetProps(nodes, edges, nodeMaxWidth, (x, z) => roads.curbOffset(x, z));
+      registerStreetProps(this.culler, gridSpecOf(SUWON_OPEN_WORLD), this.root, props);
+    }
 
     this.sky = new WorldSky({
       scene: this.scene,
