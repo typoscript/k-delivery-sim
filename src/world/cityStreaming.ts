@@ -120,9 +120,13 @@ export function placeSunStabilized(host: CityWorld, px: number, pz: number): voi
 export function getCollisionObstacles(host: CityWorld): ObstacleBox[] {
   if (!host.streamer) return host.obstacles;
   const streamed = host.streamer.collisionObstacles;
-  if (streamed !== host.collisionStreamedRef) {
+  const props = host.propColliders;
+  if (streamed !== host.collisionStreamedRef || props.version !== host.collisionPropsVersion) {
     host.collisionStreamedRef = streamed;
-    host.collisionCache = host.obstacles.length > 0 ? [...host.obstacles, ...streamed] : streamed;
+    host.collisionPropsVersion = props.version;
+    const extra = props.all;
+    host.collisionCache =
+      host.obstacles.length > 0 || extra.length > 0 ? [...host.obstacles, ...extra, ...streamed] : streamed;
   }
   return host.collisionCache;
 }

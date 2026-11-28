@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DeliveryLocation } from '../types';
+import { DeliveryLocation, ObstacleBox } from '../types';
 import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { mergeStaticByMaterial } from './instancing';
@@ -9,6 +9,31 @@ import { buildApartmentGrounds } from './apartmentGrounds';
 
 /** Pickup counters & lobby portals are built / shown within this many 200m chunks of the player */
 const LOCATION_PROP_RADIUS_CHUNKS = 1;
+
+/** Colliders of lazily built props (apartment cars / guard booths) that exist right now, by location id */
+export class PropColliders {
+  private readonly byId = new Map<string, ObstacleBox[]>();
+  private cache: ObstacleBox[] = [];
+  private dirty = false;
+  /** Bumped on every change (lets the world's collider list refresh lazily) */
+  public version = 0;
+
+  public set(id: string, boxes: ObstacleBox[]): void {
+    if (boxes.length === 0 && !this.byId.has(id)) return;
+    if (boxes.length === 0) this.byId.delete(id);
+    else this.byId.set(id, boxes);
+    this.dirty = true;
+    this.version++;
+  }
+
+  public get all(): ObstacleBox[] {
+    if (this.dirty) {
+      this.cache = [...this.byId.values()].flat();
+      this.dirty = false;
+    }
+    return this.cache;
+  }
+}
 
 /**
  * Delivery location props: outdoor pickup counters (POS, awning sign, food tray with ready / cooking LED)
@@ -34,7 +59,9 @@ export class DeliveryLocationProps {
     private readonly culler: ProximityCuller | undefined,
     private readonly locations: readonly DeliveryLocation[],
     /** World spot free for apartment grounds (not on a road, not inside a building; null: not loaded yet) */
-    private readonly isFreeGround?: (x: number, z: number) => boolean | null
+    private readonly isFreeGround?: (x: number, z: number) => boolean | null,
+    /** Where apartment cars / booths register their colliders while built */
+    private readonly colliders?: PropColliders
   ) {}
 
   /**
@@ -98,13 +125,15 @@ export class DeliveryLocationProps {
               const holder = new THREE.Group();
               holder.position.copy(frame.position);
               holder.rotation.y = frame.heading;
-              if (grounds !== 'none') holder.add(grounds);
+              if (grounds.mesh) holder.add(grounds.mesh);
+              this.colliders?.set(loc.id, grounds.obstacles);
               excludeFromMirrors(holder);
               freezeStatic(holder);
               return {
                 object: holder,
                 dispose: () => {
-                  if (grounds !== 'none') grounds.geometry.dispose();
+                  grounds.mesh?.geometry.dispose();
+                  this.colliders?.set(loc.id, []);
                 },
               };
             },

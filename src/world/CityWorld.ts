@@ -33,7 +33,7 @@ import { ProximityCuller } from './openworld/ProximityCuller';
 import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 import { ServiceStations, WorldPropHost } from './serviceStations';
-import { DeliveryLocationProps } from './deliveryProps';
+import { DeliveryLocationProps, PropColliders } from './deliveryProps';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
 import { buildSpeedBumps } from './speedBumps';
 import { buildParksAndTrees } from './parksAndTrees';
@@ -133,6 +133,10 @@ export class CityWorld {
   collisionCache: ObstacleBox[] = [];
   /** @internal split modules */
   collisionStreamedRef: ObstacleBox[] | null = null;
+  /** @internal colliders of lazily built props near the player (apartment cars / guard booths) */
+  readonly propColliders = new PropColliders();
+  /** @internal */
+  collisionPropsVersion = -1;
   /** @internal world builders */
   plazaMat?: THREE.MeshStandardMaterial;
   /** @internal split modules */
@@ -263,7 +267,8 @@ export class CityWorld {
       this.root,
       this.culler,
       this.locations,
-      this.culler ? (x, z) => this.isFreeGround(x, z) : undefined
+      this.culler ? (x, z) => this.isFreeGround(x, z) : undefined,
+      this.propColliders
     );
     this.deliveryProps.build();
     buildStreetLamps(this);

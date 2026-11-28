@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { ColoredPart, mergeColoredParts } from './instancing';
+import type { ObstacleBox } from '../types';
 
 /** Lobby-local (x right along the facade, z toward the road) -> world */
 export type LocalToWorld = (lx: number, lz: number) => { x: number; z: number };
@@ -52,6 +53,26 @@ export interface ApartmentGroundsPlan {
   cars: number;
   gate: boolean;
   parts: ColoredPart[];
+  /** World-space colliders of the parked cars and the guard booth (the barrier arm lifts, so it has none) */
+  obstacles: ObstacleBox[];
+}
+
+/** Rotated rectangle (lobby-local centre / half sizes) as a world-space collider */
+function footprint(toWorld: LocalToWorld, cx: number, cz: number, hx: number, hz: number): ObstacleBox {
+  const pts = (
+    [
+      [cx - hx, cz - hz],
+      [cx + hx, cz - hz],
+      [cx + hx, cz + hz],
+      [cx - hx, cz + hz],
+    ] as const
+  ).map(([lx, lz]) => {
+    const w = toWorld(lx, lz);
+    return [w.x, w.z] as [number, number];
+  });
+  const xs = pts.map((p) => p[0]);
+  const zs = pts.map((p) => p[1]);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs), pts };
 }
 
 /**
@@ -65,6 +86,7 @@ export function planApartmentGrounds(
 ): ApartmentGroundsPlan | null {
   const h = hashString(id);
   const parts: ColoredPart[] = [];
+  const obstacles: ObstacleBox[] = [];
   let unknown = false;
   const fits = (cx: number, cz: number, hx: number, hz: number) =>
     [
@@ -87,12 +109,14 @@ export function planApartmentGrounds(
     const cz = -3.6;
     if (!fits(cx, cz, 2.3, 1)) break;
     parts.push(...carParts(cx, cz, CAR_COLORS[(h >>> (i * 3)) % CAR_COLORS.length]));
+    obstacles.push(footprint(toWorld, cx, cz, 2.15, 0.9));
     cars++;
   }
   // guard booth + barrier arm across a driveway to the right of the lobby
   // (lobby-local z < 0 is inside the complex: the lobby stands on the street edge of it)
   const gate = fits(5.2, -1.8, 1.1, 1.1) && fits(8.6, -1.0, 2.2, 0.3);
   if (gate) {
+    obstacles.push(footprint(toWorld, 5.2, -1.8, 0.95, 0.95));
     parts.push({ geometry: BOX, matrix: local(5.2, 1.15, -1.8, 1.9, 2.3, 1.9), color: BOOTH });
     parts.push({ geometry: BOX, matrix: local(5.2, 1.5, -0.84, 1.3, 0.8, 0.04), color: GLASS }); // window to the street
     parts.push({ geometry: BOX, matrix: local(5.2, 2.4, -1.8, 2.2, 0.18, 2.2), color: BOOTH_ROOF });
@@ -107,22 +131,23 @@ export function planApartmentGrounds(
   }
   // some spot is in a chunk that has not loaded yet: decide later
   if (unknown) return null;
-  return { cars, gate, parts };
+  return { cars, gate, parts, obstacles };
 }
 
 /**
- * The merged mesh (lobby-local space); 'none' when nothing fit, 'wait' while a spot's chunk is not loaded yet
+ * The merged mesh (lobby-local space, null when nothing fit) and its world colliders; 'wait' while a spot's chunk
+ * is not loaded yet
  */
 export function buildApartmentGrounds(
   id: string,
   toWorld: LocalToWorld,
   isFree: (x: number, z: number) => boolean | null,
   material: THREE.Material,
-): THREE.Mesh | 'none' | 'wait' {
+): { mesh: THREE.Mesh | null; obstacles: ObstacleBox[] } | 'wait' {
   const plan = planApartmentGrounds(id, toWorld, isFree);
   if (!plan) return 'wait';
-  if (plan.parts.length === 0) return 'none';
+  if (plan.parts.length === 0) return { mesh: null, obstacles: [] };
   const mesh = new THREE.Mesh(mergeColoredParts(plan.parts), material);
   mesh.name = 'apartment_grounds';
-  return mesh;
+  return { mesh, obstacles: plan.obstacles };
 }
