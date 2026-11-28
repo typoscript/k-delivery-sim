@@ -11,10 +11,15 @@ export const SHIFT_START_MINUTE = 10 * 60 + 40;
 export const PEAK_SURCHARGE_BONUS = 1000;
 
 // Dusk and dawn: lighting blends over an hour, "night" (surcharge, lamps) is the darker half
-const DUSK_START = 18 * 60 + 30;
-const DUSK_END = 19 * 60 + 30;
-const DAWN_START = 5 * 60 + 30;
-const DAWN_END = 6 * 60 + 30;
+const TWILIGHT_MIN = 60;
+
+/** When dawn and dusk begin (game minutes); the seasons move them (long summer days, early winter nights) */
+export interface SunTimes {
+  dawnStart: number;
+  duskStart: number;
+}
+/** Year-round default: dawn 05:30~06:30, dusk 18:30~19:30 */
+export const DEFAULT_SUN: SunTimes = { dawnStart: 5 * 60 + 30, duskStart: 18 * 60 + 30 };
 /** `N` key: jump to this time when switching to day / night */
 export const DAY_JUMP_MINUTE = 7 * 60;
 export const NIGHT_JUMP_MINUTE = 20 * 60;
@@ -58,18 +63,20 @@ export function demandPhaseAt(minute: number): DemandPhase {
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
-/** 0 = full day, 1 = full night; smooth ramps through dusk (18:30~19:30) and dawn (05:30~06:30) */
-export function nightnessAt(minute: number): number {
+/** 0 = full day, 1 = full night; smooth hour-long ramps through dusk and dawn (default 18:30~19:30 / 05:30~06:30) */
+export function nightnessAt(minute: number, sun: SunTimes = DEFAULT_SUN): number {
   const m = wrapMinute(minute);
-  if (m >= DUSK_END || m < DAWN_START) return 1;
-  if (m >= DAWN_END && m < DUSK_START) return 0;
-  if (m >= DUSK_START) return smooth((m - DUSK_START) / (DUSK_END - DUSK_START));
-  return 1 - smooth((m - DAWN_START) / (DAWN_END - DAWN_START));
+  const duskEnd = sun.duskStart + TWILIGHT_MIN;
+  const dawnEnd = sun.dawnStart + TWILIGHT_MIN;
+  if (m >= duskEnd || m < sun.dawnStart) return 1;
+  if (m >= dawnEnd && m < sun.duskStart) return 0;
+  if (m >= sun.duskStart) return smooth((m - sun.duskStart) / TWILIGHT_MIN);
+  return 1 - smooth((m - sun.dawnStart) / TWILIGHT_MIN);
 }
 
 /** Night for gameplay (night surcharge, street lamps, review context): the darker half of dusk / dawn */
-export function isNightAt(minute: number): boolean {
-  return nightnessAt(minute) >= 0.5;
+export function isNightAt(minute: number, sun: SunTimes = DEFAULT_SUN): boolean {
+  return nightnessAt(minute, sun) >= 0.5;
 }
 
 export function formatClock(minute: number): string {
@@ -80,6 +87,8 @@ export function formatClock(minute: number): string {
 export class GameClock {
   /** Minute of day, fractional */
   public minute: number;
+  /** Dawn / dusk of the current season */
+  public sun: SunTimes = DEFAULT_SUN;
 
   constructor(startMinute = SHIFT_START_MINUTE) {
     this.minute = wrapMinute(startMinute);
@@ -95,16 +104,21 @@ export class GameClock {
 
   /** `N` key: skip to the next morning when it is night, otherwise to the evening */
   public toggleDayNight(): boolean {
-    this.jumpTo(this.isNight ? DAY_JUMP_MINUTE : NIGHT_JUMP_MINUTE);
+    // the usual 07:00 / 20:00, pushed past the season's twilight (a winter 07:00 is still dark)
+    this.jumpTo(
+      this.isNight
+        ? Math.max(DAY_JUMP_MINUTE, this.sun.dawnStart + TWILIGHT_MIN + 10)
+        : Math.max(NIGHT_JUMP_MINUTE, this.sun.duskStart + TWILIGHT_MIN + 10)
+    );
     return this.isNight;
   }
 
   public get isNight(): boolean {
-    return isNightAt(this.minute);
+    return isNightAt(this.minute, this.sun);
   }
 
   public get nightness(): number {
-    return nightnessAt(this.minute);
+    return nightnessAt(this.minute, this.sun);
   }
 
   public get phase(): DemandPhase {

@@ -68,3 +68,35 @@ describe('seasons', () => {
     expect(DEMAND_EVENTS.spring_picnic.menu.test('참치김밥')).toBe(true);
   });
 });
+
+describe('seasonal days', () => {
+  it('summer days are long, winter nights come early; N always lands in day / night', async () => {
+    const { GameClock, nightnessAt } = await import('./GameClock');
+    const at = (h: number, m = 0) => h * 60 + m;
+    const summer = seasonOfDay(22).sun;
+    const winter = seasonOfDay(8).sun;
+    expect(nightnessAt(at(19, 30), summer)).toBe(0); // still light at 19:30 in summer
+    expect(nightnessAt(at(19, 30), winter)).toBe(1); // dark in winter
+    expect(nightnessAt(at(5, 30), summer)).toBeLessThan(0.5);
+    expect(nightnessAt(at(7, 0), winter)).toBeGreaterThan(0.5); // winter 7:00 is still dark
+    for (const day of [1, 8, 15, 22]) {
+      const clock = new GameClock(at(12));
+      clock.sun = seasonOfDay(day).sun;
+      clock.toggleDayNight();
+      expect(clock.isNight).toBe(true);
+      clock.toggleDayNight();
+      expect(clock.isNight).toBe(false);
+    }
+  });
+
+  it('the clear day sky follows the season (summer sun strongest, winter sun weakest)', async () => {
+    const { skyLookFor } = await import('../world/worldSky');
+    const sun = (s: 'summer' | 'winter' | null) => skyLookFor('clear', false, s).dirI;
+    expect(sun('summer')).toBeGreaterThan(sun(null));
+    expect(sun('winter')).toBeLessThan(sun(null));
+    expect(skyLookFor('clear', false, 'winter').bg).not.toBe(skyLookFor('clear', false, 'summer').bg);
+    // nights and rain are not changed by the season
+    expect(skyLookFor('rain', false, 'summer')).toEqual(skyLookFor('rain', false, null));
+    expect(skyLookFor('clear', true, 'winter')).toEqual(skyLookFor('clear', true, null));
+  });
+});

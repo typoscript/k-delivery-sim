@@ -568,9 +568,11 @@ export class CityWorld {
   /** Winter black ice on shaded side streets and ramps (see blackIce.ts) */
   public readonly blackIce = new BlackIceField(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
 
-  /** Season of the working day: tree crowns take its colours */
+  /** Season of the working day: tree crowns take its colours, the day sky its light */
   public setSeason(season: SeasonId): void {
     setFoliageSeason(season);
+    this.sky.season = season;
+    if (this.root.visible) this.applySkyTheme();
   }
 
   /** Snow settling on up-facing surfaces while it snows, melting after (see snowCover.ts) */

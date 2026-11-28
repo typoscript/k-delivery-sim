@@ -17,6 +17,8 @@ export interface SeasonSpec {
   rainDurationMul: number;
   /** One-line description for the new-season toast */
   note: string;
+  /** When dawn and dusk begin (game minutes): long summer days, short winter days */
+  sun: { dawnStart: number; duskStart: number };
 }
 
 /** Working days per season (a week, like the weekly goals) */
@@ -30,6 +32,7 @@ export const SEASONS: readonly SeasonSpec[] = [
     rainChance: 0.3,
     snowChance: 0,
     rainDurationMul: 1,
+    sun: { dawnStart: 6 * 60, duskStart: 18 * 60 },
     note: '맑은 날이 많아요',
   },
   {
@@ -39,6 +42,7 @@ export const SEASONS: readonly SeasonSpec[] = [
     rainChance: 0.12,
     snowChance: 0.45,
     rainDurationMul: 1,
+    sun: { dawnStart: 6 * 60 + 50, duskStart: 17 * 60 + 10 },
     note: '눈이 자주 와요 · 따끈한 분식 주문 증가',
   },
   {
@@ -48,6 +52,7 @@ export const SEASONS: readonly SeasonSpec[] = [
     rainChance: 0.4,
     snowChance: 0,
     rainDurationMul: 1,
+    sun: { dawnStart: 5 * 60 + 40, duskStart: 18 * 60 + 50 },
     note: '봄비가 내려요 · 나들이 도시락 주문 증가',
   },
   {
@@ -57,6 +62,7 @@ export const SEASONS: readonly SeasonSpec[] = [
     rainChance: 0.6,
     snowChance: 0,
     rainDurationMul: 0.5,
+    sun: { dawnStart: 4 * 60 + 50, duskStart: 19 * 60 + 30 },
     note: '짧은 소나기가 잦아요 · 시원한 메뉴 주문 증가',
   },
 ];

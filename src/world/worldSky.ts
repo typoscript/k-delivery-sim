@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WeatherMode } from '../types';
+import type { SeasonId } from '../game/seasons';
 import { setStorefrontNightGlow } from './openworld/openWorldMaterials';
 
 /** Day or night look for one weather */
@@ -15,8 +16,28 @@ export interface SkyLook {
   buildingE: number;
 }
 
+/**
+ * How a season changes a clear / cloudy day: sky and fog colour, sunlight strength and colour (deep summer blue
+ * under a strong sun, crisp golden autumn light, a pale low winter sun, soft spring haze)
+ */
+export const SEASON_DAY_SKY: Record<SeasonId, { bg: number; fog: number; dirMul: number; dirColor: number }> = {
+  spring: { bg: 0x9fcdf5, fog: 0xc4dcef, dirMul: 1, dirColor: 0xfff7ea },
+  summer: { bg: 0x6fb4f7, fog: 0x9fd0fa, dirMul: 1.12, dirColor: 0xfffbf0 },
+  autumn: { bg: 0x8cc2f2, fog: 0xb5d3ec, dirMul: 0.95, dirColor: 0xffe7bf },
+  winter: { bg: 0xb9cde0, fog: 0xd0dce7, dirMul: 0.78, dirColor: 0xffefd8 },
+};
+
 /** Sky, fog, sun & sky light, street lamp / window glow and lit building windows for a weather, day or night */
-export function skyLookFor(weather: WeatherMode, night: boolean): SkyLook {
+export function skyLookFor(weather: WeatherMode, night: boolean, season: SeasonId | null = null): SkyLook {
+  const look = baseSkyLook(weather, night);
+  if (night || !season || (weather !== 'clear' && weather !== 'cloudy')) return look;
+  const s = SEASON_DAY_SKY[season];
+  if (weather === 'clear') return { ...look, bg: s.bg, fog: s.fog, dirI: look.dirI * s.dirMul, dirColor: s.dirColor };
+  // overcast: only the sun strength follows the season
+  return { ...look, dirI: look.dirI * (0.5 + 0.5 * s.dirMul) };
+}
+
+function baseSkyLook(weather: WeatherMode, night: boolean): SkyLook {
   const isRain = weather === 'rain';
   const isCloudy = weather === 'cloudy';
   if (weather === 'snow') {
@@ -86,10 +107,13 @@ export class WorldSky {
     return true;
   }
 
+  /** Season of the day sky (clear / cloudy days) */
+  public season: SeasonId | null = null;
+
   public apply(weather: WeatherMode, isNight: boolean): void {
     const k = Math.max(0, this.nightness);
-    const day = skyLookFor(weather, false);
-    const night = skyLookFor(weather, true);
+    const day = skyLookFor(weather, false, this.season);
+    const night = skyLookFor(weather, true, this.season);
     const mix = (a: number, b: number) => a + (b - a) * k;
     const { scene, dirLight, hemiLight } = this.t;
     for (const lb of this.t.landmarkBuilders) lb.setNightMode(isNight);

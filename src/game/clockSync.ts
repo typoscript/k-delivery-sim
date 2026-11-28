@@ -17,6 +17,9 @@ const eventNote = (e: DemandEventSpec) =>
 export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0): void {
   const { clock, world, delivery, scooterPhysics, hud, voiceNav } = ctx;
   delivery.shiftClockMinute = clock.minute;
+  // The season sets when the sun rises and sets (before the day / night look below)
+  const season = seasonOfDay(delivery.shiftDay);
+  clock.sun = season.sun;
   const night = world.setNightness(clock.nightness);
   if (delivery.isNightMode !== night) {
     delivery.setNightMode(night);
@@ -61,7 +64,6 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   }
 
   // Season of the working day: weather odds + seasonal event call (announced when it turns)
-  const season = seasonOfDay(delivery.shiftDay);
   if (delivery.season !== season.id) {
     const first = delivery.season === null;
     delivery.setSeason(season.id);
