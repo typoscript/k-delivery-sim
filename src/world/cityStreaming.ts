@@ -1,3 +1,4 @@
+import { StreamWater } from './streamWater';
 /** Open-world chunk streaming around the player, the sun that follows it, and nearby collision boxes */
 import type { CityWorld } from './CityWorld';
 import { createRoadEdgeMaterials, createRoadTextMaterial, createStorefrontMaterials } from './openworld/openWorldMaterials';
@@ -69,6 +70,7 @@ export function initOpenWorldStreaming(host: CityWorld): void {
       }),
       plaza,
       farBuildings,
+      stream: (host.streamWater = new StreamWater()).material,
       ...shopfront,
       ...createRoadEdgeMaterials(),
       ...createRoadTextMaterial(),

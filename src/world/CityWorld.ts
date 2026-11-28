@@ -1,3 +1,4 @@
+import { StreamWater } from './streamWater';
 import { StreamStrollers } from './pedestrians/streamStrollers';
 import { isWadingAt } from './streamPaths';
 import type { WaterLineData } from './openworld/OpenWorldTypes';
@@ -414,6 +415,27 @@ export class CityWorld {
 
   private streamLines: WaterLineData[] = [];
   private streamLinesVersion = -1;
+
+  /** Flowing stream water material (open world only) */
+  streamWater?: StreamWater;
+
+  /** Metres from (x, z) to the nearest loaded stream's water edge (Infinity when none is loaded) */
+  public distanceToStream(x: number, z: number): number {
+    this.refreshStreamLines();
+    let best = Infinity;
+    for (const wl of this.streamLines) {
+      for (let i = 1; i < wl.pts.length; i++) {
+        const [px, pz] = wl.pts[i - 1];
+        const [qx, qz] = wl.pts[i];
+        const dx = qx - px;
+        const dz = qz - pz;
+        const l2 = dx * dx + dz * dz;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - px) * dx + (z - pz) * dz) / l2)) : 0;
+        best = Math.min(best, Math.hypot(x - (px + dx * t), z - (pz + dz * t)) - wl.width / 2);
+      }
+    }
+    return best;
+  }
 
   /** People strolling on the stream walkways (open world only, made on first use) */
   private strollers: StreamStrollers | null = null;

@@ -33,6 +33,8 @@ export interface ChunkMaterials {
   roadText?: THREE.Material;
   /** Vertex-coloured material for ground-floor shopfronts (glass + signboards in one draw call); none when omitted */
   storefront?: THREE.Material;
+  /** Running water of streams (its texture scrolls along the flow); streams use `water` when omitted */
+  stream?: THREE.Material;
 }
 
 /** Chunks whose centre is farther than this from the camera draw the single-mesh far LOD */
@@ -941,8 +943,12 @@ export function buildChunkMeshes(
 
   const water = new GeoBuffer();
   for (const w of chunk.waters) addFlatPolygon(water, w.pts, 0.015, 0.05);
-  for (const wl of chunk.waterLines) addRibbon(water, wl.pts, wl.width, 0.016, 0.05);
+  // streams flow along their OSM direction: their own mesh when a flowing material is given (one draw call more,
+  // only in chunks with a stream), else together with the still water
+  const stream = mats.stream ? new GeoBuffer() : water;
+  for (const wl of chunk.waterLines) addRibbon(stream, wl.pts, wl.width, 0.016, 0.05);
   addMesh(water, mats.water, {});
+  if (stream !== water) addMesh(stream, mats.stream!, {});
 
   const plaza = new GeoBuffer();
   for (const pz of chunk.pedestrianPlazas) addRibbon(plaza, pz.pts, pz.width, 0.025, 0.25);
