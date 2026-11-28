@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { OsmBuildingData } from '../../data/suwonTypes';
-import { ChunkMaterials, buildChunkMeshes, wallTintOf } from './ChunkMeshBuilder';
+import { ChunkMaterials, ROAD_TEXT_ROWS, buildChunkMeshes, wallTintOf } from './ChunkMeshBuilder';
 import { ChunkData, OpenWorldData } from './OpenWorldTypes';
 
 const mat = () => new THREE.MeshBasicMaterial();
@@ -382,7 +382,7 @@ describe('lane markings and curbs', () => {
 
   it('wide roads add dashed lane dividers; narrow major roads only the centre line; alleys nothing', () => {
     const narrow = paint(roadsOf(10, false));
-    const wide = paint(roadsOf(16, false));
+    const wide = paint(roadsOf(13.5, false)); // two lanes a direction (no bus lane)
     expect(wide.white.length).toBeGreaterThan(narrow.white.length * 3);
     const six = paint(roadsOf(6, false));
     expect(six.white).toHaveLength(0);
@@ -404,5 +404,106 @@ describe('lane markings and curbs', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0].geometry.getAttribute('color')).toBeUndefined();
     r.dispose();
+  });
+});
+
+describe('bus lanes and road text', () => {
+  const textMat = new THREE.MeshBasicMaterial();
+  const markings = new THREE.MeshBasicMaterial();
+  const mats = { ...MATS, roadText: textMat, roadMarkings: markings };
+  const roadsOf = (width: number, isMajor: boolean) => ({
+    nodes: [
+      { id: 0, x: 0, z: 0, isSignal: false },
+      { id: 1, x: 0, z: 200, isSignal: false },
+    ],
+    edges: [{ a: 0, b: 1, dist: 200, width, highway: 'x', name: '', isMajor }],
+    discNodeIds: [],
+    nodeMaxWidth: new Float32Array([width, width]),
+  });
+  const chunkWith = (buildings: OsmBuildingData[] = []): ChunkData => ({
+    ix: 0,
+    iz: 0,
+    buildings,
+    parks: [],
+    waters: [],
+    waterLines: [],
+    pedestrianPlazas: [],
+  });
+  /** Words painted (by atlas row from the v coordinate) and where */
+  const wordsOf = (chunk: ChunkData, roads: ReturnType<typeof roadsOf>) => {
+    const r = buildChunkMeshes(chunk, roads, mats);
+    const mesh = meshesOf(r.group).find((m) => m.material === textMat);
+    const out: Array<{ word: string; x: number; z: number; tFar: number }> = [];
+    if (mesh) {
+      const pos = mesh.geometry.getAttribute('position');
+      const uv = mesh.geometry.getAttribute('uv');
+      for (let q = 0; q < pos.count; q += 6) {
+        const vMin = Math.min(...[0, 1, 2, 3, 4, 5].map((k) => uv.getY(q + k)));
+        const row = Math.round((1 - vMin) * ROAD_TEXT_ROWS.length) - 1;
+        let cx = 0;
+        let cz = 0;
+        let farZ = 0; // z of the top (v max) edge minus the bottom: + = text top points north
+        for (let k = 0; k < 6; k++) {
+          cx += pos.getX(q + k) / 6;
+          cz += pos.getZ(q + k) / 6;
+          farZ += (uv.getY(q + k) > vMin + 0.01 ? 1 : -1) * pos.getZ(q + k);
+        }
+        out.push({ word: ROAD_TEXT_ROWS[row], x: cx, z: cz, tFar: farZ });
+      }
+      expectFrontFacing(mesh.geometry);
+    }
+    r.dispose();
+    return out;
+  };
+
+  it('an alley gets 천천히 in each approaching lane, readable by the driver heading to the junction', () => {
+    const w = wordsOf(chunkWith(), roadsOf(6, false));
+    expect(w).toHaveLength(2);
+    expect(w.every((x) => x.word === '천천히')).toBe(true);
+    const north = w.find((x) => x.z > 100)!; // near node 1, approached heading north (+z) in the east (+x... right) lane
+    expect(north.tFar).toBeGreaterThan(0); // text top points north (away from the approaching driver)
+    const south = w.find((x) => x.z < 100)!;
+    expect(south.tFar).toBeLessThan(0);
+    // heading north (+Z) the right side is -X (forward x up), heading south it is +X
+    expect(north.x).toBeLessThan(0);
+    expect(south.x).toBeGreaterThan(0);
+  });
+
+  it('near a school it says 어린이보호구역 instead', () => {
+    const school = { ...box(30, 100, 20, 20, 12), kind: 'public' as const, name: '화양초등학교' };
+    const w = wordsOf(chunkWith([school]), roadsOf(6, false));
+    expect(w.length).toBeGreaterThan(0);
+    expect(w.every((x) => x.word === '어린이보호구역')).toBe(true);
+  });
+
+  it('trunk roads (14.5 m) get 버스전용 in both outer lanes and a blue bus lane line', () => {
+    const w = wordsOf(chunkWith(), roadsOf(14.5, true));
+    expect(w.length).toBeGreaterThanOrEqual(4);
+    expect(w.every((x) => x.word === '버스전용')).toBe(true);
+    expect(new Set(w.map((x) => Math.sign(x.x)))).toEqual(new Set([-1, 1]));
+    // the markings mesh carries the blue line
+    const r = buildChunkMeshes(chunkWith(), roadsOf(14.5, true), mats);
+    const col = meshesOf(r.group)
+      .find((m) => m.material === markings)!
+      .geometry.getAttribute('color');
+    let blue = 0;
+    for (let i = 0; i < col.count; i++) if (col.getZ(i) > 0.6 && col.getX(i) < 0.2) blue++;
+    expect(blue).toBeGreaterThan(0);
+    r.dispose();
+    // ordinary major roads: no text, no bus lane
+    expect(wordsOf(chunkWith(), roadsOf(12, true))).toHaveLength(0);
+  });
+
+  it('residential streets wider than an alley only sometimes get 천천히 (stable per street)', () => {
+    let painted = 0;
+    for (let i = 0; i < 60; i++) {
+      const roads = roadsOf(9, false);
+      const shifted = { ...roads, nodes: roads.nodes.map((n) => ({ ...n, x: n.x + i * 37.3, z: n.z - i * 11.1 })) };
+      const n = wordsOf(chunkWith(), shifted).length;
+      expect(wordsOf(chunkWith(), shifted).length).toBe(n);
+      if (n > 0) painted++;
+    }
+    expect(painted).toBeGreaterThan(3);
+    expect(painted).toBeLessThan(30);
   });
 });

@@ -1,6 +1,6 @@
 /** Open-world chunk streaming around the player, the sun that follows it, and nearby collision boxes */
 import type { CityWorld } from './CityWorld';
-import { createRoadEdgeMaterials, createStorefrontMaterials } from './openworld/openWorldMaterials';
+import { createRoadEdgeMaterials, createRoadTextMaterial, createStorefrontMaterials } from './openworld/openWorldMaterials';
 import * as THREE from 'three';
 import { createBuildingMaterials } from './cityTextures';
 import { ObstacleBox } from '../types';
@@ -43,6 +43,7 @@ export function initOpenWorldStreaming(host: CityWorld): void {
       farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
       ...createStorefrontMaterials(),
       ...createRoadEdgeMaterials(),
+      ...createRoadTextMaterial(),
     },
     { chunkBaseUrl: './map/suwon/chunks/' },
   );

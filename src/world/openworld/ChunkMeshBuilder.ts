@@ -28,6 +28,8 @@ export interface ChunkMaterials {
    * lane dividers, raised curbs) in one draw call; without it only the yellow dashes are drawn with `roadLine`
    */
   roadMarkings?: THREE.Material;
+  /** Road text atlas (버스전용 / 천천히 / 어린이보호구역 rows); none when omitted */
+  roadText?: THREE.Material;
   /** Vertex-coloured material for ground-floor shopfronts (glass + signboards in one draw call); none when omitted */
   storefront?: THREE.Material;
 }
@@ -188,6 +190,36 @@ const SHOPFRONT_GLASS_COLOR = new THREE.Color(0x253447);
 const CENTRE_LINE_COLOR = new THREE.Color(0xfacc15);
 const WHITE_LINE_COLOR = new THREE.Color(0xe5e7eb);
 const CURB_COLOR = new THREE.Color(0xb8bcc2);
+const BUS_LANE_COLOR = new THREE.Color(0x2563eb);
+/** Roads this wide get a bus-only lane (blue line) on each side */
+export const BUS_LANE_MIN_WIDTH = 14.5; // the trunk roads of the map (14.5 m wide, ~36 km)
+
+/** Rows of the road text atlas (top to bottom) */
+export const ROAD_TEXT_ROWS = ['버스전용', '천천히', '어린이보호구역'] as const;
+export type RoadTextWord = (typeof ROAD_TEXT_ROWS)[number];
+/** Painted text size: across the lane x along the road (stretched, like real road lettering) */
+const ROAD_TEXT_W = 2.6;
+const ROAD_TEXT_L = 5.2;
+
+/**
+ * One painted word on the road, readable by a driver heading (fx, fz): the atlas row's left edge on the driver's
+ * left, its top far ahead.
+ */
+export function addRoadText(buf: GeoBuffer, word: RoadTextWord, cx: number, cz: number, fx: number, fz: number, y: number): void {
+  const row = ROAD_TEXT_ROWS.indexOf(word);
+  const v0 = 1 - (row + 1) / ROAD_TEXT_ROWS.length;
+  const v1 = 1 - row / ROAD_TEXT_ROWS.length;
+  // right = forward x up = (-fz, 0, fx)
+  const rx = -fz * (ROAD_TEXT_W / 2);
+  const rz = fx * (ROAD_TEXT_W / 2);
+  const lx = fx * (ROAD_TEXT_L / 2);
+  const lz = fz * (ROAD_TEXT_L / 2);
+  const bl: [number, number, number, number] = [cx - lx - rx, cz - lz - rz, 0, v0];
+  const br: [number, number, number, number] = [cx - lx + rx, cz - lz + rz, 1, v0];
+  const tl: [number, number, number, number] = [cx + lx - rx, cz + lz - rz, 0, v1];
+  const tr: [number, number, number, number] = [cx + lx + rx, cz + lz + rz, 1, v1];
+  for (const [x, z, u, v] of [bl, br, tl, br, tr, tl]) buf.vertex(x, y, z, 0, 1, 0, u, v);
+}
 const SHOPFRONT_TOP_M = 3.0;
 const SIGN_BOTTOM_M = 3.2;
 const SIGN_TOP_M = 4.15;
@@ -409,8 +441,17 @@ export function addRoadEdges(
       const off = side * (hw - 0.45);
       addRibbon(white, [at(off, sx, sz), at(off, ex, ez)], 0.15, y + 0.012, 0);
     }
-    // two lanes each way: dashed dividers half way between the centre and the edge
-    if (width >= 13) {
+    // bus-only lane: a blue line one lane in from each edge
+    if (width >= BUS_LANE_MIN_WIDTH) {
+      if (white.col) white.color.copy(BUS_LANE_COLOR);
+      for (const side of [-1, 1]) {
+        const off = side * (hw - 3.3);
+        addRibbon(white, [at(off, sx, sz), at(off, ex, ez)], 0.2, y + 0.012, 0);
+      }
+      if (white.col) white.color.copy(WHITE_LINE_COLOR);
+    }
+    // two lanes each way: dashed dividers half way between the centre and the edge (the blue line on bus roads)
+    if (width >= 13 && width < BUS_LANE_MIN_WIDTH) {
       const usable = len - trimA - trimB;
       const n = Math.floor(usable / 9);
       for (const side of [-1, 1]) {
@@ -445,6 +486,69 @@ export function addRoadEdges(
       if (side > 0) addWallQuad(curb, p0x, p0z, p1x, p1z, nx, nz, y, CURB_TOP, 0);
       else addWallQuad(curb, p1x, p1z, p0x, p0z, nx, nz, y, CURB_TOP, 0);
     }
+  }
+}
+
+/** Within this distance of a school building a road is a children's protection zone */
+const SCHOOL_ZONE_M = 90;
+/** 버스전용 is painted every this many metres along a bus lane */
+const BUS_TEXT_SPACING_M = 70;
+
+/**
+ * Words painted on one road segment: 버스전용 along both bus lanes of very wide major roads; on other roads,
+ * 천천히 (or 어린이보호구역 near a school) in the lane approaching each junction, just before the junction area.
+ */
+export function addRoadWords(
+  buf: GeoBuffer,
+  a: { x: number; z: number },
+  b: { x: number; z: number },
+  e: { width: number; isMajor: boolean },
+  y: number,
+  trimA: number,
+  trimB: number,
+  schools: ReadonlyArray<readonly [number, number]>
+): void {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len = Math.hypot(dx, dz);
+  const usable = len - trimA - trimB;
+  if (usable < ROAD_TEXT_L + 4 || e.width < 5) return;
+  const fx = dx / len;
+  const fz = dz / len;
+  const rx = -fz;
+  const rz = fx;
+  const hw = e.width / 2;
+  const ty = y + 0.014;
+  const at = (t: number, off: number): [number, number] => [a.x + fx * t + rx * off, a.z + fz * t + rz * off];
+  if (e.isMajor && e.width >= BUS_LANE_MIN_WIDTH) {
+    // one in the middle of every segment long enough, more every BUS_TEXT_SPACING_M on long ones
+    const n = Math.max(1, Math.floor(usable / BUS_TEXT_SPACING_M));
+    for (let i = 0; i < n; i++) {
+      const t = trimA + ((i + 0.5) * usable) / n;
+      // traffic on the +right side drives toward b, on the left side toward a
+      const [px, pz] = at(t, hw - 1.65);
+      addRoadText(buf, '버스전용', px, pz, fx, fz, ty);
+      const [qx, qz] = at(t, -(hw - 1.65));
+      addRoadText(buf, '버스전용', qx, qz, -fx, -fz, ty);
+    }
+    return;
+  }
+  if (e.isMajor) return;
+  const midX = (a.x + b.x) / 2;
+  const midZ = (a.z + b.z) / 2;
+  const nearSchool = schools.some(([sx, sz]) => Math.hypot(sx - midX, sz - midZ) < SCHOOL_ZONE_M);
+  // 천천히 on narrow alleys and on some (stable) residential streets; not on every one of the map's ~5,000
+  if (!nearSchool && e.width > 8 && hash01(midX, midZ, 21) >= 0.2) return;
+  const word: RoadTextWord = nearSchool ? '어린이보호구역' : '천천히';
+  const lane = hw / 2;
+  const back = ROAD_TEXT_L / 2 + 2;
+  // approaching b: heading +f, lane on the +right side
+  const [px, pz] = at(len - trimB - back, lane);
+  addRoadText(buf, word, px, pz, fx, fz, ty);
+  if (usable >= 2 * (ROAD_TEXT_L + 4)) {
+    // approaching a: heading -f, lane on the -right side
+    const [qx, qz] = at(trimA + back, -lane);
+    addRoadText(buf, word, qx, qz, -fx, -fz, ty);
   }
 }
 
@@ -593,12 +697,18 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const edges = mats.roadMarkings ? lines : null;
   // markings / curbs stop short of junction discs, and of crosswalks + stop lines at signals
   const trimAt = (id: number) => Math.max(roads.nodeMaxWidth[id] * 0.55 + 0.5, roads.nodes[id].isSignal ? 11.5 : 0);
+  const text = mats.roadText ? new GeoBuffer() : null;
+  // schools / kindergartens / daycare centres of this chunk: roads near them are children's protection zones
+  const schools = text
+    ? chunk.buildings.filter((b) => /초등학교|유치원|어린이집/.test(b.name)).map((b) => [b.cx, b.cz] as const)
+    : [];
   for (const e of roads.edges) {
     const a = roads.nodes[e.a];
     const b = roads.nodes[e.b];
     const y = e.isMajor ? ROAD_Y_MAJOR : ROAD_Y_MINOR;
     addRibbon(road, [[a.x, a.z], [b.x, b.z]], e.width, y, ROAD_UV_SCALE);
     if (e.isMajor && e.width >= 8 && edges) addRoadEdges(edges, edges, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b));
+    if (text) addRoadWords(text, a, b, e, y, trimAt(e.a), trimAt(e.b), schools);
     if (e.isMajor && e.dist >= 10) {
       const dx = b.x - a.x;
       const dz = b.z - a.z;
@@ -618,6 +728,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   }
   addMesh(road, mats.road, {});
   addMesh(lines, mats.roadMarkings ?? mats.roadLine, { receive: !!mats.roadMarkings });
+  if (text) addMesh(text, mats.roadText!, { receive: false, order: 1 });
 
   // --- Ground cover: parks, water bodies, rivers/streams, pedestrian streets
   const park = new GeoBuffer();
