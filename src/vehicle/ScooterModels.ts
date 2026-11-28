@@ -57,7 +57,7 @@ export const SCOOTER_MODELS: Record<ScooterModelId, ScooterModelSpec> = {
     shortBadge: 'SUPER CUB',
     icon: '🏍️',
     tagline: '초고연비(-48% 소모) · 민첩한 골목 조향 · 레트로 감성',
-    price: 2000,
+    price: 80000,
     maxForwardSpeed: 20.6, // ~74 km/h
     maxKmh: 74,
     accelMul: 0.94,
@@ -73,7 +73,7 @@ export const SCOOTER_MODELS: Record<ScooterModelId, ScooterModelSpec> = {
     shortBadge: 'EV-PRO',
     icon: '⚡',
     tagline: '정숙한 전기모터 · 초반 급가속(+28%) · 최고 86km/h',
-    price: 3500,
+    price: 150000,
     maxForwardSpeed: 23.9, // ~86 km/h
     maxKmh: 86,
     accelMul: 1.28,
@@ -108,7 +108,7 @@ export const SCOOTER_PAINTS: Record<ScooterPaintId, ScooterPaintSpec> = {
     bodyHex: 0x2dd4bf,
     accentHex: 0x0f766e,
     boxHex: 0x0d9488,
-    price: 1000,
+    price: 15000,
   },
   racing_red: {
     id: 'racing_red',
@@ -117,7 +117,7 @@ export const SCOOTER_PAINTS: Record<ScooterPaintId, ScooterPaintSpec> = {
     bodyHex: 0xdc2626,
     accentHex: 0xfacc15,
     boxHex: 0x991b1b,
-    price: 1000,
+    price: 15000,
   },
   retro_cream: {
     id: 'retro_cream',
@@ -126,7 +126,7 @@ export const SCOOTER_PAINTS: Record<ScooterPaintId, ScooterPaintSpec> = {
     bodyHex: 0xfef3c7,
     accentHex: 0xb45309,
     boxHex: 0x92400e,
-    price: 1000,
+    price: 15000,
   },
   matte_black: {
     id: 'matte_black',
@@ -135,7 +135,7 @@ export const SCOOTER_PAINTS: Record<ScooterPaintId, ScooterPaintSpec> = {
     bodyHex: 0x1e293b,
     accentHex: 0x38bdf8,
     boxHex: 0x0f172a,
-    price: 1000,
+    price: 15000,
   },
   suwon_blue: {
     id: 'suwon_blue',
@@ -144,7 +144,7 @@ export const SCOOTER_PAINTS: Record<ScooterPaintId, ScooterPaintSpec> = {
     bodyHex: 0x1d4ed8,
     accentHex: 0xfbbf24,
     boxHex: 0x1e3a8a,
-    price: 1000,
+    price: 15000,
   },
 };
 

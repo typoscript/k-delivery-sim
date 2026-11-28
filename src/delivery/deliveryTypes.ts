@@ -22,8 +22,8 @@ export const SINGLE_FLAT_FEE = 4500; // 한집배달 기본 4,500원 + 거리할
 export const SINGLE_TIME_LIMIT_SEC = 300; // 한집배달 제한시간 300초
 export const ALTTLE_FLAT_FEE = 2800; // 알뜰배달 기본 2,800원 x 2건
 export const ALTTLE_TIME_LIMIT_SEC = 500; // 알뜰배달 제한시간 500초
-export const FUEL_PRICE_PER_PERCENT = 40; // full 0->100% fill = ₩4,000
-export const REPAIR_COST_PER_DAMAGE_STAGE = 2500; // stage 1..3 = ₩2,500..₩7,500
+export const FUEL_PRICE_PER_PERCENT = 70; // full 0->100% fill = ₩7,000
+export const REPAIR_COST_PER_DAMAGE_STAGE = 6000; // stage 1..3 = ₩6,000..₩18,000
 export const PEDESTRIAN_ACCIDENT_FINE = 50000; // 보행자 접촉 사고 과태료 및 합의금 -50,000원
 export const PEDESTRIAN_RATING_PENALTY = 1.0; // 보행자 사고 신뢰 평점 -1.0점 감점
 export const INITIAL_RIDER_RATING = 5.0; // 배달 기사 초기 신뢰 평점 (5.0 만점)

@@ -43,7 +43,7 @@ export const WEEK_DELIVERIES_GOAL: WeekGoalSpec = {
 /** Two of these are picked per week */
 export const ROTATING_WEEK_GOALS: readonly WeekGoalSpec[] = [
   { id: 'week_safe', icon: '🛡️', title: '무사고 퇴근 5일', target: 5, bonus: 15000, progress: (w) => w.safeDays, unit: 'count' },
-  { id: 'week_net', icon: '💰', title: '주간 순수익 ₩200,000', target: 200000, bonus: 20000, progress: (w) => w.net, unit: 'won' },
+  { id: 'week_net', icon: '💰', title: '주간 순수익 ₩400,000', target: 400000, bonus: 25000, progress: (w) => w.net, unit: 'won' },
   { id: 'week_all_days', icon: '📅', title: '7일 모두 출근', target: 7, bonus: 10000, progress: (w) => w.days.length, unit: 'count' },
   { id: 'week_stars', icon: '⭐', title: '평균 별점 4.5 이상', target: 4.5, bonus: 15000, progress: (w) => w.avgStars ?? 0, unit: 'stars' },
 ];

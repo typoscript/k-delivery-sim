@@ -30,7 +30,7 @@ describe('weekly goals', () => {
   });
 
   it('checks a week against every goal kind', () => {
-    const full = [1, 2, 3, 4, 5, 6, 7].map((d) => day(d, 4, 32000));
+    const full = [1, 2, 3, 4, 5, 6, 7].map((d) => day(d, 4, 60000)); // ₩60,000 a day clears ₩400,000
     const w = weekSummary(full, 7);
     const byId = Object.fromEntries(
       [WEEK_DELIVERIES_GOAL, ...ROTATING_WEEK_GOALS].map((g) => [g.id, g.progress(w) >= g.target])

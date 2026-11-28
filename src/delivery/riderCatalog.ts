@@ -44,7 +44,7 @@ export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
     name: '프리미엄 보온·보냉 배달통',
     shortDesc: '특수 단열 라이너로 뜨거운 음식·아이스 음료 온도 유지력 대폭 강화',
     statBadge: '온도 하락 -40%',
-    price: 4000,
+    price: 40000,
   },
   suspension_tires: {
     id: 'suspension_tires',
@@ -52,7 +52,7 @@ export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
     name: '고성능 쇼바 & 빗길 타이어',
     shortDesc: '과속방지턱·국물 출렁임 파손 경감 + 빗길/코너링 타이어 접지력 상승',
     statBadge: '파손 -40% · 그립 +14%',
-    price: 5000,
+    price: 50000,
   },
   fast_charger: {
     id: 'fast_charger',
@@ -60,7 +60,7 @@ export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
     name: '고속 무선충전 거치대',
     shortDesc: '오토바이 거치대 15W 급속 무선충전 모듈로 주행 중 배터리 초고속 완충',
     statBadge: '무선충전 2배',
-    price: 3000,
+    price: 30000,
   },
   eco_tank: {
     id: 'eco_tank',
@@ -68,7 +68,7 @@ export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
     name: '대용량 탱크 · 에코 셀',
     shortDesc: '연료 탱크/EV 배터리 효율 최적화로 장거리 운행 연비 대폭 개선',
     statBadge: '연료·배터리 소모 -25%',
-    price: 3500,
+    price: 35000,
   },
   ecu_tune: {
     id: 'ecu_tune',
@@ -76,7 +76,7 @@ export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
     name: 'ECU 출력 튜닝',
     shortDesc: '엔진·인버터 출력 맵핑으로 출발 가속력과 최고속도 동시 향상',
     statBadge: '가속 +14% · 최고속 +8%',
-    price: 6000,
+    price: 60000,
   },
 };
 
