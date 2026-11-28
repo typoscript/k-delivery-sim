@@ -66,13 +66,31 @@ function dayRand(day: number, salt: number): number {
   return (h >>> 0) / 4294967296;
 }
 
-/** Today's goals: deliveries, two rotating goals (from the pool + district goals), accident-free clock-out */
-export function goalsForDay(day: number, districts: readonly GoalDistrict[]): ShiftGoalSpec[] {
+/** The two rotating goals drawn for a working day (from the pool + district goals) */
+export function rotatingGoalsForDay(day: number, districts: readonly GoalDistrict[]): ShiftGoalSpec[] {
   const pool = [...ROTATING_GOALS, ...districts.map(districtGoal)];
   const first = pool[Math.floor(dayRand(day, 1) * pool.length)];
   const rest = pool.filter((g) => g !== first);
   const second = rest[Math.floor(dayRand(day, 2) * rest.length)];
-  return [DELIVERIES_GOAL, first, second, SAFE_GOAL, CLEAN_GOAL];
+  return [first, second];
+}
+
+/** A rotating goal by id (district goals: `district:<id>`), or null when it no longer exists */
+export function rotatingGoalById(id: string, districts: readonly GoalDistrict[]): ShiftGoalSpec | null {
+  const pooled = ROTATING_GOALS.find((g) => g.id === id);
+  if (pooled) return pooled;
+  const d = id.startsWith('district:') ? districts.find((x) => `district:${x.id}` === id) : undefined;
+  return d ? districtGoal(d) : null;
+}
+
+/** A day's goals around its rotating ones: 배달 3건 first, the two clock-out goals last */
+export function withFixedGoals(rotating: readonly ShiftGoalSpec[]): ShiftGoalSpec[] {
+  return [DELIVERIES_GOAL, ...rotating, SAFE_GOAL, CLEAN_GOAL];
+}
+
+/** Today's goals: deliveries, two rotating goals (from the pool + district goals), the clock-out goals */
+export function goalsForDay(day: number, districts: readonly GoalDistrict[]): ShiftGoalSpec[] {
+  return withFixedGoals(rotatingGoalsForDay(day, districts));
 }
 
 /** Per-shift totals (the daily ledger) that are saved with the shift */
@@ -109,6 +127,11 @@ export interface ShiftSave {
   counters: Record<string, number>;
   claimed: ShiftGoalId[];
   ledger: ShiftLedger;
+  /**
+   * The day's two rotating goal ids, pinned when the day started so adding goals to the pool in an update never
+   * changes a day in progress (missing in saves from before pinning: drawn on load, then pinned)
+   */
+  rotatingGoals?: ShiftGoalId[];
 }
 
 export function emptyLedger(): ShiftLedger {
@@ -143,12 +166,16 @@ export function parseShiftSave(raw: unknown): ShiftSave | undefined {
   }
   // Saves from before rotating goals kept only the rush-hour count
   if (finite(r.peakDeliveries) && r.peakDeliveries > 0 && counters.peak === undefined) counters.peak = Math.floor(r.peakDeliveries);
+  const rotatingGoals = Array.isArray(r.rotatingGoals)
+    ? r.rotatingGoals.filter((c): c is string => typeof c === 'string' && c.length > 0 && c.length < 64).slice(0, 4)
+    : [];
   return {
     day: Math.max(1, Math.floor(r.day)),
     clockMinute: ((r.clockMinute % 1440) + 1440) % 1440,
     counters,
     claimed,
     ledger,
+    ...(rotatingGoals.length > 0 ? { rotatingGoals } : {}),
   };
 }
 

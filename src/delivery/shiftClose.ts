@@ -60,7 +60,7 @@ export function clockOut(host: DeliveryManager): ClockOutResult | null {
   let weeklyBonus = 0;
   if (day % DAYS_PER_WEEK === 0) {
     const withToday = historyWithToday(host);
-    weekGoals = weekGoalStatuses(weekSummary(withToday, day));
+    weekGoals = weekGoalStatuses(weekSummary(withToday, day), host.weekGoalSpecs());
     weeklyBonus = weekGoals.filter((g) => g.met).reduce((a, g) => a + g.bonus, 0);
     host.weeklyBonusTotal += weeklyBonus;
     host.totalEarnings += weeklyBonus;

@@ -9,7 +9,9 @@ import {
   ShiftGoalSpec,
   ShiftGoalState,
   ShiftGoalStatus,
-  goalsForDay,
+  rotatingGoalById,
+  rotatingGoalsForDay,
+  withFixedGoals,
   goalsToAward,
   shiftGoalStatuses,
 } from './ShiftDay';
@@ -64,21 +66,46 @@ export class ShiftProgress {
 
   constructor(private readonly career: RiderCareerSave) {}
 
-  public restore(counters: Readonly<Record<string, number>>, claimed: readonly ShiftGoalId[]): void {
+  /** Rotating goals pinned for a day (saved with the shift) */
+  private pinned: { day: number; goals: ShiftGoalSpec[] } | null = null;
+
+  public restore(
+    counters: Readonly<Record<string, number>>,
+    claimed: readonly ShiftGoalId[],
+    day?: number,
+    rotatingGoals?: readonly ShiftGoalId[],
+  ): void {
     this.counters = { ...counters };
     this.claimed.clear();
     for (const id of claimed) this.claimed.add(id);
+    this.pinned = null;
+    if (day !== undefined && rotatingGoals && rotatingGoals.length > 0) {
+      const goals = rotatingGoals.map((id) => rotatingGoalById(id, this.districts)).filter((g): g is ShiftGoalSpec => g !== null);
+      // a pinned goal that was removed in an update: draw the day again rather than show one goal fewer
+      if (goals.length === rotatingGoals.length) this.pinned = { day, goals };
+    }
   }
 
-  /** New working day: no counters, nothing claimed */
+  /** New working day: no counters, nothing claimed, goals drawn fresh */
   public reset(): void {
     this.counters = {};
     this.claimed.clear();
+    this.pinned = null;
   }
 
-  /** Today's goal specs: 배달 3건, two rotating goals for this day, 무사고 퇴근 */
+  /** Today's rotating goal ids (saved with the shift so they stay put) */
+  public rotatingGoalIds(day: number): ShiftGoalId[] {
+    return this.rotating(day).map((g) => g.id);
+  }
+
+  private rotating(day: number): ShiftGoalSpec[] {
+    if (!this.pinned || this.pinned.day !== day) this.pinned = { day, goals: rotatingGoalsForDay(day, this.districts) };
+    return this.pinned.goals;
+  }
+
+  /** Today's goal specs: 배달 3건, the day's two rotating goals, 무사고 · 무위반 퇴근 */
   public goals(day: number): ShiftGoalSpec[] {
-    return goalsForDay(day, this.districts);
+    return withFixedGoals(this.rotating(day));
   }
 
   public state(completedCount: number, pedestrianAccidentCount: number): ShiftGoalState {

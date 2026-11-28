@@ -94,7 +94,14 @@ import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomer
 
 import { ShiftProgress } from './shiftProgress';
 import { RiderRecords } from './riderRecords';
-import { WeekGoalStatus, weekGoalStatuses } from './weeklyGoals';
+import {
+  WeekGoalSpec,
+  WeekGoalStatus,
+  rotatingWeekGoalIds,
+  weekGoalStatuses,
+  weekGoalsFor,
+  weekGoalsFromIds,
+} from './weeklyGoals';
 
 import { buildDailyLedger, pickShiftLedger } from './dailyLedger';
 
@@ -206,7 +213,7 @@ export class DeliveryManager {
     const shift = this.career.shift ?? emptyShift(1, SHIFT_START_MINUTE);
     this.shiftDay = shift.day;
     this.shiftClockMinute = shift.clockMinute;
-    this.progress.restore(shift.counters, shift.claimed);
+    this.progress.restore(shift.counters, shift.claimed, shift.day, shift.rotatingGoals);
     this.restoreLedger(shift.ledger);
     this.refreshAvailableOrders();
     // Goals already met in the loaded save are not announced again
@@ -229,7 +236,9 @@ export class DeliveryManager {
       counters: { ...this.progress.counters },
       claimed: [...this.progress.claimed],
       ledger: this.ledgerSnapshot(),
+      rotatingGoals: this.progress.rotatingGoalIds(this.shiftDay),
     };
+    this.weekGoalSpecs(); // pins the current week's goals (a new week pins its own)
     saveRiderCareer(this.career);
   }
 
@@ -264,7 +273,7 @@ export class DeliveryManager {
 
   /** This week's goals with progress over the finished days of the week */
   public getWeekGoals(): WeekGoalStatus[] {
-    return weekGoalStatuses(this.getWeekSummary());
+    return weekGoalStatuses(this.getWeekSummary(), this.weekGoalSpecs());
   }
 
   /**
@@ -272,7 +281,7 @@ export class DeliveryManager {
    * The phone shows these while riding; getWeekGoals() is finished days only.
    */
   public getWeekGoalsLive(): WeekGoalStatus[] {
-    return weekGoalStatuses(weekSummary(historyWithTodayFn(this), this.shiftDay));
+    return weekGoalStatuses(weekSummary(historyWithTodayFn(this), this.shiftDay), this.weekGoalSpecs());
   }
 
   /**
@@ -303,6 +312,19 @@ export class DeliveryManager {
     const { goals, bonus } = this.awardDueGoals('delivery');
     this.persistCareer();
     return { count, ratingGain, newRating: this.riderRating, goals, bonus };
+  }
+
+  /**
+   * This week's goals: pinned in the career save the first time the week's goals are needed, so goals added or
+   * reordered in an update never change a week in progress (a pinned goal that no longer exists: drawn again).
+   */
+  public weekGoalSpecs(week = weekOfDay(this.shiftDay)): WeekGoalSpec[] {
+    const pin = this.career.weekGoals;
+    const pinned = pin && pin.week === week ? weekGoalsFromIds(pin.ids) : null;
+    if (pinned) return pinned;
+    const goals = weekGoalsFor(week);
+    this.career.weekGoals = { week, ids: rotatingWeekGoalIds(goals) };
+    return goals;
   }
 
   /** Traffic violations today (speeding / red light / sidewalk riding) */

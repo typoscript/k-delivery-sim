@@ -63,8 +63,18 @@ export function weekGoalsFor(week: number): WeekGoalSpec[] {
   return [WEEK_DELIVERIES_GOAL, first, second];
 }
 
-export function weekGoalStatuses(w: WeekSummary): WeekGoalStatus[] {
-  return weekGoalsFor(w.week).map((g) => {
+/** Week goals from pinned rotating ids (WEEK_DELIVERIES_GOAL first); null when an id no longer exists */
+export function weekGoalsFromIds(ids: readonly string[]): WeekGoalSpec[] | null {
+  const rotating = ids.map((id) => ROTATING_WEEK_GOALS.find((g) => g.id === id));
+  if (rotating.length === 0 || rotating.some((g) => !g)) return null;
+  return [WEEK_DELIVERIES_GOAL, ...(rotating as WeekGoalSpec[])];
+}
+
+/** Rotating goal ids of a week's goals (what gets pinned in the save) */
+export const rotatingWeekGoalIds = (goals: readonly WeekGoalSpec[]) => goals.filter((g) => g !== WEEK_DELIVERIES_GOAL).map((g) => g.id);
+
+export function weekGoalStatuses(w: WeekSummary, goals: readonly WeekGoalSpec[] = weekGoalsFor(w.week)): WeekGoalStatus[] {
+  return goals.map((g) => {
     const current = g.progress(w);
     return { id: g.id, icon: g.icon, title: g.title, target: g.target, bonus: g.bonus, unit: g.unit, current, met: current >= g.target };
   });

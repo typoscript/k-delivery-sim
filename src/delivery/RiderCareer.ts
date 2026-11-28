@@ -28,6 +28,8 @@ export interface RiderCareerSave {
   lifetimeCounters?: Record<string, number>;
   /** Unlocked achievement id -> working day it was unlocked */
   achievements?: Record<string, number>;
+  /** The current week's rotating goal ids, pinned when the week started (updates never change a week in progress) */
+  weekGoals?: { week: number; ids: string[] };
 }
 
 /** Local calendar date key (YYYY-MM-DD) for daily mission persistence */
@@ -108,6 +110,14 @@ export function loadRiderCareer(): RiderCareerSave {
       }
     }
     const shift = parseShiftSave(parsed.shift);
+    const wg = parsed.weekGoals as unknown;
+    const weekGoals =
+      wg && typeof wg === 'object' && Number.isFinite((wg as { week?: unknown }).week) && Array.isArray((wg as { ids?: unknown }).ids)
+        ? {
+            week: Math.max(1, Math.floor((wg as { week: number }).week)),
+            ids: ((wg as { ids: unknown[] }).ids.filter((x) => typeof x === 'string' && x.length > 0 && x.length < 64) as string[]).slice(0, 4),
+          }
+        : undefined;
     return {
       history: parseDayHistory(parsed.history),
       lifetimeCounters: parseCountMap(parsed.lifetimeCounters),
@@ -121,6 +131,7 @@ export function loadRiderCareer(): RiderCareerSave {
       customerDeliveryCounts,
       shopNames,
       shift,
+      ...(weekGoals && weekGoals.ids.length > 0 ? { weekGoals } : {}),
     };
   } catch {
     return fallback;

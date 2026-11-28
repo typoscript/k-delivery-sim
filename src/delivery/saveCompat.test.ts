@@ -280,3 +280,50 @@ describe('bike garage save', () => {
     expect(loadBikeGarage()).toEqual(g);
   });
 });
+
+describe('goals pinned in the save', () => {
+  const ids = (dm: DeliveryManager) => dm.getShiftGoals().map((g) => g.id);
+
+  it("a day's rotating goals come from the save, not from today's draw", () => {
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [], shift: { day: 5, clockMinute: 700, claimed: [], ledger: {}, rotatingGoals: ['villa', 'night'] } });
+    const dm = new DeliveryManager(LOCATIONS);
+    expect(ids(dm)).toEqual(['deliveries', 'villa', 'night', 'safe', 'clean']);
+  });
+
+  it('an old save without pinned goals draws them once and pins them', () => {
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [], shift: { day: 9, clockMinute: 700, claimed: [], ledger: {} } });
+    const dm = new DeliveryManager(LOCATIONS);
+    const drawn = ids(dm);
+    expect(drawn).toHaveLength(5);
+    dm.persistCareer();
+    expect(loadRiderCareer().shift!.rotatingGoals).toEqual(drawn.slice(1, 3));
+    expect(ids(new DeliveryManager(LOCATIONS))).toEqual(drawn);
+  });
+
+  it('a pinned goal that no longer exists draws the day again', () => {
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [], shift: { day: 9, clockMinute: 700, claimed: [], ledger: {}, rotatingGoals: ['villa', 'removed_goal'] } });
+    const g = ids(new DeliveryManager(LOCATIONS));
+    expect(g).toHaveLength(5);
+    expect(g).not.toContain('removed_goal');
+  });
+
+  it('the next day draws its own goals', () => {
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [], shift: { day: 5, clockMinute: 700, claimed: [], ledger: {}, rotatingGoals: ['villa', 'night'] } });
+    const dm = new DeliveryManager(LOCATIONS);
+    dm.clockOut();
+    dm.persistCareer();
+    expect(loadRiderCareer().shift).toMatchObject({ day: 6, rotatingGoals: ids(dm).slice(1, 3) });
+  });
+
+  it("the week's goals come from the save; a new week pins its own", () => {
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [], shift: { day: 3, clockMinute: 700, claimed: [], ledger: {} }, weekGoals: { week: 1, ids: ['week_stars', 'week_safe'] } });
+    const dm = new DeliveryManager(LOCATIONS);
+    expect(dm.getWeekGoalsLive().map((g) => g.id)).toEqual(['week_deliveries', 'week_stars', 'week_safe']);
+    // a pin of another week is ignored
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [], shift: { day: 10, clockMinute: 700, claimed: [], ledger: {} }, weekGoals: { week: 1, ids: ['week_stars', 'week_safe'] } });
+    const dm2 = new DeliveryManager(LOCATIONS);
+    const week2 = dm2.getWeekGoalsLive().map((g) => g.id);
+    dm2.persistCareer();
+    expect(loadRiderCareer().weekGoals).toEqual({ week: 2, ids: week2.slice(1) });
+  });
+});
