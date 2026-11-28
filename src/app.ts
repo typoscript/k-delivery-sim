@@ -165,6 +165,10 @@ const graphics = new GraphicsRuntime(renderer, world.sunLight);
 const applyGameSettings = (s: GameSettings) => {
   audio.setMasterVolume(s.masterVolume);
   audio.ambienceVolume = s.ambienceVolume;
+  if (roadNavigator.avoidIce !== s.avoidIceRoutes) {
+    roadNavigator.avoidIce = s.avoidIceRoutes;
+    delivery.invalidateNavCache();
+  }
   voiceNav.setEnabled(s.voiceNaviEnabled);
   voiceNav.setVolume(Math.min(1, s.masterVolume * 1.05));
   camController.sensitivity = s.mouseSensitivity;

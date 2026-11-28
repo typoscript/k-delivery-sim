@@ -127,6 +127,8 @@ export class MissionRoutePlanner {
         guidance = navigator.computeTurnGuidance(route, pathRes.distance, playerHeading);
         if (pathRes.roadworks) guidance.instructionText += ' · 🚧 공사 구간 서행';
         else if (pathRes.avoidedRoadworks) guidance.instructionText += ' · 🚧 공사 우회 중';
+        if (pathRes.avoidedIce) guidance.instructionText += ' · 🧊 결빙 구간 우회 중';
+        else if (pathRes.icySegments) guidance.instructionText += ' · 🧊 결빙 구간 통과 · 서행';
         if (pathRes.roadworks || pathRes.avoidedRoadworks) {
           roadworks = {
             through: pathRes.roadworks ?? 0,

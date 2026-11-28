@@ -14,6 +14,10 @@ export interface AStarPathResult {
   roadworkPoints?: RoutePoint[];
   /** Construction segments the unpenalized shortest route would use but this one detours around */
   avoidedRoadworks?: number;
+  /** Frozen (black ice) segments still on the route */
+  icySegments?: number;
+  /** Frozen segments the route detours around (결빙 구간 피하기) */
+  avoidedIce?: number;
 }
 
 /** A road segment narrowed by construction (graph node ids of its ends) */
@@ -58,6 +62,10 @@ export class RoadNavigator {
   readonly baseAdj: Array<Array<{ to: number; cost: number }>> = [];
   /** @internal navigation/* */
   readonly roadworkKeys = new Set<number>();
+  /** Frozen road segments today (black ice); routes detour around them while `avoidIce` is on */
+  readonly icyKeys = new Set<number>();
+  /** 설정 결빙 구간 피하기 */
+  public avoidIce = true;
 
   constructor() {
     for (const n of ACTIVE_MAP_DATA.nodes) {
@@ -79,6 +87,12 @@ export class RoadNavigator {
   public setRoadworks(edges: readonly RoadworkEdge[]): void {
     this.roadworkKeys.clear();
     for (const e of edges) this.roadworkKeys.add(edgeKey(e.edgeA, e.edgeB));
+  }
+
+  /** Marks today's frozen segments (graph node pairs); empty when nothing is frozen */
+  public setIcyEdges(edges: ReadonlyArray<{ a: number; b: number }>): void {
+    this.icyKeys.clear();
+    for (const e of edges) this.icyKeys.add(edgeKey(e.a, e.b));
   }
 
   public isRoadwork(a: number, b: number): boolean {

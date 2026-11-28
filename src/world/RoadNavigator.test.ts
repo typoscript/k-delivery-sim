@@ -133,3 +133,47 @@ describe('RoadNavigator fingerprint', () => {
     expect({ routes, points, hash }).toMatchSnapshot();
   });
 });
+
+describe('RoadNavigator black ice (결빙 구간 피하기)', () => {
+  const { nodes, edges } = ACTIVE_MAP_DATA;
+  const neighbors = new Map<number, number[]>();
+  for (const e of edges) {
+    if (!neighbors.has(e.a)) neighbors.set(e.a, []);
+    if (!neighbors.has(e.b)) neighbors.set(e.b, []);
+    neighbors.get(e.a)!.push(e.b);
+    neighbors.get(e.b)!.push(e.a);
+  }
+
+  it('detours around a frozen segment while the option is on, takes it (and says so) when off', () => {
+    const nav = new RoadNavigator();
+    let detoured = 0;
+    let checked = 0;
+    for (const e of edges.filter((x) => x.dist >= 60).slice(0, 60)) {
+      const p = (neighbors.get(e.a) ?? []).find((n) => n !== e.b);
+      const q = (neighbors.get(e.b) ?? []).find((n) => n !== e.a);
+      if (p === undefined || q === undefined) continue;
+      const from = nodes[p];
+      const to = nodes[q];
+      const mid = { x: (nodes[e.a].x + nodes[e.b].x) / 2, z: (nodes[e.a].z + nodes[e.b].z) / 2 };
+      nav.setIcyEdges([]);
+      const dry = nav.findShortestPath(from.x, from.z, to.x, to.z);
+      if (distToPolyline(dry.points, mid.x, mid.z) > 2) continue;
+      nav.setIcyEdges([{ a: e.a, b: e.b }]);
+      nav.avoidIce = true;
+      const avoid = nav.findShortestPath(from.x, from.z, to.x, to.z);
+      if (!avoid.icySegments) {
+        expect(distToPolyline(avoid.points, mid.x, mid.z)).toBeGreaterThan(2);
+        expect(avoid.avoidedIce).toBe(1);
+        detoured++;
+      }
+      nav.avoidIce = false;
+      const straight = nav.findShortestPath(from.x, from.z, to.x, to.z);
+      expect(straight.distance).toBeCloseTo(dry.distance, 3);
+      expect(straight.icySegments).toBe(1);
+      expect(straight.avoidedIce).toBeUndefined();
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(3);
+    expect(detoured).toBeGreaterThan(2);
+  });
+});

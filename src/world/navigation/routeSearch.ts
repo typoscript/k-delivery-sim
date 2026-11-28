@@ -3,6 +3,8 @@ import type { AStarPathResult, RoadNavigator, RoutePoint } from '../RoadNavigato
 
 /** Extra route cost of a construction segment: the planner detours unless the way around is much longer */
 export const ROADWORK_DETOUR_METERS = 220;
+/** Extra route cost of an iced segment (결빙 구간 피하기): worth a detour of a few blocks, not across town */
+export const ICE_DETOUR_METERS = 260;
 
 export interface GraphNode {
   id: number;
@@ -155,6 +157,7 @@ export function findShortestPath(
   /** A* over the road graph; `penalty` adds the construction detour cost (off: what the route would be without it) */
   const search = (penalty: boolean) => {
     let touchedRoadwork = false;
+    let touchedIce = false;
     // --- Standard A* Search (Euclidean admissible heuristic for arbitrary OSM angles) ---
     const gScore = new Float64Array(totalNodes).fill(Infinity);
     const fScore = new Float64Array(totalNodes).fill(Infinity);
@@ -221,7 +224,15 @@ export function findShortestPath(
           host.roadworkKeys.has(edgeKey(current, to));
         if (isRoadwork) touchedRoadwork = true;
         const roadwork = isRoadwork && penalty ? ROADWORK_DETOUR_METERS : 0;
-        const tentativeG = gScore[current] + edgeCost + turnPenalty + roadwork;
+        const isIcy =
+          host.avoidIce &&
+          host.icyKeys.size > 0 &&
+          current < baseCount &&
+          to < baseCount &&
+          host.icyKeys.has(edgeKey(current, to));
+        if (isIcy) touchedIce = true;
+        const ice = isIcy && penalty ? ICE_DETOUR_METERS : 0;
+        const tentativeG = gScore[current] + edgeCost + turnPenalty + roadwork + ice;
         if (tentativeG < gScore[to]) {
           cameFrom[to] = current;
           gScore[to] = tentativeG;
@@ -248,12 +259,14 @@ export function findShortestPath(
 
     const roadNodes: RoutePoint[] = [];
     let roadworks = 0;
+    let icy = 0;
     const roadworkPoints: RoutePoint[] = [];
     let curr = GOAL_ID;
     let safety = 0;
     while (curr !== -1 && safety <= totalNodes) {
       roadNodes.push({ x: nodes[curr].x, z: nodes[curr].z });
       const from = cameFrom[curr];
+      if (from !== -1 && curr < baseCount && from < baseCount && host.icyKeys.has(edgeKey(curr, from))) icy++;
       if (from !== -1 && curr < baseCount && from < baseCount && host.isRoadwork(curr, from)) {
         roadworks++;
         roadworkPoints.push({ x: (nodes[curr].x + nodes[from].x) / 2, z: (nodes[curr].z + nodes[from].z) / 2 });
@@ -263,13 +276,15 @@ export function findShortestPath(
       safety++;
     }
     roadNodes.reverse();
-    return { roadNodes, roadworks, roadworkPoints, touchedRoadwork };
+    return { roadNodes, roadworks, roadworkPoints, touchedRoadwork, touchedIce, icy };
   };
 
   const found = search(true);
   const { roadNodes, roadworks, roadworkPoints } = found;
   // The search ran into construction but the route avoids it: was that a detour? (the unpenalized route uses it)
   const avoided = found.touchedRoadwork && roadworks === 0 ? search(false).roadworks : 0;
+  // likewise for ice: did the route go around frozen segments it would otherwise take?
+  const iceAvoided = found.touchedIce && found.icy === 0 ? search(false).icy : 0;
 
   if (roadNodes.length < 2) {
     return finalizePath([
@@ -284,6 +299,8 @@ export function findShortestPath(
     result.roadworkPoints = roadworkPoints;
   }
   if (avoided > 0) result.avoidedRoadworks = avoided;
+  if (found.icy > 0) result.icySegments = found.icy;
+  if (iceAvoided > 0) result.avoidedIce = iceAvoided;
   return result;
 }
 

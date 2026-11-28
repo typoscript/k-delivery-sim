@@ -127,6 +127,8 @@ export interface GameSettings {
   autoResolution: boolean;
   /** Power saving: 30fps while idle / in menus, 60fps as soon as the player acts */
   powerSaving: boolean;
+  /** Navigation detours around frozen (black ice) segments when a reasonable way around exists */
+  avoidIceRoutes: boolean;
   /** Phone notifications: categories on / off and 방해 금지 while riding */
   notifications: NotificationPrefs;
 }

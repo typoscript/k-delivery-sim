@@ -34,6 +34,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   graphicsQuality: 'high',
   autoResolution: true,
   powerSaving: true,
+  avoidIceRoutes: true,
   notifications: { ...DEFAULT_NOTIFICATION_PREFS },
 };
 
@@ -181,6 +182,12 @@ export class OnboardingAndSettings {
       });
     }
 
+    const iceToggle = document.getElementById('set-avoid-ice') as HTMLInputElement | null;
+    iceToggle?.addEventListener('change', () => {
+      this.settings.avoidIceRoutes = iceToggle.checked;
+      this.persistAndApply();
+    });
+
     this.powerSaveToggle?.addEventListener('change', () => {
       this.settings.powerSaving = this.powerSaveToggle!.checked;
       this.persistAndApply();
@@ -256,6 +263,8 @@ export class OnboardingAndSettings {
         autoResolution:
           typeof parsed.autoResolution === 'boolean' ? parsed.autoResolution : DEFAULT_GAME_SETTINGS.autoResolution,
         powerSaving: typeof parsed.powerSaving === 'boolean' ? parsed.powerSaving : DEFAULT_GAME_SETTINGS.powerSaving,
+        avoidIceRoutes:
+          typeof parsed.avoidIceRoutes === 'boolean' ? parsed.avoidIceRoutes : DEFAULT_GAME_SETTINGS.avoidIceRoutes,
         notifications: parseNotificationPrefs(parsed.notifications),
       };
     } catch {
@@ -292,6 +301,8 @@ export class OnboardingAndSettings {
     this.gfxSelect.value = this.settings.graphicsQuality;
     if (this.autoResToggle) this.autoResToggle.checked = this.settings.autoResolution;
     if (this.powerSaveToggle) this.powerSaveToggle.checked = this.settings.powerSaving;
+    const iceToggle = document.getElementById('set-avoid-ice') as HTMLInputElement | null;
+    if (iceToggle) iceToggle.checked = this.settings.avoidIceRoutes;
     for (const key of NOTIF_KEYS) {
       const el = document.getElementById(`set-notif-${key}`) as HTMLInputElement | null;
       if (el) el.checked = this.settings.notifications[key];
