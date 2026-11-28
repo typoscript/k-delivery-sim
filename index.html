@@ -701,6 +701,10 @@
             <div class="set-footer-actions">
               <button class="set-secondary-btn" data-action="open_districts">🗺️ 수원시 출근 구역 변경 (인계동 · 행궁동 · 수원역 · 광교)</button>
               <button class="set-secondary-btn" data-action="restart_tutorial">🎓 첫 출근 튜토리얼 다시 보기</button>
+              <button class="set-secondary-btn" data-action="export_save">💾 세이브 내보내기 (파일로 백업)</button>
+              <button class="set-secondary-btn" data-action="import_save">📂 세이브 가져오기 (백업 파일 불러오기)</button>
+              <input id="set-import-file" type="file" accept=".json,application/json" hidden />
+              <div id="set-save-status" class="set-sub"></div>
               <button class="st-ok-btn" data-action="close">저장 및 닫기 (Esc)</button>
             </div>
           </div>

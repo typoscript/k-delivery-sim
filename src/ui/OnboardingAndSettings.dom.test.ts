@@ -58,4 +58,26 @@ describe('onboarding guide (DOM)', () => {
     expect(title()).toBe('🎓 첫 출근 1분 가이드');
     expect(window.localStorage.getItem('k_delivery_phone_apps_guide_done_v1')).toBe('0');
   });
+
+  it('save backup: exports the saved keys and imports a checked backup after the rider confirms', () => {
+    window.localStorage.setItem('k_delivery_rider_career_v1', JSON.stringify({ walletBalance: 777 }));
+    let imported = 0;
+    const ob = new OnboardingAndSettings({ ...callbacks, onSaveImported: () => imported++ });
+    URL.createObjectURL = () => 'blob:test';
+    URL.revokeObjectURL = () => {};
+    const backup = ob.exportSave();
+    expect(backup.data.k_delivery_rider_career_v1).toContain('777');
+    expect(document.getElementById('set-save-status')!.textContent).toContain('k-delivery-save-');
+
+    // a broken file is refused with a reason, nothing changes
+    expect(ob.importSave('{not json', () => true)).toBe(false);
+    expect(document.getElementById('set-save-status')!.textContent).toContain('불러올 수 없어요');
+
+    window.localStorage.setItem('k_delivery_rider_career_v1', JSON.stringify({ walletBalance: 1 }));
+    expect(ob.importSave(JSON.stringify(backup), () => false)).toBe(false); // the rider said no
+    expect(window.localStorage.getItem('k_delivery_rider_career_v1')).toContain('"walletBalance":1');
+    expect(ob.importSave(JSON.stringify(backup), () => true)).toBe(true);
+    expect(window.localStorage.getItem('k_delivery_rider_career_v1')).toContain('777');
+    expect(imported).toBe(1);
+  });
 });

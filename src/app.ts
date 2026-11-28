@@ -207,6 +207,11 @@ const onboardingSettings = new OnboardingAndSettings({
   onOpenDistrictSelector: () => {
     districtUi.open();
   },
+  // a loaded backup replaces the save: restart the game on it (nothing of this session may overwrite it)
+  onSaveImported: () => {
+    delivery.freezeSaves();
+    window.setTimeout(() => window.location.reload(), 300);
+  },
   onTutorialCompleted: () => {
     audio.playChime('complete');
     voiceNav.speak('첫 배달을 성공적으로 마쳤습니다! 이제 프로 라이더로 활동해 보세요.');

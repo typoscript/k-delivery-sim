@@ -1,6 +1,7 @@
 import { GameSettings, GraphicsQuality } from '../types';
 import { DeliveryManager } from '../delivery/DeliveryManager';
 import { PlayerState } from '../player/PlayerController';
+import { SaveBackup, applyBackup, backupFileName, buildBackup, parseBackup } from '../game/saveBackup';
 
 const SETTINGS_STORAGE_KEY = 'k_delivery_settings_v1';
 const TUTORIAL_STORAGE_KEY = 'k_delivery_tutorial_done_v1';
@@ -34,6 +35,8 @@ export interface SettingsCallbacks {
   onApplySettings: (settings: GameSettings) => void;
   onTutorialCompleted: () => void;
   onOpenDistrictSelector?: () => void;
+  /** A backup was loaded into storage (the game reloads to use it) */
+  onSaveImported?: () => void;
 }
 
 /**
@@ -58,6 +61,8 @@ export class OnboardingAndSettings {
   private readonly gfxSelect = document.getElementById('set-graphics') as HTMLSelectElement;
   private readonly autoResToggle = document.getElementById('set-auto-res') as HTMLInputElement | null;
   private readonly powerSaveToggle = document.getElementById('set-power-save') as HTMLInputElement | null;
+  private readonly importFileEl = document.getElementById('set-import-file') as HTMLInputElement;
+  private readonly saveStatusEl = document.getElementById('set-save-status')!;
 
   // Interactive First-Shift Onboarding Guide Card
   private readonly guideCard = document.getElementById('onboarding-card')!;
@@ -115,7 +120,17 @@ export class OnboardingAndSettings {
       } else if (btn.dataset.action === 'restart_tutorial') {
         this.restartTutorial();
         this.closeSettingsModal();
+      } else if (btn.dataset.action === 'export_save') {
+        this.exportSave();
+      } else if (btn.dataset.action === 'import_save') {
+        this.importFileEl.click();
       }
+    });
+
+    this.importFileEl.addEventListener('change', () => {
+      const file = this.importFileEl.files?.[0];
+      this.importFileEl.value = '';
+      if (file) void file.text().then((text) => this.importSave(text));
     });
 
     this.volInput.addEventListener('input', () => {
@@ -267,6 +282,37 @@ export class OnboardingAndSettings {
   public closeSettingsModal(): void {
     this.isSettingsOpen = false;
     this.modalBackdrop.classList.add('hidden');
+  }
+
+  /** Downloads every saved key as one backup file */
+  public exportSave(): SaveBackup {
+    const backup = buildBackup(window.localStorage, new Date().toISOString());
+    const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = backupFileName(backup.savedAt);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    this.saveStatusEl.textContent = `💾 ${a.download} 저장됨`;
+    return backup;
+  }
+
+  /**
+   * Loads a backup file's text: checked first, then the rider confirms (it replaces the current save) and the game
+   * reloads with it. Returns whether it was applied.
+   */
+  public importSave(text: string, confirmFn: (msg: string) => boolean = (m) => window.confirm(m)): boolean {
+    const parsed = parseBackup(text);
+    if (!parsed.ok) {
+      this.saveStatusEl.textContent = `⚠️ 불러올 수 없어요: ${parsed.reason}`;
+      return false;
+    }
+    const when = parsed.backup.savedAt ? parsed.backup.savedAt.slice(0, 16).replace('T', ' ') : '날짜 모름';
+    if (!confirmFn(`${when} 백업으로 지금 세이브를 덮어쓸까요? (지금 진행은 사라져요)`)) return false;
+    applyBackup(window.localStorage, parsed.backup);
+    this.saveStatusEl.textContent = '📂 불러왔어요 · 다시 시작합니다';
+    this.callbacks.onSaveImported?.();
+    return true;
   }
 
   public toggleSettingsModal(): void {

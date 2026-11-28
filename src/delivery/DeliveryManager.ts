@@ -261,7 +261,17 @@ export class DeliveryManager {
     return Math.round((before - this.riderRating) * 10) / 10;
   }
 
+  /** Set once a backup was loaded: nothing of this session may overwrite it before the reload */
+  private savesFrozen = false;
+
+  /** Stops every save of this session (career, chats) - a loaded backup must survive the reload */
+  public freezeSaves(): void {
+    this.savesFrozen = true;
+    this.messenger.onChange = null;
+  }
+
   public persistCareer(): void {
+    if (this.savesFrozen) return;
     this.career.walletBalance = Math.round(this.totalEarnings);
     this.career.lifetimeCompleted = this.lifetimeCompleted;
     this.career.riderRating = Math.round(this.riderRating * 10) / 10;
