@@ -55,6 +55,8 @@ export interface WeatherReportInput {
   blackIce: boolean;
   /** Only the bridges are frozen (sunset / late morning), not the shaded streets */
   blackIceBridgesOnly?: boolean;
+  /** Stream walkways: under water and closed, the water rising toward that, or normal */
+  streams?: 'closed' | 'rising' | 'normal';
   /** Puddles on the road right now */
   puddles: number;
   /** Is it night now (sunset passed) */
@@ -156,6 +158,21 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
       icon: '☔',
       title: `장마 ${dayInSeason(input.workDay) - 2}일째`,
       detail: '거의 하루 종일 긴 비 · 우천 할증 콜이 이어져요',
+      level: 'warn',
+    });
+  }
+  if (input.streams === 'closed') {
+    alerts.push({
+      icon: '🌊',
+      title: '하천 산책로 통제',
+      detail: '수위가 올라 산책로·징검다리가 잠겼어요 · 산책로 쉼터 콜 중단 · 비가 그치고 물이 빠지면 풀려요',
+      level: 'danger',
+    });
+  } else if (input.streams === 'rising') {
+    alerts.push({
+      icon: '🌊',
+      title: '하천 수위 상승',
+      detail: '비가 계속되면 산책로·징검다리가 통제될 수 있어요',
       level: 'warn',
     });
   }

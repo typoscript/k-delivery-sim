@@ -1,3 +1,4 @@
+import { riversideAccess } from '../delivery/localPairing';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
@@ -117,6 +118,21 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   const stageBefore = world.blackIce.currentStage;
   world.blackIce.set(delivery.shiftDay, iceStage); // cheap when nothing changed; a new working day freezes other spots
   world.syncIceSheen();
+  // streams rise in the rain: above the closing level the walkways go under (산책로 통제)
+  const flood = world.streamFlood.step(dtGameMin, world.weatherMode === 'rain', monsoon);
+  if (flood) {
+    riversideAccess.closed = world.streamFlood.closed;
+    if (announce) {
+      weatherPush(
+        hud,
+        flood === 'closed'
+          ? '🌊 하천 수위가 올라 산책로·징검다리가 통제됐어요 — 물에 잠긴 산책로는 걸음이 느리고 산책로 쉼터 콜이 잠시 멈춰요'
+          : '🌤️ 하천 물이 빠져 산책로·징검다리 통제가 풀렸어요',
+        5200,
+      );
+    }
+  }
+  world.syncFloodOverlay();
   // the navigator routes around today's frozen segments (patch id = road edge index)
   if (world.blackIce.version !== lastIceVersion) {
     lastIceVersion = world.blackIce.version;
@@ -183,6 +199,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       heatwave: hot,
       blackIce: icy,
       blackIceBridgesOnly: iceStage === 'bridges',
+      streams: world.streamFlood.closed ? 'closed' : world.streamFlood.rising ? 'rising' : 'normal',
       puddles: world.puddles.puddles.length,
       night: world.isNight,
       gear: { raincoat, winterGear },

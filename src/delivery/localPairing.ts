@@ -34,12 +34,16 @@ export function pickLocalShop(
   return pool[Math.floor(rand() * pool.length)];
 }
 
+/** 하천 산책로 통제 (flooded walkways): no new calls for the bench customers while it is on */
+export const riversideAccess = { closed: false };
+
 export function pickLocalCustomer(
   residences: readonly DeliveryLocation[],
   shop: { x: number; z: number },
   rand: () => number = Math.random
 ): DeliveryLocation {
-  const local = localCandidates(residences, shop.x, shop.z, LOCAL_CUSTOMER_RADIUS_M);
+  const open = riversideAccess.closed ? residences.filter((r) => r.residenceKind !== 'riverside') : residences;
+  const local = localCandidates(open, shop.x, shop.z, LOCAL_CUSTOMER_RADIUS_M);
   const far = local.filter((r) => Math.hypot(r.x - shop.x, r.z - shop.z) >= MIN_CUSTOMER_DIST_M);
   const pool = far.length >= MIN_CANDIDATES ? far : local;
   return pool[Math.floor(rand() * pool.length)];

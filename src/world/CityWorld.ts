@@ -1,3 +1,5 @@
+import { StreamFlood } from '../game/streamFlood';
+import { FloodOverlay } from './floodOverlay';
 import { BenchCustomers } from './benchCustomers';
 import { SIDEWALK_MIN_OFFSET_M } from '../game/trafficViolations';
 import { WALKWAY_M } from './streamPaths';
@@ -452,6 +454,21 @@ export class CityWorld {
     return best;
   }
 
+  /** Streams rise in the rain; above the closing level the walkways are under water (see game/streamFlood) */
+  public readonly streamFlood = new StreamFlood();
+  private floodOverlay: FloodOverlay | null = null;
+
+  /** Keeps the flooded-walkway water sheet in step with the flood (every frame, cheap when nothing changed) */
+  public syncFloodOverlay(): void {
+    if (!this.streamer || !this.streamWater) return;
+    if (!this.floodOverlay) {
+      if (!this.streamFlood.closed) return;
+      this.floodOverlay = new FloodOverlay(this.root, this.streamWater.material);
+    }
+    this.refreshStreamLines();
+    this.floodOverlay.sync(this.streamFlood.closed, this.streamLines, this.streamLinesVersion, this.curbOffsetFn);
+  }
+
   /** People strolling on the stream walkways (open world only, made on first use) */
   private strollers: StreamStrollers | null = null;
   /** One stable function (the strollers cache stone rows per road grid function) */
@@ -471,7 +488,8 @@ export class CityWorld {
       this.strollers = new StreamStrollers(this.root);
     }
     this.strollers.setWeather(this.weatherMode);
-    return this.strollers.update(dt, px, pz, this.streamLines, this.curbOffsetFn, scooter);
+    // flooded walkways: everybody has left them
+    return this.strollers.update(dt, px, pz, this.streamFlood.closed ? [] : this.streamLines, this.curbOffsetFn, scooter);
   }
 
   /** The stream-walkway strollers (null until a stream was near) */
@@ -502,6 +520,8 @@ export class CityWorld {
     this.refreshStreamLines();
     if (this.streamLines.length === 0) return false;
     const grid = activeRoadProximity();
+    // flooded: the walkways and the stepping stones are under water too
+    if (this.streamFlood.closed && grid.curbOffset(x, z) >= 0.3 && this.distanceToStream(x, z) <= WALKWAY_M + 0.2) return true;
     return isWadingAt(this.streamLines, x, z, (px, pz) => grid.curbOffset(px, pz));
   }
 
