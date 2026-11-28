@@ -194,6 +194,8 @@ export class DeliveryManager {
   public weeklyBonusTotal = 0;
   /** Working day (N일차) on the game clock; the ledger above and the goals below belong to it */
   public shiftDay = 1;
+  /** Repair done on credit (외상 수리) not paid back yet */
+  public repairDebt = 0;
   /** Game clock minute to resume at after a reload (kept up to date by the game loop) */
   public shiftClockMinute = SHIFT_START_MINUTE;
   /** Today's goal counters / claimed goals and the career progress (history, achievements) built on them */
@@ -235,6 +237,7 @@ export class DeliveryManager {
     this.progress = new ShiftProgress(this.career);
     this.records = new RiderRecords(this.career, this.shops);
     this.totalEarnings = this.career.walletBalance;
+    this.repairDebt = this.career.repairDebt ?? 0;
     this.lifetimeCompleted = this.career.lifetimeCompleted;
     this.riderRating = this.career.riderRating;
     const shift = this.career.shift ?? emptyShift(1, SHIFT_START_MINUTE);
@@ -273,6 +276,8 @@ export class DeliveryManager {
   public persistCareer(): void {
     if (this.savesFrozen) return;
     this.career.walletBalance = Math.round(this.totalEarnings);
+    if (this.repairDebt > 0) this.career.repairDebt = this.repairDebt;
+    else delete this.career.repairDebt;
     this.career.lifetimeCompleted = this.lifetimeCompleted;
     this.career.riderRating = Math.round(this.riderRating * 10) / 10;
     this.career.shift = {
@@ -753,6 +758,7 @@ export class DeliveryManager {
   public completePhotoSettlement(): SettlementResult | null {
     const r = completePhotoSettlementFn(this);
     if (r) {
+      this.lastDebtRepaid = this.repayRepairDebt(r.earned);
       const o = r.order;
       this.messenger.post(
         `c:${o.id}`,
@@ -761,6 +767,33 @@ export class DeliveryManager {
       );
     }
     return r;
+  }
+
+  /** Repair debt paid back from the last settlement (0 when none) */
+  public lastDebtRepaid = 0;
+
+  /**
+   * 외상 수리: fixes the scooter now and owes the cost. Only one credit repair at a time (none while a debt is open)
+   * and up to the wallet's shortfall: returns false when not allowed. The wallet pays what it can right away.
+   */
+  public repairOnCredit(cost: number): boolean {
+    if (this.repairDebt > 0 || cost <= 0) return false;
+    const paidNow = Math.max(0, Math.min(cost, Math.floor(this.totalEarnings / 100) * 100));
+    if (paidNow > 0) this.recordRepairExpense(paidNow);
+    this.repairDebt = cost - paidNow;
+    this.persistCareer();
+    return true;
+  }
+
+  /** Pays the repair debt back from a settlement's earnings (counted as a repair expense of today) */
+  public repayRepairDebt(earned: number): number {
+    if (this.repairDebt <= 0 || earned <= 0) return 0;
+    const pay = Math.min(this.repairDebt, Math.round(earned / 100) * 100);
+    if (pay <= 0) return 0;
+    this.recordRepairExpense(pay);
+    this.repairDebt -= pay;
+    this.persistCareer();
+    return pay;
   }
 
   public finishAfterCorridorExit(): void {

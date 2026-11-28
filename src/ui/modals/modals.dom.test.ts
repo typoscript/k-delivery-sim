@@ -151,11 +151,16 @@ describe('service modals (DOM)', () => {
 });
 
 describe('purchases check the wallet (modal callbacks)', () => {
-  /** AppRefs stand-in: every system method is recorded; the wallet holds `wallet` */
-  function refs(wallet: number, calls: string[]): AppRefs {
+  /** AppRefs stand-in: every system method is recorded; the wallet holds `wallet`, an open repair debt `debt` */
+  function refs(wallet: number, calls: string[], debt = 0): AppRefs {
     const sys = (name: string): unknown =>
       new Proxy(() => {}, {
-        get: (_t, k) => (k === 'state' ? { damageLevel: 0, crashCount: 0 } : sys(`${name}.${String(k)}`)),
+        get: (_t, k) => {
+          if (k === 'state') return { damageLevel: 0, crashCount: 0 };
+          if (name === 'delivery' && k === 'totalEarnings') return wallet;
+          if (name === 'delivery' && k === 'repairDebt') return debt;
+          return sys(`${name}.${String(k)}`);
+        },
         apply: () => {
           calls.push(name);
           return name.endsWith('hasUpgrade') ? false : true;
@@ -174,17 +179,28 @@ describe('purchases check the wallet (modal callbacks)', () => {
     });
   }
   const charged = (calls: string[]) =>
-    calls.filter((c) => /record\w*Expense|buyUpgrade|repairVehicle|applyConvenienceDrink|rechargeBatteryFull/.test(c));
+    calls.filter((c) =>
+      /record\w*Expense|buyUpgrade|repairVehicle|repairOnCredit|applyConvenienceDrink|rechargeBatteryFull/.test(c),
+    );
 
-  it('short of money: repair, convenience store, upgrades and bikes are refused without charging', () => {
+  it('short of money: convenience store, upgrades and bikes are refused without charging', () => {
     const calls: string[] = [];
     const cb = modalCallbacks(refs(500, calls));
-    cb.onRepairConfirm(2 * REPAIR_COST_PER_DAMAGE_STAGE);
     cb.onConvenienceBuy('energy_drink', 1500);
     cb.onBuyUpgrade(RIDER_UPGRADE_LIST[0].id, RIDER_UPGRADE_LIST[0].price);
     cb.onSelectBikeModel(SCOOTER_MODEL_LIST[1].id, 90_000);
     expect(charged(calls)).toEqual([]);
-    expect(calls.filter((c) => c.startsWith('reject?'))).toHaveLength(4);
+    expect(calls.filter((c) => c.startsWith('reject?'))).toHaveLength(3);
+  });
+
+  it('short of money the repair goes on credit (외상), but not while a debt is still open', () => {
+    const calls: string[] = [];
+    modalCallbacks(refs(500, calls)).onRepairConfirm(2 * REPAIR_COST_PER_DAMAGE_STAGE);
+    expect(charged(calls)).toEqual(['delivery.repairOnCredit', 'scooterPhysics.repairVehicle']);
+    const owing: string[] = [];
+    modalCallbacks(refs(500, owing, 9_000)).onRepairConfirm(2 * REPAIR_COST_PER_DAMAGE_STAGE);
+    expect(charged(owing)).toEqual([]);
+    expect(owing).toContain(`reject?${2 * REPAIR_COST_PER_DAMAGE_STAGE}`);
   });
 
   it('with enough money the purchase goes through', () => {
@@ -198,5 +214,17 @@ describe('purchases check the wallet (modal callbacks)', () => {
       'delivery.recordConvenienceExpense',
       'hud.phoneMap.rechargeBatteryFull',
     ]);
+  });
+
+  it('repair shop: short of money the button offers credit, an open debt shows on the wallet chip', () => {
+    loadGamePageDom();
+    const ui = new ModalUi(recordingCallbacks([]));
+    ui.openRepairModal(2, 3, garage(), career(3_000));
+    expect(ui.repairConfirmBtn.textContent).toContain('외상으로 수리');
+    ui.openRepairModal(2, 3, garage(), { ...career(3_000), repairDebt: 7_000 });
+    expect(ui.repairWalletChip.textContent).toContain('외상 ₩7,000');
+    expect(ui.repairConfirmBtn.textContent).toContain('먼저 갚아야');
+    ui.openRepairModal(2, 3, garage(), career(1_000_000));
+    expect(ui.repairConfirmBtn.textContent).toContain('수리 및 결제');
   });
 });

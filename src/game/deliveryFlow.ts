@@ -209,6 +209,20 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       window.setTimeout(() => {
         modalUi.showSettlement(result, photoDataUrl);
       }, 200);
+      if (delivery.lastDebtRepaid > 0) {
+        const paid = delivery.lastDebtRepaid;
+        const left = delivery.repairDebt;
+        window.setTimeout(
+          () =>
+            hud.showToast(
+              left > 0
+                ? `🧾 외상 수리비 ₩${paid.toLocaleString()} 상환 (남은 외상 ₩${left.toLocaleString()})`
+                : `🧾 외상 수리비 ₩${paid.toLocaleString()} 상환 완료! 외상이 모두 정리됐어요`,
+              3600
+            ),
+          1800
+        );
+      }
       const fresh = delivery.collectNewAchievements();
       announceAchievements(fresh, 2600);
       announceWeekGoals(2600 + fresh.length * 4800);

@@ -68,7 +68,23 @@ export function modalCallbacks(r: AppRefs): ModalCallbacks {
       r.hud.showToast(`💳 결제가 완료되었습니다! 주유 완료 (+${addedPercent}% · -₩${cost.toLocaleString()})`, 3800);
     },
     onRepairConfirm: (cost) => {
-      if (r.rejectIfInsufficientFunds(cost)) return;
+      if (r.delivery.totalEarnings < cost) {
+        // 외상 수리: short of money, the shop fixes it now and the rest comes out of the next settlements
+        if (r.delivery.repairDebt > 0 || !r.delivery.repairOnCredit(cost)) {
+          r.rejectIfInsufficientFunds(cost);
+          if (r.delivery.repairDebt > 0) {
+            r.hud.showToast(`🧾 외상 수리비 ₩${r.delivery.repairDebt.toLocaleString()}이 남아 있어 추가 외상은 안 돼요`, 3400);
+          }
+          return;
+        }
+        r.scooterPhysics.repairVehicle();
+        r.audio.playRepairSound();
+        r.hud.showToast(
+          `🔧 외상 수리 완료! 외상 ₩${r.delivery.repairDebt.toLocaleString()}은 다음 배달 정산에서 자동으로 갚아요`,
+          4200,
+        );
+        return;
+      }
       r.scooterPhysics.repairVehicle();
       r.delivery.recordRepairExpense(cost);
       r.audio.playRepairSound();

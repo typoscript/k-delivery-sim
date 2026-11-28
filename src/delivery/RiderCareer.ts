@@ -30,6 +30,8 @@ export interface RiderCareerSave {
   achievements?: Record<string, number>;
   /** The current week's rotating goal ids, pinned when the week started (updates never change a week in progress) */
   weekGoals?: { week: number; ids: string[] };
+  /** Unpaid repair done on credit (외상 수리), paid back from the next settlements */
+  repairDebt?: number;
 }
 
 /** Local calendar date key (YYYY-MM-DD) for daily mission persistence */
@@ -132,6 +134,9 @@ export function loadRiderCareer(): RiderCareerSave {
       shopNames,
       shift,
       ...(weekGoals && weekGoals.ids.length > 0 ? { weekGoals } : {}),
+      ...(typeof parsed.repairDebt === 'number' && Number.isFinite(parsed.repairDebt) && parsed.repairDebt > 0
+        ? { repairDebt: Math.min(1_000_000, Math.round(parsed.repairDebt)) }
+        : {}),
     };
   } catch {
     return fallback;
