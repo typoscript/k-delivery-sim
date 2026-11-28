@@ -13,9 +13,28 @@ import { applySnowCover } from './snowCover';
 /** Sun direction (target -> sun) used by the stabilized follow-the-player shadow frustum */
 const SUN_OFFSET = new THREE.Vector3(160, 240, 120);
 const SUN_DISTANCE = SUN_OFFSET.length();
+/** Default sun height above the horizon (deg) - the seasons move it (setSunElevation) */
+export const DEFAULT_SUN_ELEVATION_DEG = (Math.atan2(240, Math.hypot(160, 120)) * 180) / Math.PI;
 const SUN_OFFSET_DIR = SUN_OFFSET.clone().normalize();
 const SUN_LIGHT_RIGHT = new THREE.Vector3(0, 1, 0).cross(SUN_OFFSET_DIR).normalize();
 const SUN_LIGHT_UP = SUN_OFFSET_DIR.clone().cross(SUN_LIGHT_RIGHT).normalize();
+
+/**
+ * Sun height of the season (same compass direction): a high summer sun casts short shadows, a low winter sun long
+ * ones. Recomputes the light-space basis the stabilized shadow uses.
+ */
+export function setSunElevation(deg: number): void {
+  const az = Math.atan2(SUN_OFFSET.z, SUN_OFFSET.x);
+  const el = (deg * Math.PI) / 180;
+  SUN_OFFSET_DIR.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).normalize();
+  SUN_LIGHT_RIGHT.set(0, 1, 0).cross(SUN_OFFSET_DIR).normalize();
+  SUN_LIGHT_UP.copy(SUN_OFFSET_DIR).cross(SUN_LIGHT_RIGHT).normalize();
+}
+
+/** Current direction from the ground toward the sun (tests / debugging) */
+export function sunDirection(): THREE.Vector3 {
+  return SUN_OFFSET_DIR.clone();
+}
 
 /** Unified open world: buildings, road surfaces, parks, water & pedestrian streets stream per 200m chunk */
 export function initOpenWorldStreaming(host: CityWorld): void {

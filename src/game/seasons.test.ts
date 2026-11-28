@@ -103,3 +103,23 @@ describe('seasonal days', () => {
     expect(skyLookFor('clear', true, 'winter')).toEqual(skyLookFor('clear', true, null));
   });
 });
+
+describe('seasonal sun height', () => {
+  it('the summer sun stands high (short shadows), the winter sun low (long shadows)', async () => {
+    const { setSunElevation, sunDirection, DEFAULT_SUN_ELEVATION_DEG } = await import('../world/cityStreaming');
+    const { SEASON_SUN_ELEVATION_DEG } = await import('../world/CityWorld');
+    const shadowLen = (deg: number) => {
+      setSunElevation(deg);
+      const d = sunDirection();
+      return Math.hypot(d.x, d.z) / d.y; // shadow length of a 1 m pole
+    };
+    expect(shadowLen(SEASON_SUN_ELEVATION_DEG.winter)).toBeGreaterThan(2 * shadowLen(SEASON_SUN_ELEVATION_DEG.summer));
+    // the compass direction stays the same
+    setSunElevation(30);
+    const a = sunDirection();
+    setSunElevation(68);
+    const b = sunDirection();
+    expect(Math.atan2(a.z, a.x)).toBeCloseTo(Math.atan2(b.z, b.x), 6);
+    setSunElevation(DEFAULT_SUN_ELEVATION_DEG);
+  });
+});

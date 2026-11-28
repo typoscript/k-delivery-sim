@@ -36,6 +36,9 @@ import { ServiceStations, WorldPropHost } from './serviceStations';
 import { ApartmentGateEvent, DeliveryLocationProps, PropColliders } from './deliveryProps';
 import { SNOW_COVER, stepSnowCover } from './snowCover';
 import { setFoliageSeason } from './seasonFoliage';
+
+/** Midday sun height per season (deg): high in summer (short shadows), low in winter (long shadows) */
+export const SEASON_SUN_ELEVATION_DEG: Record<SeasonId, number> = { summer: 68, spring: 52, autumn: 44, winter: 30 };
 import { BlackIceField, IcePatch } from './blackIce';
 import type { SeasonId } from '../game/seasons';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
@@ -81,6 +84,7 @@ export interface CityMapInfo {
 
 
 import {
+  setSunElevation,
   initOpenWorldStreaming as initOpenWorldStreamingFn,
   updateStreaming as updateStreamingFn,
   placeSunStabilized as placeSunStabilizedFn,
@@ -571,6 +575,7 @@ export class CityWorld {
   /** Season of the working day: tree crowns take its colours, the day sky its light */
   public setSeason(season: SeasonId): void {
     setFoliageSeason(season);
+    setSunElevation(SEASON_SUN_ELEVATION_DEG[season]);
     this.sky.season = season;
     if (this.root.visible) this.applySkyTheme();
   }
