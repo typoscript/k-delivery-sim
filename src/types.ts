@@ -1,3 +1,4 @@
+import type { NotificationPrefs } from './ui/phone/notificationPrefs';
 import { ACTIVE_MAP_DATA } from './data/suwonDistricts';
 export const CITY_ROAD_LINES = [-200, -120, -40, 40, 120, 200] as const;
 export const CITY_BLOCK_CENTERS = [-160, -80, 0, 80, 160] as const;
@@ -123,6 +124,8 @@ export interface GameSettings {
   autoResolution: boolean;
   /** Power saving: 30fps while idle / in menus, 60fps as soon as the player acts */
   powerSaving: boolean;
+  /** Phone notifications: categories on / off and 방해 금지 while riding */
+  notifications: NotificationPrefs;
 }
 
 export interface UpcomingCameraAlert {

@@ -43,7 +43,10 @@ export function stepDeliveryFrame(
     audio.playLiquidSlosh();
     hud.showToast(`🍲 [#${ordNo}] ${menuName} 국물/음료 출렁임! 급코너·급브레이크 시 음식 상태가 감소합니다`, 2600);
   });
+  hud.phoneMap.ridingNow = isRiding;
   delivery.stepCustomerChatEvents(dt, inCorridor, isRiding, (chatEv) => {
+    // 방해 금지 while riding: the message waits in the messenger / notification center, no ping or pop-up
+    if (hud.phoneMap.quietNow) return;
     audio.playCustomerChatPing();
     voiceNav.speak('고객님께 새 메시지가 도착했습니다.');
     hud.showCustomerChatPopup(chatEv);

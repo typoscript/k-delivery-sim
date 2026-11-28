@@ -81,3 +81,35 @@ describe('onboarding guide (DOM)', () => {
     expect(imported).toBe(1);
   });
 });
+
+describe('notification settings (DOM)', () => {
+  beforeEach(() => loadGamePageDom());
+
+  it('toggles are saved, reloaded and reach the phone', async () => {
+    const { PhoneMap } = await import('./PhoneMap');
+    const applied: unknown[] = [];
+    const ob = new OnboardingAndSettings({ ...callbacks, onApplySettings: (s) => applied.push(s.notifications) });
+    const toggle = (key: string, on: boolean) => {
+      const el = document.getElementById(`set-notif-${key}`) as HTMLInputElement;
+      el.checked = on;
+      el.dispatchEvent(new Event('change'));
+    };
+    toggle('weather', false);
+    toggle('quietRiding', true);
+    expect(ob.settings.notifications).toMatchObject({ weather: false, quietRiding: true, messenger: true });
+    expect(applied.length).toBeGreaterThan(0);
+
+    // a fresh start reads them back into the toggles
+    const again = new OnboardingAndSettings(callbacks);
+    expect(again.settings.notifications.weather).toBe(false);
+
+    const phone = new PhoneMap(new Proxy({}, { get: () => () => {} }) as never);
+    phone.notifPrefs = () => again.settings.notifications;
+    expect(phone.notify('🌤️', '날씨', '비가 와요')).toBe('off');
+    expect(phone.notifications.list()).toHaveLength(0);
+    phone.ridingNow = true;
+    expect(phone.notify('💬', '메신저 · 고객', '문 앞에요')).toBe('quiet');
+    expect(phone.quietNow).toBe(true);
+    expect(phone.notifications.unread).toBe(1);
+  });
+});

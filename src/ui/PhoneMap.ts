@@ -20,6 +20,7 @@ import type { WeatherReport } from '../game/weatherReport';
 import type { Messenger } from '../delivery/messenger';
 import { messengerHtml } from './phone/messengerApp';
 import { NotificationCenter, notificationsHtml } from './phone/notifications';
+import { DEFAULT_NOTIFICATION_PREFS, NotificationPrefs, notificationDelivery } from './phone/notificationPrefs';
 
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
 
@@ -498,9 +499,26 @@ export class PhoneMap {
   }
 
   /** Adds a notification (it also stays in the center after its toast is gone) */
-  public notify(icon: string, app: string, text: string): void {
+  /** Notification settings (read when a notification arrives; the game points this at the saved settings) */
+  public notifPrefs: () => NotificationPrefs = () => DEFAULT_NOTIFICATION_PREFS;
+  /** The rider is on the scooter (set every frame): 방해 금지 keeps pop-ups away while riding */
+  public ridingNow = false;
+
+  /**
+   * Adds a notification (it also stays in the center after its toast is gone). Returns how it was delivered:
+   * 'show' (the caller may pop up a toast), 'quiet' (방해 금지 while riding: stored only) or 'off' (category off).
+   */
+  public notify(icon: string, app: string, text: string): 'show' | 'quiet' | 'off' {
+    const how = notificationDelivery(this.notifPrefs(), app, this.ridingNow);
+    if (how === 'off') return how;
     this.notifications.push(icon, app, text, this.clockLabel ?? '');
     if (this.notifOpen) this.notifications.markAllRead();
+    return how;
+  }
+
+  /** 방해 금지 is on and the rider is riding: pop-ups (customer chat, weather) wait in the notification center */
+  public get quietNow(): boolean {
+    return this.notifPrefs().quietRiding && this.ridingNow;
   }
 
   /** @internal phone/* - drawer contents and the status bar bell */

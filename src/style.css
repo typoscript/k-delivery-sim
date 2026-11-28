@@ -5779,3 +5779,10 @@ body.phone-3d-hover canvas {
 .past-week .weekly-statement .recap-none {
   color: #64748b;
 }
+/* Settings: a small heading above a group of rows (🔔 휴대폰 알림) */
+.set-group-title {
+  margin: 6px 2px -2px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #cbd5e1;
+}

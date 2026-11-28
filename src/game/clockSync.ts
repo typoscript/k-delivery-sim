@@ -11,8 +11,7 @@ let lastReportKey = '';
 
 /** Weather news reach the rider as a push notification of the phone's weather app */
 function weatherPush(hud: Hud, text: string, ms: number): void {
-  hud.showToast(`📲 날씨 앱 · ${text}`, ms);
-  hud.phoneMap.notify('🌤️', '날씨', text);
+  if (hud.phoneMap.notify('🌤️', '날씨', text) === 'show') hud.showToast(`📲 날씨 앱 · ${text}`, ms);
 }
 
 /** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */

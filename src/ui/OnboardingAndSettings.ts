@@ -1,3 +1,7 @@
+import { DEFAULT_NOTIFICATION_PREFS, NotificationPrefs, parseNotificationPrefs } from './phone/notificationPrefs';
+
+/** Settings toggles #set-notif-<key> */
+const NOTIF_KEYS: ReadonlyArray<keyof NotificationPrefs> = ['weather', 'messenger', 'goals', 'quietRiding'];
 import { GameSettings, GraphicsQuality } from '../types';
 import { DeliveryManager } from '../delivery/DeliveryManager';
 import { PlayerState } from '../player/PlayerController';
@@ -29,6 +33,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   graphicsQuality: 'high',
   autoResolution: true,
   powerSaving: true,
+  notifications: { ...DEFAULT_NOTIFICATION_PREFS },
 };
 
 export interface SettingsCallbacks {
@@ -160,6 +165,13 @@ export class OnboardingAndSettings {
       this.persistAndApply();
     });
 
+    for (const key of NOTIF_KEYS) {
+      document.getElementById(`set-notif-${key}`)?.addEventListener('change', (e) => {
+        this.settings.notifications = { ...this.settings.notifications, [key]: (e.target as HTMLInputElement).checked };
+        this.persistAndApply();
+      });
+    }
+
     this.powerSaveToggle?.addEventListener('change', () => {
       this.settings.powerSaving = this.powerSaveToggle!.checked;
       this.persistAndApply();
@@ -207,7 +219,7 @@ export class OnboardingAndSettings {
   private loadSettings(): GameSettings {
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) return { ...DEFAULT_GAME_SETTINGS };
+      if (!raw) return { ...DEFAULT_GAME_SETTINGS, notifications: { ...DEFAULT_NOTIFICATION_PREFS } };
       const parsed = JSON.parse(raw) as Partial<GameSettings>;
       return {
         masterVolume:
@@ -231,6 +243,7 @@ export class OnboardingAndSettings {
         autoResolution:
           typeof parsed.autoResolution === 'boolean' ? parsed.autoResolution : DEFAULT_GAME_SETTINGS.autoResolution,
         powerSaving: typeof parsed.powerSaving === 'boolean' ? parsed.powerSaving : DEFAULT_GAME_SETTINGS.powerSaving,
+        notifications: parseNotificationPrefs(parsed.notifications),
       };
     } catch {
       return { ...DEFAULT_GAME_SETTINGS };
@@ -262,6 +275,10 @@ export class OnboardingAndSettings {
     this.gfxSelect.value = this.settings.graphicsQuality;
     if (this.autoResToggle) this.autoResToggle.checked = this.settings.autoResolution;
     if (this.powerSaveToggle) this.powerSaveToggle.checked = this.settings.powerSaving;
+    for (const key of NOTIF_KEYS) {
+      const el = document.getElementById(`set-notif-${key}`) as HTMLInputElement | null;
+      if (el) el.checked = this.settings.notifications[key];
+    }
   }
 
   private persistAndApply(): void {
