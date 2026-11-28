@@ -22,6 +22,7 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
     tempBonus,
     villaStairBonus,
     walkInBonus,
+    replyTip,
     promisedTipBonus,
     rainBonus,
     nightBonus,
@@ -44,7 +45,7 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
   host.tierBonusTotal += tierBonus;
   // 단골 고객: count completed deliveries per customer location
   host.records.recordCustomerDelivery(m.order.customer.id);
-  host.tipTotal += tip + tempBonus + villaStairBonus + walkInBonus + promisedTipBonus;
+  host.tipTotal += tip + tempBonus + villaStairBonus + walkInBonus + replyTip + promisedTipBonus;
   host.damageDeductionTotal += pay.damageDed;
 
   host.totalEarnings += earned;
@@ -98,6 +99,7 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
     tempBonus,
     villaStairBonus,
     walkInBonus,
+    replyTip,
     promisedTipBonus,
     tip,
     tipPenalty,

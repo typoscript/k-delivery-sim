@@ -10,6 +10,7 @@ export type PhoneApp = 'delivery' | 'weather' | 'messenger';
 export const PHONE_APPS: ReadonlyArray<{ id: PhoneApp; label: string }> = [
   { id: 'delivery', label: '🛵 배달' },
   { id: 'weather', label: '🌤️ 날씨' },
+  { id: 'messenger', label: '💬 메신저' },
 ];
 
 /** Height of the 3D phone's dock strip at the bottom of the screen (clear of the camera notch at the top) */

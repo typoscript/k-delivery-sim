@@ -1,6 +1,8 @@
 import { DeliveryLocation } from '../types';
 import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
+import { CUSTOMER_REPLIES, Messenger } from './messenger';
+import { getInstructionMeta as instructionMetaOf } from './deliveryTypes';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
@@ -161,6 +163,8 @@ export class DeliveryManager {
   public isWeatherSnowing = false;
   /** Season of the working day (seasonal event calls); null until the game clock sets it */
   public season: SeasonId | null = null;
+  /** Phone messenger app: customer / shop chats and notices */
+  public readonly messenger = new Messenger();
   /** Summer heatwave afternoon: chilled food warms up faster (set by the game clock) */
   public heatwave = false;
   public isNightMode = false;
@@ -539,12 +543,50 @@ export class DeliveryManager {
   }
 
   public acceptOrder(orderId: string): DeliveryOrder | null {
-    return acceptOrderFn(this, orderId);
+    const o = acceptOrderFn(this, orderId);
+    if (o) this.postOrderAssigned(o);
+    return o;
   }
 
   /** Accepts 1 (SINGLE) or 2 (ALTTLE_BUNDLE) orders simultaneously from OrderDispatchManager */
   public acceptDispatchedOffer(orders: DeliveryOrder[]): boolean {
-    return acceptDispatchedOfferFn(this, orders);
+    const ok = acceptDispatchedOfferFn(this, orders);
+    if (ok) for (const o of orders) this.postOrderAssigned(o);
+    return ok;
+  }
+
+  /** Game clock "HH:MM" for messenger timestamps */
+  private clockLabel(): string {
+    const m = ((Math.floor(this.shiftClockMinute) % 1440) + 1440) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  }
+
+  /** Messenger: the customer's chat opens when an order is assigned to the rider */
+  private postOrderAssigned(o: DeliveryOrder): void {
+    const time = this.clockLabel();
+    const chat = { kind: 'customer' as const, title: `${o.customer.name} ${o.unitNumber}`, icon: '🙋', missionId: o.id };
+    this.messenger.post(`c:${o.id}`, chat, {
+      from: 'system',
+      text: `🛵 [#${o.orderNumber}] ${o.shop.name} → ${o.customer.name} ${o.unitNumber} 배정 · ${o.menuName}`,
+      time,
+    });
+    this.messenger.post(`c:${o.id}`, chat, {
+      from: 'them',
+      text: `요청사항: ${instructionMetaOf(o.deliveryInstruction).detailText} 감사합니다!`,
+      time,
+    });
+  }
+
+  /**
+   * The rider answers a customer's message with a quick reply (messenger app). Answering a mid-ride request before
+   * the delivery earns the 빠른 답장 tip at the settlement. Returns false when that reply is not offered.
+   */
+  public replyToChat(threadId: string, replyId: string): boolean {
+    const t = this.messenger.reply(threadId, replyId, this.clockLabel());
+    if (!t) return false;
+    const m = t.missionId ? this.getMissionById(t.missionId) : null;
+    if (m) m.chatReplied = true;
+    return true;
   }
 
   /** Steps active mission delivery countdowns & peak-time cooking delay timers */
@@ -559,6 +601,11 @@ export class DeliveryManager {
           m.phase = 'pickup_ready';
           m.cookingRemainingSec = 0;
           this.invalidateNavCache();
+          this.messenger.post(
+            `s:${m.order.shop.id}`,
+            { kind: 'shop', title: m.order.shop.name, icon: m.order.shop.emoji },
+            { from: 'them', text: `[#${m.order.orderNumber}] ${m.order.menuName} 조리 완료! 픽업대에 올려뒀어요 🛍️`, time: this.clockLabel() },
+          );
           if (onCookingReady) {
             onCookingReady(m);
           }
@@ -641,7 +688,16 @@ export class DeliveryManager {
 
   /** Called when photo shutter is pressed (PHOTO_DOOR) or after knock/face-to-face completion! */
   public completePhotoSettlement(): SettlementResult | null {
-    return completePhotoSettlementFn(this);
+    const r = completePhotoSettlementFn(this);
+    if (r) {
+      const o = r.order;
+      this.messenger.post(
+        `c:${o.id}`,
+        { kind: 'customer', title: `${o.customer.name} ${o.unitNumber}`, icon: '🙋', missionId: o.id },
+        { from: 'them', text: `${'⭐'.repeat(r.review.stars)} ${r.review.comment}`, time: this.clockLabel() },
+      );
+    }
+    return r;
   }
 
   public finishAfterCorridorExit(): void {
@@ -709,6 +765,14 @@ export class DeliveryManager {
       m.chatEventTriggered = true;
       const ev = createCustomerChatEvent(m, this.isWeatherRaining || this.isWeatherSnowing);
       this.invalidateNavCache();
+      const o = m.order;
+      this.messenger.post(
+        `c:${o.id}`,
+        { kind: 'customer', title: `${o.customer.name} ${o.unitNumber}`, icon: '🙋', missionId: o.id },
+        { from: 'them', text: ev.message, time: this.clockLabel() },
+        CUSTOMER_REPLIES,
+      );
+      this.messenger.post(`c:${o.id}`, { kind: 'customer', title: '', icon: '' }, { from: 'system', text: ev.effectBadge, time: this.clockLabel() });
       onChatEvent(ev);
       break;
     }

@@ -115,3 +115,46 @@ describe('지상 차량 출입 금지 단지', () => {
     expect(new Set(far.map((l) => isNoGroundVehicleComplex(l))).size).toBe(2);
   });
 });
+
+describe('빠른 답장 tip', () => {
+  it('is paid only when the rider answered the customer', async () => {
+    const { buildDeliveryOrder, createActiveMission } = await import('./orderFactory');
+    const { computeSettlementPay } = await import('./settlementPay');
+    const { QUICK_REPLY_TIP } = await import('./messenger');
+    const shop: DeliveryLocation = {
+      id: 's',
+      name: '가게',
+      x: 0,
+      z: 0,
+      type: 'shop',
+      emoji: '🍗',
+      menus: ['후라이드 치킨'],
+    };
+    const home = {
+      id: 'h',
+      name: '집',
+      x: 100,
+      z: 0,
+      type: 'residential',
+      emoji: '🏠',
+      residenceKind: 'walkup_villa',
+    } as const;
+    const m = createActiveMission(
+      buildDeliveryOrder({
+        id: 'o',
+        orderNumber: 'A-1',
+        type: 'SINGLE',
+        shop,
+        customer: home,
+        surcharges: { rainBonus: 0, nightBonus: 0, peakBonus: 0 },
+      }),
+      0,
+      () => 0.99,
+    );
+    const plain = computeSettlementPay(m, 0);
+    const replied = computeSettlementPay({ ...m, chatReplied: true }, 0);
+    expect(plain.replyTip).toBe(0);
+    expect(replied.replyTip).toBe(QUICK_REPLY_TIP);
+    expect(replied.earned - plain.earned).toBe(QUICK_REPLY_TIP);
+  });
+});

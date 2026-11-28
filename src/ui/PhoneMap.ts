@@ -17,6 +17,8 @@ import { DispatchPopupEls, DispatchPopupState } from './phone/topbarBanners';
 import { Ripple3DState } from './phone/screen3D';
 import { PHONE_APPS, PhoneApp, weatherAppHtml } from './phone/weatherApp';
 import type { WeatherReport } from '../game/weatherReport';
+import type { Messenger } from '../delivery/messenger';
+import { messengerHtml } from './phone/messengerApp';
 
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
 
@@ -137,6 +139,14 @@ export class PhoneMap {
   private readonly appDockEl = document.getElementById('phone-app-dock')!;
   private readonly weatherAppEl = document.getElementById('phone-weather-app')!;
   private weatherHtmlKey = '';
+  /** The rider's messenger (set once by the game: DeliveryManager.messenger) */
+  public messenger: Messenger | null = null;
+  private readonly messengerAppEl = document.getElementById('phone-messenger-app')!;
+  private readonly dockMsgBadgeEl = document.getElementById('dock-msg-badge')!;
+  /** Open chat in the messenger (null = the chat list) */
+  private openThreadId: string | null = null;
+  private messengerHtmlKey = '';
+  private dockBadgeCount = -1;
 
   /** @internal phone/* */
   readonly callbacks: PhoneCallbacks;
@@ -211,6 +221,22 @@ export class PhoneMap {
       } else {
         this.callbacks.onToggleZoom();
       }
+    });
+
+    this.messengerAppEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
+      if (!btn || !this.messenger) return;
+      if (btn.dataset.back) {
+        this.openThreadId = null;
+      } else if (btn.dataset.reply && btn.dataset.thread) {
+        this.callbacks.onChatReply?.(btn.dataset.thread, btn.dataset.reply);
+      } else if (btn.dataset.thread) {
+        this.openThreadId = btn.dataset.thread;
+        this.messenger.markRead(btn.dataset.thread);
+      }
+      this.messengerHtmlKey = '';
+      this.syncMessengerApp();
     });
 
     this.appDockEl.addEventListener('click', (e) => {
@@ -437,7 +463,10 @@ export class PhoneMap {
     if (app === this.app) return;
     this.app = app;
     this.phoneScreenEl.classList.toggle('app-weather', app === 'weather');
+    this.phoneScreenEl.classList.toggle('app-messenger', app === 'messenger');
     this.weatherAppEl.classList.toggle('hidden', app !== 'weather');
+    this.messengerAppEl.classList.toggle('hidden', app !== 'messenger');
+    this.messengerHtmlKey = '';
     for (const b of this.appDockEl.querySelectorAll<HTMLButtonElement>('.dock-app')) {
       b.classList.toggle('active', b.dataset.app === app);
     }
@@ -445,6 +474,28 @@ export class PhoneMap {
     this.last3DRenderTime = -1;
     this.lastSheetFingerprint = '';
     this.callbacks.onAppSwitched?.(app);
+  }
+
+  /** @internal phone/* - redraws the messenger when its chats changed (the open chat is read while shown) */
+  syncMessengerApp(): void {
+    const m = this.messenger;
+    if (!m) return;
+    if (this.openThreadId) m.markRead(this.openThreadId);
+    const key = `${m.version}|${this.openThreadId}`;
+    if (key === this.messengerHtmlKey) return;
+    this.messengerHtmlKey = key;
+    this.messengerAppEl.innerHTML = messengerHtml(m, this.openThreadId);
+    const log = this.messengerAppEl.querySelector('.msg-log');
+    if (log) this.messengerAppEl.scrollTop = this.messengerAppEl.scrollHeight;
+  }
+
+  /** @internal phone/* - unread count badge on the dock's messenger button */
+  syncDockBadge(): void {
+    const n = this.messenger?.unread ?? 0;
+    if (n === this.dockBadgeCount) return;
+    this.dockBadgeCount = n;
+    this.dockMsgBadgeEl.textContent = String(Math.min(99, n));
+    this.dockMsgBadgeEl.classList.toggle('hidden', n === 0);
   }
 
   /** @internal phone/* - redraws the weather app screen when its report changed */

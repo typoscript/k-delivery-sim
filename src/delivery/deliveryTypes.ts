@@ -348,6 +348,8 @@ export interface ActiveMission {
   promisedExtraTip: number; // +₩1,000 if customer asked for careful delivery & integrity >= 85%
   /** 지상 차량 출입 금지 단지: the scooter was inside the complex when the rider reached the lobby (no allowance) */
   groundRuleBroken?: boolean;
+  /** The rider answered the customer's mid-ride message in the messenger (빠른 답장 tip) */
+  chatReplied?: boolean;
 }
 
 export interface PosPickupResult {
@@ -389,6 +391,8 @@ export interface SettlementResult {
   villaStairBonus: number;
   /** 지상 차량 출입 금지 단지 walking allowance (scooter left outside the complex) */
   walkInBonus: number;
+  /** 빠른 답장 tip (answered the customer's message in the messenger) */
+  replyTip: number;
   promisedTipBonus: number;
   tip: number;
   tipPenalty: number;

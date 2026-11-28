@@ -95,7 +95,13 @@ export function update(
       host.statusPillEl.className = 'app-status-pill foot';
     }
 
-    // Weather app open: its screen covers the delivery app (incoming calls still pop up over it)
+    host.syncDockBadge();
+    // Weather / messenger app open: its screen covers the delivery app (incoming calls still pop up over it)
+    if (host.app === 'messenger') {
+      host.syncMessengerApp();
+      syncDispatchPopup(host.dispatchEls, host.dispatchState, activeOffer, delivery);
+      return;
+    }
     if (host.app === 'weather') {
       host.syncWeatherApp();
       syncDispatchPopup(host.dispatchEls, host.dispatchState, activeOffer, delivery);
@@ -158,6 +164,8 @@ export function update(
         placement: host.placement,
         offerExpanded: activeOffer !== null && host.dispatchState.expandedOfferId === activeOffer.id,
         weatherReport: host.app === 'weather' ? host.weatherReport : null,
+        messenger: host.app === 'messenger' ? host.messenger : null,
+        unreadMessages: host.messenger?.unread ?? 0,
         app: host.app,
       },
       host.view,

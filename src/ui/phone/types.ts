@@ -6,6 +6,8 @@ export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance' 
 export interface PhoneCallbacks {
   /** The rider switched apps (delivery / weather) on the phone dock */
   onAppSwitched?: (app: 'delivery' | 'weather' | 'messenger') => void;
+  /** Quick reply tapped in a messenger chat */
+  onChatReply?: (threadId: string, replyId: string) => void;
   onAcceptOrder: (orderId: string) => void;
   onAcceptDispatchOffer: () => void;
   onRejectDispatchOffer: () => void;

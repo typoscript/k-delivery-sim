@@ -1,4 +1,5 @@
 /** Smartphone actions: accept / reject calls, route focus, daily report, clock-out, screen taps */
+import { QUICK_REPLY_TIP } from '../../delivery/messenger';
 import type { PhoneCallbacks } from '../../ui/phone/types';
 import { MAX_CONCURRENT_ORDERS } from '../../delivery/DeliveryManager';
 import { applyGameClock } from '../clockSync';
@@ -25,6 +26,12 @@ export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
       r.flow.tryAcceptIncomingOffer();
     },
     onAppSwitched: () => r.audio.playPhoneScreenTap(),
+    onChatReply: (threadId, replyId) => {
+      if (r.delivery.replyToChat(threadId, replyId)) {
+        r.audio.playPhoneScreenTap();
+        r.hud.showToast(`💬 답장을 보냈어요 · 배달 완료 시 빠른 답장 팁 +₩${QUICK_REPLY_TIP.toLocaleString()}`, 2600);
+      }
+    },
     onRejectDispatchOffer: () => r.flow.handleRejectIncomingOffer(),
     onRefreshOrders: () => {
       r.delivery.refreshAvailableOrders();

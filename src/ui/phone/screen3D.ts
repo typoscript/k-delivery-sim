@@ -13,6 +13,8 @@ import { render3DDispatchCallCard } from './dispatchCallCard3D';
 import { render3DCallBanner } from './callBanner3D';
 import { PhoneApp, renderDock3D, renderWeatherApp3D } from './weatherApp';
 import type { WeatherReport } from '../../game/weatherReport';
+import type { Messenger } from '../../delivery/messenger';
+import { renderMessenger3D } from './messengerApp';
 
 /** Phone status snapshot needed to draw the 3D screen */
 export interface Phone3DScreenStatus {
@@ -23,8 +25,12 @@ export interface Phone3DScreenStatus {
   placement: PhonePlacement;
   /** The weather app is open (drawn instead of the delivery app) */
   weatherReport?: WeatherReport | null;
-  /** Open app (the dock in the status bar highlights it) */
+  /** Open app (the dock highlights it) */
   app?: PhoneApp;
+  /** The messenger app is open (drawn instead of the delivery app) */
+  messenger?: Messenger | null;
+  /** Unread messages (badge on the dock) */
+  unreadMessages?: number;
 }
 
 /** Expanding glass-touch ripple drawn on the 3D phone canvas (null when idle) */
@@ -80,9 +86,10 @@ export function render3DPhoneScreen(
 
   const isRidingNavMode = player.mode === 'riding' && phone.placement === 'mounted';
 
-  // Weather app open: its own screen (the status bar and an incoming call still show)
-  if (phone.weatherReport) {
-    renderWeatherApp3D(ctx, w, h, phone.weatherReport);
+  // Weather / messenger app open: its own screen (the status bar and an incoming call still show)
+  if (phone.weatherReport || phone.messenger) {
+    if (phone.messenger) renderMessenger3D(ctx, w, h, phone.messenger);
+    else renderWeatherApp3D(ctx, w, h, phone.weatherReport!);
     ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
     ctx.fillRect(0, 0, w, 34);
     ctx.fillStyle = '#f8fafc';
@@ -92,7 +99,7 @@ export function render3DPhoneScreen(
     ctx.fillText(clockStr, 16, 18);
     ctx.textAlign = 'right';
     ctx.fillText(`🔋${Math.round(phone.battery)}%`, w - 14, 18);
-    renderDock3D(ctx, w, h, phone.app ?? 'weather');
+    renderDock3D(ctx, w, h, phone.app ?? 'weather', { messenger: phone.unreadMessages ?? 0 });
     if (activeOffer) {
       if (phone.offerExpanded) render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
       else render3DCallBanner(ctx, w, activeOffer, elapsedTime);
@@ -149,7 +156,7 @@ export function render3DPhoneScreen(
   }
 
   // App dock at the bottom (drawn after the overlays so it stays on top)
-  renderDock3D(ctx, w, h, phone.app ?? 'delivery');
+  renderDock3D(ctx, w, h, phone.app ?? 'delivery', { messenger: phone.unreadMessages ?? 0 });
 
   // Incoming call: compact banner at the top (map stays visible), or the full card once expanded
   if (activeOffer) {

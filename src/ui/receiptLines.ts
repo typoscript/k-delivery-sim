@@ -140,6 +140,7 @@ export function settlementLines(r: SettlementResult): ReceiptLine[] {
 
   add('villa', '🪜 구축 빌라 계단 수고비', r.villaStairBonus);
   add('walkIn', '🚶 지상 차량 출입 금지 단지 도보 수당', r.walkInBonus ?? 0);
+  add('replyTip', '💬 빠른 답장 팁 (메신저)', r.replyTip ?? 0);
   add('chatTip', '💬 고객 약속 조심배달 팁', r.promisedTipBonus);
 
   const spillNote = r.spillDamageAccum > 0 ? ` · 국물/방지턱 -${r.spillDamageAccum}%` : '';

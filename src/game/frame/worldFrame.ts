@@ -66,6 +66,15 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
             Math.abs(sp.speed) > PUDDLE_SPLASH_PEOPLE_SPEED ? pedestrians.splashNear(puddle.x, puddle.z, 4.5) : 0;
           if (soaked > 0) {
             const lost = delivery.penalizePuddleSplash();
+            delivery.messenger.post(
+              'notice',
+              { kind: 'notice', title: '민원 · 알림', icon: '📢' },
+              {
+                from: 'them',
+                text: `🙍 행인 민원 접수: "흙탕물 튀기고 그냥 가면 어떡해요!" (행인 ${soaked}명 · 신뢰 평점 -${lost.toFixed(1)})`,
+                time: ctx.clock.label,
+              },
+            );
             audio.playPedestrianStartle();
             hud.showToast(
               `💢 행인 ${soaked}명에게 흙탕물을 튀겼어요! 웅덩이 근처에선 천천히 (신뢰 평점 -${lost.toFixed(1)})`,

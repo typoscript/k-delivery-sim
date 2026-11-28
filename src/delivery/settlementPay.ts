@@ -1,4 +1,5 @@
 import { eventBonusEarned } from './demandEvents';
+import { QUICK_REPLY_TIP } from './messenger';
 import { NO_GROUND_WALK_BONUS, isNoGroundVehicleComplex } from './apartmentRules';
 import { ActiveMission, BASE_FLAT_FEE, OPTIMAL_TEMP_BONUS, REGULAR_CUSTOMER_TIP, VILLA_STAIR_BONUS } from './deliveryTypes';
 
@@ -16,6 +17,8 @@ export interface SettlementPay {
   villaStairBonus: number;
   /** 지상 차량 출입 금지 단지: walked in with the scooter left outside */
   walkInBonus: number;
+  /** Answered the customer's mid-ride message (messenger quick reply) */
+  replyTip: number;
   promisedTipBonus: number;
   rainBonus: number;
   nightBonus: number;
@@ -44,6 +47,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const tempBonus = m.foodTemp >= 80 ? OPTIMAL_TEMP_BONUS : 0;
   const villaStairBonus = o.customer.residenceKind === 'walkup_villa' ? VILLA_STAIR_BONUS : 0;
   const walkInBonus = isNoGroundVehicleComplex(o.customer) && !m.groundRuleBroken ? NO_GROUND_WALK_BONUS : 0;
+  const replyTip = m.chatReplied ? QUICK_REPLY_TIP : 0;
   const promisedTipBonus = m.promisedExtraTip > 0 && m.foodIntegrity >= 85 ? m.promisedExtraTip : 0;
   const peakBonus = o.peakBonus ?? 0;
   const onTime = m.remainingTimeSec > 0;
@@ -56,7 +60,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const distPart = Math.max(0, o.baseFee - basePart);
   const earned =
     o.baseFee - damageDed + tip + o.rainBonus + o.nightBonus + peakBonus + specialBonus + regularCustomerTip +
-    eventBonus + tierBonus + tempBonus + villaStairBonus + walkInBonus + promisedTipBonus;
+    eventBonus + tierBonus + tempBonus + villaStairBonus + walkInBonus + replyTip + promisedTipBonus;
   return {
     basePart,
     distPart,
@@ -66,6 +70,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
     tempBonus,
     villaStairBonus,
     walkInBonus,
+    replyTip,
     promisedTipBonus,
     rainBonus: o.rainBonus,
     nightBonus: o.nightBonus,
