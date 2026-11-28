@@ -25,7 +25,7 @@ export type ActiveModalType =
   | 'settlement'
   | 'transition';
 
-export type ConvenienceItemKind = 'energy_drink' | 'iced_coffee' | 'power_bank';
+export type ConvenienceItemKind = 'energy_drink' | 'iced_coffee' | 'power_bank' | 'ion_drink';
 
 export interface ModalCallbacks {
   onPosSuccess: (missionId: string) => void;

@@ -42,7 +42,10 @@ export function syncStatusPills(
   }
 
   // Update top-left weather pill
-  if (weatherMode === 'snow') {
+  if (weatherMode === 'clear' && host.heatwave) {
+    host.weatherBadge.textContent = '🥵 폭염 · 체력·보냉 주의';
+    host.weatherBadge.className = 'weather-pill heat';
+  } else if (weatherMode === 'snow') {
     host.weatherBadge.textContent = '❄️ 눈 · 할증+₩2,000';
     host.weatherBadge.className = 'weather-pill snow';
   } else if (weatherMode === 'rain') {

@@ -1,4 +1,5 @@
 /** Keyboard input while a modal is open (key repeats ignored; Esc closes, digits feed the keypads, ...) */
+import { ION_DRINK_COST } from '../../game/heatwave';
 import type { ModalUi } from '../ModalUi';
 
 /** Handles physical keyboard input when POS / PIN / Cargo / Camera / Settlement modal is open */
@@ -62,6 +63,9 @@ export function handleKeyDown(host: ModalUi, e: KeyboardEvent): boolean {
     } else if (e.key === '3') {
       host.closeAll();
       host.callbacks.onConvenienceBuy('power_bank', 2000);
+    } else if (e.key === '4') {
+      host.closeAll();
+      host.callbacks.onConvenienceBuy('ion_drink', ION_DRINK_COST);
     }
     return true;
   }

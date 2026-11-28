@@ -3,6 +3,7 @@ import { WeatherMode } from '../types';
 import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/demandEvents';
 import { seasonOfDay } from './seasons';
 import { blackIceActive } from '../world/blackIce';
+import { ION_DRINK_COST, heatwaveActive } from './heatwave';
 
 /** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */
 const eventNote = (e: DemandEventSpec) =>
@@ -84,6 +85,22 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       5200
     );
     voiceNav.speak('노면 결빙 주의. 그늘진 골목에 블랙아이스가 있습니다.');
+  }
+  // Summer heatwave afternoons: stamina and chilled food suffer outdoors
+  const hot = heatwaveActive(season.id, world.weatherMode, clock.minute);
+  if (hot !== delivery.heatwave) {
+    delivery.heatwave = hot;
+    ctx.playerCtrl.heatwave = hot;
+    hud.heatwave = hot;
+    if (announce) {
+      hud.showToast(
+        hot
+          ? `🥵 폭염! 한낮 땡볕에 걸으면 체력이 닳고 보냉 음식이 빨리 미지근해져요 · 편의점 ❄️ 얼음 이온음료(₩${ION_DRINK_COST.toLocaleString()})로 3분간 더위 무시`
+          : '🌤️ 한낮 더위가 한풀 꺾였어요',
+        hot ? 5200 : 2600
+      );
+      if (hot) voiceNav.speak('폭염 경보입니다. 체력과 보냉 음식에 주의하세요.');
+    }
   }
   hud.setClock(clock.label, phase, delivery.shiftDay, season.emoji);
 

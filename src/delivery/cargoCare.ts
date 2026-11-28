@@ -1,4 +1,5 @@
 import { clamp } from '../types';
+import { HEAT_COLD_FOOD_MUL } from '../game/heatwave';
 import { ScooterState } from '../vehicle/ScooterPhysics';
 import { UpgradeEffects } from './RiderCareer';
 import { ActiveMission, CustomerChatEvent, PROMISED_CAREFUL_TIP } from './deliveryTypes';
@@ -21,7 +22,9 @@ export function stepFoodCondition(
   scooter: ScooterState,
   isRiding: boolean,
   upgFx: UpgradeEffects,
-  dt: number
+  dt: number,
+  /** Summer heatwave: chilled food loses its cold faster */
+  heatwave = false
 ): ActiveMission | null {
   const absLean = Math.abs(scooter.leanAngle);
   const absLongAcc = Math.abs(scooter.lastLongAccel);
@@ -35,7 +38,8 @@ export function stepFoodCondition(
 
     // 1. Temperature retention (insulated top box slows decay; the thermal_box upgrade cuts it another -40%)
     const inInsulatedBox = m.phase === 'cargo_loaded';
-    const baseRate = m.order.foodTempType === 'cold' ? 0.62 : 0.42; // % per second in box
+    const cold = m.order.foodTempType === 'cold';
+    const baseRate = (cold ? 0.62 : 0.42) * (cold && heatwave ? HEAT_COLD_FOOD_MUL : 1); // % per second in box
     const tempRate = inInsulatedBox ? baseRate * upgFx.tempDecayMul : baseRate * 1.55;
     m.foodTemp = clamp(m.foodTemp - tempRate * dt, 0, 100);
 

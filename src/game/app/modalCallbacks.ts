@@ -155,6 +155,9 @@ export function modalCallbacks(r: AppRefs): ModalCallbacks {
           `⚡ 에너지드링크 구매 (-₩${cost.toLocaleString()})! 체력 100% + 60초 도보·계단 부스트 ON`,
           3800,
         );
+      } else if (item === 'ion_drink') {
+        r.playerCtrl.applyConvenienceDrink('ion_drink');
+        r.hud.showToast(`❄️ 얼음 이온음료 구매 (-₩${cost.toLocaleString()})! 체력 +40% + 3분간 폭염 더위 무시`, 3800);
       } else if (item === 'iced_coffee') {
         r.playerCtrl.applyConvenienceDrink('iced_coffee');
         r.hud.showToast(`☕ 아이스 아메리카노 구매 (-₩${cost.toLocaleString()})! 체력 +60% + 45초 회복 2배`, 3800);

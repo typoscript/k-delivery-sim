@@ -2124,6 +2124,13 @@ kbd {
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
+.weather-pill.heat {
+  background: rgba(249, 115, 22, 0.28);
+  border-color: rgba(251, 146, 60, 0.75);
+  color: #fed7aa;
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.35);
+}
+
 .weather-pill.snow {
   background: rgba(226, 232, 240, 0.3);
   border-color: rgba(241, 245, 249, 0.75);

@@ -1,4 +1,5 @@
 import { ObstacleBox, clamp, collidesWithWorld, wrapAngle } from '../types';
+import { HEAT_DRAIN_MUL, HEAT_RECOVER_MUL, HEAT_WALK_DRAIN, ION_DRINK_COOL_SEC } from '../game/heatwave';
 import { SCOOTER_SPECS, ScooterState } from '../vehicle/ScooterPhysics';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
@@ -27,6 +28,7 @@ export interface PlayerState {
   climbingStairs: boolean;
   energyBuffTimer: number; // seconds left of Energy Drink (+25% speed, -50% stair stamina drain)
   coffeeBuffTimer: number; // seconds left of Iced Coffee (2x stamina recovery)
+  coolBuffTimer: number; // seconds left of the iced ion drink (summer heatwave has no effect)
 
   // Lowside crash tumble recovery
   knockdownTimer: number;
@@ -72,6 +74,7 @@ export class PlayerController {
       climbingStairs: false,
       energyBuffTimer: 0,
       coffeeBuffTimer: 0,
+      coolBuffTimer: 0,
       knockdownTimer: 0,
       knockdownRoll: 0,
       tumbleVx: 0,
@@ -83,9 +86,20 @@ export class PlayerController {
     this.state = this.createInitialState();
   }
 
-  /** Applies 24h convenience store beverage buffs (Energy Drink / Iced Coffee) */
-  public applyConvenienceDrink(kind: 'energy_drink' | 'iced_coffee'): void {
-    if (kind === 'energy_drink') {
+  /** Summer heatwave afternoon (set by the game clock): outdoors, walking drains stamina and resting is slow */
+  public heatwave = false;
+
+  /** Heat applies outdoors, unless the iced ion drink is still cooling the rider */
+  private get feelsHeat(): boolean {
+    return this.heatwave && !this.state.inCorridor && this.state.coolBuffTimer <= 0;
+  }
+
+  /** Applies 24h convenience store beverage buffs (Energy Drink / Iced Coffee / iced ion drink) */
+  public applyConvenienceDrink(kind: 'energy_drink' | 'iced_coffee' | 'ion_drink'): void {
+    if (kind === 'ion_drink') {
+      this.state.stamina = clamp(this.state.stamina + 40, 0, 100);
+      this.state.coolBuffTimer = ION_DRINK_COOL_SEC;
+    } else if (kind === 'energy_drink') {
       this.state.stamina = 100;
       this.state.energyBuffTimer = 60;
     } else {
@@ -235,6 +249,7 @@ export class PlayerController {
 
     if (p.energyBuffTimer > 0) p.energyBuffTimer = Math.max(0, p.energyBuffTimer - clampedDt);
     if (p.coffeeBuffTimer > 0) p.coffeeBuffTimer = Math.max(0, p.coffeeBuffTimer - clampedDt);
+    if (p.coolBuffTimer > 0) p.coolBuffTimer = Math.max(0, p.coolBuffTimer - clampedDt);
 
     if (p.mode === 'riding') {
       p.x = scooter.x;
@@ -245,7 +260,7 @@ export class PlayerController {
       p.canMountScooter = false;
       p.distanceToScooter = 0;
       // Recover stamina nicely while resting on scooter seat
-      const recMul = p.coffeeBuffTimer > 0 ? 2.0 : 1.0;
+      const recMul = (p.coffeeBuffTimer > 0 ? 2.0 : 1.0) * (this.feelsHeat ? HEAT_RECOVER_MUL : 1);
       p.stamina = clamp(p.stamina + 18 * recMul * clampedDt, 0, 100);
       return;
     }
@@ -363,14 +378,18 @@ export class PlayerController {
     }
 
     // Stamina drain when climbing walk-up villa stairs or sprinting; buffed by convenience drinks!
-    const drainMul = p.energyBuffTimer > 0 ? 0.5 : 1.0;
-    const recoverMul = p.coffeeBuffTimer > 0 ? 2.0 : 1.0;
+    const heat = this.feelsHeat;
+    const drainMul = (p.energyBuffTimer > 0 ? 0.5 : 1.0) * (heat ? HEAT_DRAIN_MUL : 1);
+    const recoverMul = (p.coffeeBuffTimer > 0 ? 2.0 : 1.0) * (heat ? HEAT_RECOVER_MUL : 1);
     if (ascending) {
       const drain = (input.sprint ? 24 : 11) * drainMul;
       p.stamina = clamp(p.stamina - drain * clampedDt, 0, 100);
     } else if (input.sprint && p.moveSpeed > 5.2) {
       const drain = (p.inCorridor ? 9 : 7.5) * drainMul;
       p.stamina = clamp(p.stamina - drain * clampedDt, 0, 100);
+    } else if (heat && p.moveSpeed >= 0.2) {
+      // walking on scorching pavement wears the rider out
+      p.stamina = clamp(p.stamina - HEAT_WALK_DRAIN * clampedDt, 0, 100);
     } else {
       const recover = (p.moveSpeed < 0.2 ? 28 : 14) * recoverMul;
       p.stamina = clamp(p.stamina + recover * clampedDt, 0, 100);

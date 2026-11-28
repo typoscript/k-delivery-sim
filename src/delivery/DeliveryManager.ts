@@ -158,6 +158,8 @@ export class DeliveryManager {
   public isWeatherSnowing = false;
   /** Season of the working day (seasonal event calls); null until the game clock sets it */
   public season: SeasonId | null = null;
+  /** Summer heatwave afternoon: chilled food warms up faster (set by the game clock) */
+  public heatwave = false;
   public isNightMode = false;
   /** Current demand phase from the game clock (call frequency, peak surcharge, kitchen wait) */
   public demandPhase: DemandPhase = demandPhaseAt(SHIFT_START_MINUTE);
@@ -667,7 +669,7 @@ export class DeliveryManager {
   ): void {
     const clampedDt = Math.min(dt, 0.05);
     this.spillWarnCooldown = Math.max(0, this.spillWarnCooldown - clampedDt);
-    const spilling = stepFoodCondition(this.activeMissions, scooter, isRiding, getUpgradeEffects(this.career.upgrades), clampedDt);
+    const spilling = stepFoodCondition(this.activeMissions, scooter, isRiding, getUpgradeEffects(this.career.upgrades), clampedDt, this.heatwave);
     this.activeSpillWarning = spilling !== null;
     if (spilling && this.spillWarnCooldown <= 0) {
       this.spillWarnCooldown = 2.6;
