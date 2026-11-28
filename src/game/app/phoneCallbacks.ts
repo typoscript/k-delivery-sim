@@ -5,6 +5,9 @@ import { MAX_CONCURRENT_ORDERS } from '../../delivery/DeliveryManager';
 import { applyGameClock } from '../clockSync';
 import type { AppRefs } from './appRefs';
 
+/** Fastest a rider may still be rolling to answer a chat (km/h) */
+export const REPLY_MAX_KMH = 3;
+
 export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
   return {
     onAcceptOrder: (orderId) => {
@@ -27,6 +30,12 @@ export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
     },
     onAppSwitched: () => r.audio.playPhoneScreenTap(),
     onChatReply: (threadId, replyId) => {
+      // typing on the move is not allowed: stop first (a slow roll is fine)
+      if (r.playerCtrl.state.mode === 'riding' && Math.abs(r.scooterPhysics.state.speed) * 3.6 > REPLY_MAX_KMH) {
+        r.audio.playKeypadBeep(false);
+        r.hud.showToast('🛑 주행 중에는 답장할 수 없어요 · 잠시 멈춘 뒤 답장하세요', 2400);
+        return;
+      }
       if (r.delivery.replyToChat(threadId, replyId)) {
         r.audio.playPhoneScreenTap();
         r.hud.showToast(`💬 답장을 보냈어요 · 배달 완료 시 빠른 답장 팁 +₩${QUICK_REPLY_TIP.toLocaleString()}`, 2600);

@@ -41,7 +41,48 @@ export function messengerHtml(m: Messenger, openId: string | null): string {
   return `<div class="msg-title">💬 메신저</div>${rows || '<div class="msg-empty">아직 메시지가 없어요 · 콜을 수락하면 고객 채팅방이 열려요</div>'}`;
 }
 
-/** 3D phone: the latest chats (open the zoomed phone to read and answer) */
+export interface Reply3DButton {
+  threadId: string;
+  replyId: string;
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Height of the quick-reply panel above the 3D phone's dock */
+const REPLY_PANEL_H = 148;
+
+/**
+ * 3D phone quick replies: the latest chat waiting for an answer gets its reply buttons in a panel above the dock,
+ * so a customer can be answered right on the handlebar (stopped) without zooming the phone. Empty when no chat
+ * waits for an answer.
+ */
+export function messenger3DReplyButtons(m: Messenger, w: number, h: number): Reply3DButton[] {
+  const t = m.list().find((x) => x.replies.length > 0);
+  if (!t) return [];
+  const top = h - 34 - REPLY_PANEL_H;
+  return t.replies.slice(0, 2).map((r, i) => ({
+    threadId: t.id,
+    replyId: r.id,
+    text: r.text,
+    x: 18,
+    y: top + 38 + i * 52,
+    w: w - 36,
+    h: 44,
+  }));
+}
+
+/** Which 3D quick-reply button a tap at (x, y) hits, or null */
+export function hitMessengerReply3D(m: Messenger, x: number, y: number, w: number, h: number): Reply3DButton | null {
+  return (
+    messenger3DReplyButtons(m, w, h).find((b) => x >= b.x && x <= b.x + b.w && y >= b.y - 3 && y <= b.y + b.h + 3) ??
+    null
+  );
+}
+
+/** 3D phone: the latest chats (open the zoomed phone to read them), quick replies for a chat waiting for an answer */
 export function renderMessenger3D(ctx: CanvasRenderingContext2D, w: number, h: number, m: Messenger): void {
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(0, 0, w, h);
@@ -80,8 +121,30 @@ export function renderMessenger3D(ctx: CanvasRenderingContext2D, w: number, h: n
       ctx.textAlign = 'left';
     }
   });
+  const buttons = messenger3DReplyButtons(m, w, h);
+  if (buttons.length > 0) {
+    const t = m.get(buttons[0].threadId)!;
+    const top = h - 34 - REPLY_PANEL_H;
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.94)';
+    ctx.fillRect(0, top, w, REPLY_PANEL_H);
+    ctx.fillStyle = '#7dd3fc';
+    ctx.font = '700 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`↩ ${t.icon} ${t.title} · ${last(t)?.text ?? ''}`, 18, top + 18, w - 36);
+    for (const b of buttons) {
+      ctx.fillStyle = '#0ea5e9';
+      ctx.beginPath();
+      ctx.roundRect(b.x, b.y, b.w, b.h, 12);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.text, b.x + b.w / 2, b.y + b.h / 2 + 0.5, b.w - 16);
+    }
+    return;
+  }
   ctx.fillStyle = '#94a3b8';
   ctx.font = '12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('휴대폰 확대(V)해서 읽고 답장하기', w / 2, h - 52);
+  ctx.fillText('휴대폰 확대(V)해서 읽기 · 답장할 채팅은 여기에 버튼이 떠요', w / 2, h - 52);
 }

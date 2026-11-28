@@ -5,6 +5,7 @@ import { PhoneMap, PHONE_APP_STORAGE_KEY } from './PhoneMap';
 import { Messenger, CUSTOMER_REPLIES } from '../delivery/messenger';
 import type { PhoneCallbacks } from './phone/types';
 import { handle3DScreenTouch } from './phone/phoneTouch3D';
+import { messenger3DReplyButtons } from './phone/messengerApp';
 
 const noop = () => {};
 const replies: Array<[string, string]> = [];
@@ -85,6 +86,33 @@ describe('phone apps (DOM)', () => {
     expect(phone.notifications.unread).toBe(0);
     (drawer.querySelector('[data-notif="close"]') as HTMLButtonElement).click();
     expect(drawer.classList.contains('hidden')).toBe(true);
+  });
+
+  it('3D phone messenger: the chat waiting for an answer gets reply buttons right on the screen', () => {
+    const phone = new PhoneMap(callbacks);
+    const m = new Messenger();
+    phone.messenger = m;
+    phone.setApp('messenger');
+    const { width: w, height: h } = phone.texCanvas;
+    expect(messenger3DReplyButtons(m, w, h)).toEqual([]);
+    m.post(
+      'c:1',
+      { kind: 'customer', title: '고객 101호', icon: '🙋' },
+      { from: 'them', text: '문 앞에 놔주세요', time: '12:00' },
+      CUSTOMER_REPLIES,
+    );
+    const buttons = messenger3DReplyButtons(m, w, h);
+    expect(buttons.map((b) => b.replyId)).toEqual(CUSTOMER_REPLIES.map((r) => r.id));
+    // the buttons sit above the dock
+    for (const b of buttons) expect(b.y + b.h).toBeLessThan(h - 34);
+    const b = buttons[1];
+    const tapAt = (x: number, y: number) => handle3DScreenTouch(phone, x / w, 1 - y / h, null);
+    expect(tapAt(b.x + b.w / 2, b.y + b.h / 2)).toBe('switch_app');
+    expect(replies).toEqual([['c:1', b.replyId]]);
+    // an incoming call keeps the screen for itself: no reply then
+    replies.length = 0;
+    handle3DScreenTouch(phone, (b.x + b.w / 2) / w, 1 - (b.y + b.h / 2) / h, 'offer-1');
+    expect(replies).toEqual([]);
   });
 
   it('3D phone: tapping the status bar pulls the notification list down, the next tap closes it', () => {

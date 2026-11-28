@@ -3,6 +3,7 @@ import type { PhoneMap } from '../PhoneMap';
 import { clamp } from '../../types';
 import { hitCallBanner } from './callBanner3D';
 import { hitDock3D } from './weatherApp';
+import { hitMessengerReply3D } from './messengerApp';
 
 /**
  * Drives the 1st-person touching hand when hovering over the in-world 3D phone
@@ -65,6 +66,16 @@ export function handle3DScreenTouch(
   if (app) {
     host.setApp(app);
     return 'switch_app';
+  }
+
+  // Messenger: quick-reply buttons for the chat waiting for an answer (an incoming call banner still goes first)
+  if (host.app === 'messenger' && host.messenger && !hasActiveOffer) {
+    const reply = hitMessengerReply3D(host.messenger, cx, cy, host.texCanvas.width, host.texCanvas.height);
+    if (reply) {
+      host.callbacks.onChatReply?.(reply.threadId, reply.replyId);
+      host.last3DRenderTime = -1;
+      return 'switch_app';
+    }
   }
 
   if (hasActiveOffer && host.dispatchState.expandedOfferId !== activeOfferId) {
