@@ -1,12 +1,13 @@
 import { PerfMonitor } from './PerfMonitor';
 import { SuwonDistrictId } from '../data/suwonTypes';
 import { WeatherMode } from '../types';
+import type { MapDetail } from '../world/openworld/ChunkMeshBuilder';
 
 /**
  * Worst-case benchmark suite (`?bench=suite` or `__benchSuite()` in the console).
  *
  * Runs fixed scenarios one after another - densest district, riding with mirrors, a scripted drive
- * that streams chunks, night lighting, rain - and records frame / CPU / GPU / draw-call stats for
+ * that streams chunks, night lighting, rain, snow with settled cover, the lower map details - and records frame / CPU / GPU / draw-call stats for
  * each, so optimizations can be compared on the same footing and on any machine.
  */
 
@@ -25,6 +26,12 @@ export interface BenchmarkDeps {
   placeScooter: (x: number, z: number, heading: number) => void;
   districtSpawn: (id: SuwonDistrictId) => { x: number; z: number };
   graphicsInfo: () => { pixelRatio: number; antialias: boolean };
+  /** Map detail of a graphics quality ('high' | 'medium' | 'low') */
+  setMapDetail: (detail: MapDetail) => void;
+  /** Snow fully settled (true) or none (false) */
+  setSnowCover: (full: boolean) => void;
+  /** Back to the player's own graphics settings after the run */
+  restoreSettings: () => void;
 }
 
 export interface SuiteRow {
@@ -48,17 +55,86 @@ interface Scenario {
   weather: WeatherMode;
   /** 'look' = spin the on-foot view, 'still' = idle, 'drive' = scripted 12 m/s drive */
   motion: 'look' | 'still' | 'drive';
+  /** Map detail for this scenario (default 'high') */
+  mapDetail?: MapDetail;
+  /** Snow settled on roofs / sidewalks / trees */
+  snowCover?: boolean;
 }
 
 const SCENARIOS: Scenario[] = [
   { name: '인계동 도보', district: 'ingye', riding: false, night: false, weather: 'clear', motion: 'look' },
-  { name: '수원역 도보 (최고 밀도)', district: 'suwon_station', riding: false, night: false, weather: 'clear', motion: 'look' },
-  { name: '수원역 주행 정지', district: 'suwon_station', riding: true, night: false, weather: 'clear', motion: 'still' },
-  { name: '수원역 주행 이동', district: 'suwon_station', riding: true, night: false, weather: 'clear', motion: 'drive' },
+  {
+    name: '수원역 도보 (최고 밀도)',
+    district: 'suwon_station',
+    riding: false,
+    night: false,
+    weather: 'clear',
+    motion: 'look',
+  },
+  {
+    name: '수원역 주행 정지',
+    district: 'suwon_station',
+    riding: true,
+    night: false,
+    weather: 'clear',
+    motion: 'still',
+  },
+  {
+    name: '수원역 주행 이동',
+    district: 'suwon_station',
+    riding: true,
+    night: false,
+    weather: 'clear',
+    motion: 'drive',
+  },
   { name: '수원역 밤 도보', district: 'suwon_station', riding: false, night: true, weather: 'clear', motion: 'look' },
   { name: '수원역 비 도보', district: 'suwon_station', riding: false, night: false, weather: 'rain', motion: 'look' },
-  { name: '수원역 밤+비 주행 이동', district: 'suwon_station', riding: true, night: true, weather: 'rain', motion: 'drive' },
+  {
+    name: '수원역 밤+비 주행 이동',
+    district: 'suwon_station',
+    riding: true,
+    night: true,
+    weather: 'rain',
+    motion: 'drive',
+  },
   { name: '광교 도보 (저밀도)', district: 'gwanggyo', riding: false, night: false, weather: 'clear', motion: 'look' },
+  // weather / quality features: snow (flakes + settled cover + umbrellas), and the map detail per quality level
+  {
+    name: '수원역 눈 도보 (눈 쌓임)',
+    district: 'suwon_station',
+    riding: false,
+    night: false,
+    weather: 'snow',
+    motion: 'look',
+    snowCover: true,
+  },
+  {
+    name: '수원역 밤+눈 주행 이동',
+    district: 'suwon_station',
+    riding: true,
+    night: true,
+    weather: 'snow',
+    motion: 'drive',
+    snowCover: true,
+  },
+  {
+    name: '수원역 도보 · 보통 맵 디테일',
+    district: 'suwon_station',
+    riding: false,
+    night: false,
+    weather: 'clear',
+    motion: 'look',
+    mapDetail: 'medium',
+  },
+  {
+    name: '수원역 도보 · 낮음 맵 디테일',
+    district: 'suwon_station',
+    riding: false,
+    night: false,
+    weather: 'clear',
+    motion: 'look',
+    mapDetail: 'low',
+  },
 ];
 
 const SETTLE_MS = 2500;
@@ -77,6 +153,8 @@ export async function runBenchmarkSuite(d: BenchmarkDeps, onProgress?: (msg: str
       await wait(150);
       d.setNight(sc.night);
       d.setWeather(sc.weather);
+      d.setSnowCover(!!sc.snowCover);
+      d.setMapDetail(sc.mapDetail ?? 'high');
       d.teleport(sc.district);
       await wait(300);
       if (sc.riding && !d.isRiding()) d.toggleMount();
@@ -151,6 +229,8 @@ export async function runBenchmarkSuite(d: BenchmarkDeps, onProgress?: (msg: str
     if (d.isRiding()) d.toggleMount();
     d.setNight(false);
     d.setWeather('clear');
+    d.setSnowCover(false);
+    d.restoreSettings();
     d.teleport('ingye');
     d.perf.setCollecting(false);
   }

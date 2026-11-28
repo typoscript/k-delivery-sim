@@ -351,7 +351,12 @@ const runSuite = async () => {
         weather.setMode(mode);
         world.setWeather(mode);
         delivery.setWeatherPrecipitation(mode === 'rain' || mode === 'snow' ? mode : null);
+        traffic.setWeather(mode);
+        pedestrians.setWeather(mode);
       },
+      setMapDetail: (detail) => world.setMapDetail(detail),
+      setSnowCover: (full) => world.updateSnowCover(1000, full),
+      restoreSettings: () => applyGameSettings(onboardingSettings.settings),
       turnView: (dy) => {
         camController.onFootYaw += dy;
       },
