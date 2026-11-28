@@ -63,6 +63,12 @@ export class ProximityCuller {
     this.lastKey = '';
   }
 
+  /** Key of the chunk a world point falls in (props registered per chunk group by it) */
+  public chunkKeyOf(x: number, z: number): string {
+    const c = chunkCoordOf(this.spec, x, z);
+    return chunkKey(c.ix, c.iz);
+  }
+
   public get count(): number {
     return this.entries.length + this.lazy.length;
   }

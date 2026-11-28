@@ -113,25 +113,30 @@ export class DeliveryLocationProps {
       Object.values(shared).flatMap((m) => (Array.isArray(m) ? m : [m]))
     );
 
-    for (const loc of this.locations) {
-      if (this.culler) {
-        // Counters / lobbies are small: draw them within 1 chunk (~200-300m) of the player, not the default 2,
-        // which with ~1,800 spots city-wide would add 100+ draw calls while driving
+    if (this.culler) {
+      // Counters / lobbies are built per chunk: every prop of a chunk comes and goes together, and their plain
+      // parts / shared glass / screens are merged across the whole chunk (a handful of draw calls per chunk instead
+      // of a few per prop). Drawn within 1 chunk (~200-300m) of the player, not the default 2.
+      const byChunk = new Map<string, DeliveryLocation[]>();
+      for (const loc of this.locations) {
+        const key = this.culler.chunkKeyOf(loc.x, loc.z);
+        const list = byChunk.get(key);
+        if (list) list.push(loc);
+        else byChunk.set(key, [loc]);
+      }
+      for (const locs of byChunk.values()) {
         this.culler.registerLazy(
           this.root,
-          loc.x,
-          loc.z,
-          () => {
-            const built = this.buildLocationProp(loc, shared);
-            // counter + pillars + frames + canopy -> one draw call (signs, glass, lit screens and moving parts stay)
-            mergeByVertexColor(built.object, plainMats, shared.propColorMat, built.keep);
-            mergeStaticByMaterial(built.object, built.keep);
-            excludeFromMirrors(built.object);
-            freezeStatic(built.object);
-            return { object: built.object, dispose: () => this.disposeLocationProp(loc.id, built.object, sharedMats) };
-          },
+          locs[0].x,
+          locs[0].z,
+          () => this.buildChunkProps(locs, shared, plainMats, sharedMats),
           LOCATION_PROP_RADIUS_CHUNKS
         );
+      }
+    }
+
+    for (const loc of this.locations) {
+      if (this.culler) {
         // Apartment complexes: guard booth + barrier and parked cars beside the lobby, decided once the
         // buildings around are loaded (so nothing lands inside a building)
         if (loc.type === 'residential' && loc.residenceKind === 'apartment' && this.isFreeGround) {
@@ -175,6 +180,34 @@ export class DeliveryLocationProps {
         this.host.addProp(built.object, loc.x, loc.z, undefined, built.keep);
       }
     }
+  }
+
+  /**
+   * All counters / lobbies of one chunk under one holder (placed at the first prop, so merged vertices stay small
+   * numbers), merged across the chunk: plain parts into one vertex-coloured mesh, then by shared material. Signs
+   * (own texture per spot) and the moving doors / tray bags stay separate.
+   */
+  private buildChunkProps(
+    locs: readonly DeliveryLocation[],
+    shared: Parameters<DeliveryLocationProps['buildLocationProp']>[1] & { propColorMat: THREE.Material },
+    plainMats: ReadonlySet<THREE.Material>,
+    sharedMats: Set<THREE.Material>
+  ): { object: THREE.Object3D; dispose: () => void } {
+    const holder = new THREE.Group();
+    const keeps: Array<(o: THREE.Object3D) => boolean> = [];
+    for (const loc of locs) {
+      const built = this.buildLocationProp(loc, shared);
+      if (holder.children.length === 0) holder.position.set(built.object.position.x, 0, built.object.position.z);
+      built.object.position.sub(holder.position);
+      holder.add(built.object);
+      keeps.push(built.keep);
+    }
+    const keep = (o: THREE.Object3D) => keeps.some((k) => k(o));
+    mergeByVertexColor(holder, plainMats, shared.propColorMat, keep);
+    mergeStaticByMaterial(holder, keep);
+    excludeFromMirrors(holder);
+    freezeStatic(holder);
+    return { object: holder, dispose: () => this.disposeLocationProps(locs, holder, sharedMats) };
   }
 
   /** Where a location's prop stands (slightly back from the interaction point) and its lobby-local -> world map */
@@ -301,10 +334,16 @@ export class DeliveryLocationProps {
     return { object: g, keep: (o) => o === leftDoor || o === rightDoor };
   }
 
-  /** Frees a lazily built counter / lobby: its geometries, sign texture and per-prop materials (not the shared ones) */
-  private disposeLocationProp(id: string, obj: THREE.Object3D, sharedMats: Set<THREE.Material>): void {
-    this.shopTrays.delete(id);
-    this.lobbyDoors.delete(id);
+  /** Frees a chunk's lazily built counters / lobbies: geometries, sign textures and per-prop materials (not shared) */
+  private disposeLocationProps(
+    locs: readonly DeliveryLocation[],
+    obj: THREE.Object3D,
+    sharedMats: Set<THREE.Material>
+  ): void {
+    for (const loc of locs) {
+      this.shopTrays.delete(loc.id);
+      this.lobbyDoors.delete(loc.id);
+    }
     obj.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
