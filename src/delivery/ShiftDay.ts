@@ -43,7 +43,7 @@ export const ROTATING_GOALS: readonly ShiftGoalSpec[] = [
   { id: 'urgent', icon: '⏱️', title: '급한 배달 제시간 1건', target: 1, bonus: 3000, awardAt: 'delivery', counter: 'urgentOnTime' },
   { id: 'regular', icon: '⭐', title: '단골 고객 배달 1건', target: 1, bonus: 2000, awardAt: 'delivery', counter: 'regular' },
   { id: 'far', icon: '🛣️', title: '1km 넘는 장거리 배달 2건', target: 2, bonus: 3000, awardAt: 'delivery', counter: 'far' },
-  { id: 'event', icon: '🍲', title: '이벤트 콜 할증 2건 (국물 · 눈 · 야식 · 점심 · 카페)', target: 2, bonus: 3000, awardAt: 'delivery', counter: 'event' },
+  { id: 'event', icon: '🍲', title: '이벤트 콜 할증 2건 (국물 · 눈 · 계절 · 야식 · 점심 · 카페)', target: 2, bonus: 3000, awardAt: 'delivery', counter: 'event' },
   { id: 'snow', icon: '❄️', title: '눈 오는 날 배달 1건', target: 1, bonus: 3000, awardAt: 'delivery', counter: 'snow' },
   { id: 'walk_in', icon: '🚶', title: '지상 차량 출입 금지 단지 도보 배달 2건', target: 2, bonus: 3000, awardAt: 'delivery', counter: 'walkIn' },
   { id: 'safe_stop', icon: '🚦', title: '경고 후 안전 정지 3회', target: 3, bonus: 3000, awardAt: 'delivery', counter: SAFE_STOP_COUNTER },

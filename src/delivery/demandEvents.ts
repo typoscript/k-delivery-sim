@@ -5,8 +5,17 @@
  * afternoon brings coffee and desserts (paid when not spilled). Pure logic, unit tested.
  */
 import type { ActiveMission, DeliveryOrder } from './deliveryTypes';
+import type { SeasonId } from '../game/seasons';
 
-export type DemandEventId = 'rain_soup' | 'snow_warm' | 'late_snack' | 'lunch_meal' | 'cafe_time';
+export type DemandEventId =
+  | 'rain_soup'
+  | 'snow_warm'
+  | 'late_snack'
+  | 'lunch_meal'
+  | 'cafe_time'
+  | 'winter_snack'
+  | 'spring_picnic'
+  | 'summer_cool';
 
 export interface DemandEventSpec {
   id: DemandEventId;
@@ -39,7 +48,50 @@ const LUNCH_MENU = /백반|정식|국밥|덮밥|도시락|김밥|비빔밥|제�
 const CAFE_MENU =
   /아메리카노|라떼|커피|콜드브루|스무디|에이드|케이크|마카롱|와플|크루아상|빙수|밀크티|티라미수|프라푸치노/;
 
+/** Winter street food and warm comfort food */
+const WINTER_MENU = /만두|떡볶이|국밥|어묵|오뎅|호떡|붕어빵|군고구마|우동|라면|핫초코/;
+/** Spring picnic boxes */
+const PICNIC_MENU = /도시락|김밥|샌드위치|유부초밥/;
+/** Summer cold dishes and iced drinks */
+const SUMMER_MENU = /냉면|밀면|콩국수|빙수|스무디|에이드|아이스|콜드브루|프라푸치노/;
+
 export const DEMAND_EVENTS: Record<DemandEventId, DemandEventSpec> = {
+  winter_snack: {
+    id: 'winter_snack',
+    icon: '🥟',
+    label: '겨울 따끈한 분식',
+    bonus: 1000,
+    pickChance: 0.5,
+    menu: WINTER_MENU,
+    condition: { tempMin: 70 },
+    conditionText: '따뜻하게(온도 70% 이상) 배달 시',
+    missedText: '음식이 식어',
+    menuNoun: '만두·떡볶이·국밥',
+  },
+  spring_picnic: {
+    id: 'spring_picnic',
+    icon: '🌸',
+    label: '봄 나들이 도시락',
+    bonus: 800,
+    pickChance: 0.5,
+    menu: PICNIC_MENU,
+    condition: { integrityMin: 85 },
+    conditionText: '안 흐트러지게(상태 85% 이상) 배달 시',
+    missedText: '도시락이 흐트러져',
+    menuNoun: '도시락·김밥·샌드위치',
+  },
+  summer_cool: {
+    id: 'summer_cool',
+    icon: '🍧',
+    label: '여름 시원한 메뉴',
+    bonus: 1000,
+    pickChance: 0.5,
+    menu: SUMMER_MENU,
+    condition: { tempMin: 70 },
+    conditionText: '시원하게(보냉 70% 이상) 배달 시',
+    missedText: '시원함이 사라져',
+    menuNoun: '냉면·아이스 음료',
+  },
   rain_soup: {
     id: 'rain_soup',
     icon: '🍲',
@@ -103,18 +155,34 @@ export const DEMAND_EVENTS: Record<DemandEventId, DemandEventSpec> = {
 };
 
 /**
- * Events running now: rain or snow first (a rainy / snowy lunch or night favours soups), then the time of day - the
- * lunch rush (demand phase `lunch_peak`), the quiet afternoon (`afternoon`) or the night.
+ * Events running now: rain or snow first (a rainy / snowy lunch or night favours soups), then the season's call, then
+ * the time of day - the lunch rush (demand phase `lunch_peak`), the quiet afternoon (`afternoon`) or the night.
  */
-export function activeDemandEvents(raining: boolean, night: boolean, phaseId = '', snowing = false): DemandEventSpec[] {
+export function activeDemandEvents(
+  raining: boolean,
+  night: boolean,
+  phaseId = '',
+  snowing = false,
+  season: SeasonId | null = null,
+): DemandEventSpec[] {
   const out: DemandEventSpec[] = [];
   if (raining) out.push(DEMAND_EVENTS.rain_soup);
   else if (snowing) out.push(DEMAND_EVENTS.snow_warm);
+  // the season's own call (autumn has none: its weather is the treat)
+  const seasonal = season ? SEASON_EVENTS[season] : undefined;
+  if (seasonal) out.push(DEMAND_EVENTS[seasonal]);
   if (phaseId === 'lunch_peak') out.push(DEMAND_EVENTS.lunch_meal);
   else if (phaseId === 'afternoon') out.push(DEMAND_EVENTS.cafe_time);
   if (night) out.push(DEMAND_EVENTS.late_snack);
   return out;
 }
+
+/** The seasonal event call of each season */
+export const SEASON_EVENTS: Partial<Record<SeasonId, DemandEventId>> = {
+  winter: 'winter_snack',
+  spring: 'spring_picnic',
+  summer: 'summer_cool',
+};
 
 /** The first running event this menu belongs to, or null */
 export function eventForMenu(menu: string, events: readonly DemandEventSpec[]): DemandEventSpec | null {

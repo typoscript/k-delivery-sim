@@ -1,6 +1,7 @@
 import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
-import { DEMAND_EVENTS, DemandEventSpec } from '../delivery/demandEvents';
+import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/demandEvents';
+import { seasonOfDay } from './seasons';
 
 /** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */
 const eventNote = (e: DemandEventSpec) =>
@@ -57,7 +58,21 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     }
   }
 
-  hud.setClock(clock.label, phase, delivery.shiftDay);
+  // Season of the working day: weather odds + seasonal event call (announced when it turns)
+  const season = seasonOfDay(delivery.shiftDay);
+  if (delivery.season !== season.id) {
+    const first = delivery.season === null;
+    delivery.setSeason(season.id);
+    ctx.weatherSchedule.setSeason(season);
+    if (announce && !first) {
+      const ev = SEASON_EVENTS[season.id];
+      hud.showToast(
+        `${season.emoji} ${season.label}이 왔어요! ${season.note}${ev ? ` · ${eventNote(DEMAND_EVENTS[ev])}` : ''}`,
+        5200
+      );
+    }
+  }
+  hud.setClock(clock.label, phase, delivery.shiftDay, season.emoji);
 
   // Weather changes on its own as game time passes (clock jumps with N do not skip it)
   const nextWeather = ctx.weatherSchedule.step(dtGameMin);

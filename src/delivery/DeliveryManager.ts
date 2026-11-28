@@ -1,4 +1,5 @@
 import { DeliveryLocation } from '../types';
+import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
@@ -155,6 +156,8 @@ export class DeliveryManager {
   public isWeatherRaining = false;
   /** Snowing: new calls carry the snow surcharge and the snow-day event (isWeatherRaining is false then) */
   public isWeatherSnowing = false;
+  /** Season of the working day (seasonal event calls); null until the game clock sets it */
+  public season: SeasonId | null = null;
   public isNightMode = false;
   /** Current demand phase from the game clock (call frequency, peak surcharge, kitchen wait) */
   public demandPhase: DemandPhase = demandPhaseAt(SHIFT_START_MINUTE);
@@ -494,6 +497,13 @@ export class DeliveryManager {
     this.isWeatherRaining = kind === 'rain';
     this.isWeatherSnowing = kind === 'snow';
     // Immediately refresh unaccepted calls so players see "+₩1,500 우천 할증" calls right away!
+    this.refreshAvailableOrders();
+  }
+
+  /** New season: its event call starts with the next calls (unaccepted calls are refreshed) */
+  public setSeason(season: SeasonId): void {
+    if (this.season === season) return;
+    this.season = season;
     this.refreshAvailableOrders();
   }
 

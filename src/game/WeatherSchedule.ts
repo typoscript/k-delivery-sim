@@ -1,4 +1,5 @@
 import { WeatherMode } from '../types';
+import type { SeasonSpec } from './seasons';
 
 /**
  * Weather that changes on its own with the game clock: clear -> cloudy -> (rain, snow or clear again) -> ...
@@ -25,6 +26,8 @@ export class WeatherSchedule {
   public mode: WeatherMode;
   /** Game minutes until the next change */
   public remainingMin: number;
+  /** Season weights (rain / snow chance, shower length); none = the year-round defaults */
+  private season: Pick<SeasonSpec, 'rainChance' | 'snowChance' | 'rainDurationMul'> | null = null;
 
   constructor(
     initial: WeatherMode = 'clear',
@@ -34,17 +37,25 @@ export class WeatherSchedule {
     this.remainingMin = this.durationFor(initial);
   }
 
+  /** The season changes how often clouds bring rain or snow (applies from the next change) */
+  public setSeason(season: Pick<SeasonSpec, 'rainChance' | 'snowChance' | 'rainDurationMul'> | null): void {
+    this.season = season;
+  }
+
   private durationFor(mode: WeatherMode): number {
     const [lo, hi] = WEATHER_DURATION_MIN[mode];
-    return lo + this.rand() * (hi - lo);
+    const d = lo + this.rand() * (hi - lo);
+    return mode === 'rain' && this.season ? d * this.season.rainDurationMul : d;
   }
 
   private nextMode(): WeatherMode {
     if (this.mode === 'clear') return 'cloudy';
     if (this.mode === 'rain' || this.mode === 'snow') return 'cloudy';
+    const rain = this.season?.rainChance ?? CLOUDY_TO_RAIN_CHANCE;
+    const snow = this.season?.snowChance ?? CLOUDY_TO_SNOW_CHANCE;
     const r = this.rand();
-    if (r < CLOUDY_TO_RAIN_CHANCE) return 'rain';
-    return r < CLOUDY_TO_RAIN_CHANCE + CLOUDY_TO_SNOW_CHANCE ? 'snow' : 'clear';
+    if (r < rain) return 'rain';
+    return r < rain + snow ? 'snow' : 'clear';
   }
 
   /** Advances by `dtMin` game minutes; returns the new weather when it changes, otherwise null */

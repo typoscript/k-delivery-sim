@@ -231,10 +231,11 @@ export class Hud {
   }
 
   /** Game clock pill (time + demand phase) and the smartphone status-bar clock */
-  public setClock(label: string, phase: DemandPhase, day: number): void {
+  public setClock(label: string, phase: DemandPhase, day: number, seasonEmoji = ''): void {
+    const dayText = seasonEmoji ? `${seasonEmoji} ${day}일차` : `${day}일차`;
     const text = phase.isPeak
-      ? `${day}일차 🕐 ${label} · ${phase.emoji} ${phase.label} +₩${phase.peakBonus.toLocaleString()}`
-      : `${day}일차 🕐 ${label} · ${phase.emoji} ${phase.label}`;
+      ? `${dayText} 🕐 ${label} · ${phase.emoji} ${phase.label} +₩${phase.peakBonus.toLocaleString()}`
+      : `${dayText} 🕐 ${label} · ${phase.emoji} ${phase.label}`;
     this.phoneMap.clockLabel = label;
     if (text === this.lastClockText) return;
     this.lastClockText = text;
