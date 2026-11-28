@@ -71,6 +71,8 @@ export class ChunkStreamer {
   private readonly failedAt = new Map<string, number>();
   private readonly buildQueue: string[] = [];
   private readonly edgesByChunk = new Map<string, OsmGraphEdge[]>();
+  /** Bridge edges by chunk (a chunk's streams look at the bridges of the 3x3 chunks around it) */
+  private readonly bridgesByChunk = new Map<string, OsmGraphEdge[]>();
   private readonly discsByChunk = new Map<string, number[]>();
   private readonly nodeMaxWidth: Float32Array;
   private readonly opts: Required<Omit<ChunkStreamerOptions, 'fetcher' | 'now'>> & {
@@ -126,6 +128,7 @@ export class ChunkStreamer {
       const b = world.nodes[e.b];
       const c = chunkCoordOf(this.spec, (a.x + b.x) / 2, (a.z + b.z) / 2);
       this.bucket(this.edgesByChunk, chunkKey(c.ix, c.iz)).push(e);
+      if (e.bridge) this.bucket(this.bridgesByChunk, chunkKey(c.ix, c.iz)).push(e);
     }
     for (const n of world.nodes) {
       const c = chunkCoordOf(this.spec, n.x, n.z);
@@ -228,7 +231,17 @@ export class ChunkStreamer {
       discNodeIds: this.discsByChunk.get(key) ?? [],
       nodeMaxWidth: this.nodeMaxWidth,
       curbOffset: this.curbOffset,
+      bridges: this.bridgesAround(key),
     };
+  }
+
+  private bridgesAround(key: string): OsmGraphEdge[] {
+    const { ix, iz } = parseChunkKey(key);
+    const out: OsmGraphEdge[] = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) out.push(...(this.bridgesByChunk.get(chunkKey(ix + dx, iz + dz)) ?? []));
+    }
+    return out;
   }
 
   private emptyChunk(key: string): ChunkData {

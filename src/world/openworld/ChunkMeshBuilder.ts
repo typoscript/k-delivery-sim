@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ObstacleBox } from '../../types';
 import { OsmBuildingData, OsmGraphEdge, OsmGraphNode } from '../../data/suwonTypes';
 import { BuildingWallCategory, buildingWallCategory } from '../cityTextures';
-import { ChunkData } from './OpenWorldTypes';
+import { ChunkData, WaterLineData } from './OpenWorldTypes';
 import { freezeStatic } from '../renderLayers';
 
 /**
@@ -54,6 +54,8 @@ export interface ChunkRoads {
   nodeMaxWidth: Float32Array;
   /** Metres from a point to the nearest road edge (street-facing walls get shopfronts); none when omitted */
   curbOffset?: (x: number, z: number) => number;
+  /** Bridges of this chunk and the chunks around it (streams of this chunk get a shade where one crosses) */
+  bridges?: readonly OsmGraphEdge[];
 }
 
 export interface ChunkBuildResult {
@@ -670,6 +672,58 @@ function addDisc(buf: GeoBuffer, cx: number, cz: number, r: number, y: number): 
   }
 }
 
+/** Stone embankment (석축) along a stream: this much wider than the water on each side */
+export const EMBANKMENT_M = 1.3;
+const EMBANKMENT_COLOR = new THREE.Color(0x8f8676);
+const BRIDGE_SHADE_COLOR = new THREE.Color(0x1d3f63);
+
+/**
+ * Where bridges cross the streams of a chunk: for each crossing the stretch of water under the deck (along the
+ * stream, the deck width plus 3 m each side, longer for a skewed crossing) - drawn as the bridge's shade on the water.
+ */
+export function bridgeWaterCrossings(
+  waterLines: readonly WaterLineData[],
+  bridges: readonly OsmGraphEdge[],
+  nodes: readonly OsmGraphNode[]
+): Array<{ pts: [[number, number], [number, number]]; width: number }> {
+  const out: Array<{ pts: [[number, number], [number, number]]; width: number }> = [];
+  for (const wl of waterLines) {
+    for (let i = 1; i < wl.pts.length; i++) {
+      const [px, pz] = wl.pts[i - 1];
+      const [qx, qz] = wl.pts[i];
+      const wx = qx - px;
+      const wz = qz - pz;
+      const wlen = Math.hypot(wx, wz);
+      if (wlen < 1e-6) continue;
+      for (const e of bridges) {
+        const a = nodes[e.a];
+        const b = nodes[e.b];
+        const bx = b.x - a.x;
+        const bz = b.z - a.z;
+        const den = wx * bz - wz * bx;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((a.x - px) * bz - (a.z - pz) * bx) / den;
+        const u = ((a.x - px) * wz - (a.z - pz) * wx) / den;
+        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        const sin = Math.abs(den) / (wlen * Math.hypot(bx, bz));
+        const half = Math.min(30, (e.width / 2 + 3) / Math.max(sin, 0.2));
+        const dx = wx / wlen;
+        const dz = wz / wlen;
+        const cx = px + wx * t;
+        const cz = pz + wz * t;
+        out.push({
+          pts: [
+            [cx - dx * half, cz - dz * half],
+            [cx + dx * half, cz + dz * half],
+          ],
+          width: wl.width + 0.3,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Map detail per graphics quality. 'medium' (보통): rooftop parapets without the structures on them; 'low' (낮음): no
  * rooftops, shopfronts or painted road words - plain walls / roofs, lane lines and curbs only
@@ -816,6 +870,20 @@ export function buildChunkMeshes(
     const n = roads.nodes[id];
     const w = roads.nodeMaxWidth[id];
     if (w > 0) addDisc(road, n.x, n.z, w * 0.51, w >= 11 ? ROAD_Y_MAJOR + 0.001 : ROAD_Y_MINOR + 0.001);
+  }
+  // Streams: a stone embankment strip along both banks (under the water ribbon) and the shade of every bridge
+  // over it, in the vertex-coloured markings mesh (no extra draw call)
+  if (edges) {
+    for (const wl of chunk.waterLines) {
+      edges.color.copy(EMBANKMENT_COLOR);
+      addRibbon(edges, wl.pts, wl.width + EMBANKMENT_M * 2, 0.005, 0);
+    }
+    if (roads.bridges && roads.bridges.length > 0) {
+      edges.color.copy(BRIDGE_SHADE_COLOR);
+      for (const s of bridgeWaterCrossings(chunk.waterLines, roads.bridges, roads.nodes)) {
+        addRibbon(edges, s.pts, s.width, 0.026, 0);
+      }
+    }
   }
   addMesh(road, mats.road, {});
   addMesh(lines, mats.roadMarkings ?? mats.roadLine, { receive: !!mats.roadMarkings });

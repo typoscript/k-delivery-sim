@@ -8,6 +8,7 @@ import {
   MapDetail,
   ROAD_TEXT_ROWS,
   addBridgeRailings,
+  bridgeWaterCrossings,
   buildChunkMeshes,
   wallTintOf,
 } from './ChunkMeshBuilder';
@@ -546,5 +547,56 @@ describe('bridge parapets', () => {
     const gap = addBridgeRailings(new GeoBuffer(true), 0, 0, 0, 100, 10, 0, 0, (_x, z) => Math.abs(z - 50) < 5);
     expect(gap).toBeLessThan(all);
     expect(gap).toBeGreaterThan(all - 12);
+  });
+});
+
+describe('bridges over streams', () => {
+  const nodes = [
+    { id: 0, x: -10, z: 0 },
+    { id: 1, x: 10, z: 0 },
+    { id: 2, x: -10, z: 50 },
+    { id: 3, x: 10, z: 50 },
+  ] as never;
+  const bridge = (a: number, b: number) => ({
+    a,
+    b,
+    dist: 20,
+    width: 8,
+    highway: 'residential',
+    name: '',
+    isMajor: false,
+    bridge: true,
+  });
+  const stream = {
+    name: '수원천',
+    width: 18,
+    pts: [
+      [0, -30],
+      [0, 30],
+    ] as Array<[number, number]>,
+  };
+
+  it('shades the stretch of a stream under each bridge that crosses it', () => {
+    const xs = bridgeWaterCrossings([stream], [bridge(0, 1), bridge(2, 3)], nodes);
+    expect(xs).toHaveLength(1); // the second bridge (z = 50) is past the end of the stream
+    const [[x0, z0], [x1, z1]] = xs[0].pts;
+    expect(x0).toBeCloseTo(0);
+    expect(x1).toBeCloseTo(0);
+    // square crossing: half the deck (4 m) + 3 m each side of the bridge line
+    expect(Math.min(z0, z1)).toBeCloseTo(-7);
+    expect(Math.max(z0, z1)).toBeCloseTo(7);
+    expect(xs[0].width).toBeGreaterThan(stream.width);
+  });
+
+  it('a skewed crossing shades a longer stretch, a parallel road none', () => {
+    const skew = [
+      { id: 0, x: -10, z: -10 },
+      { id: 1, x: 10, z: 10 },
+      { id: 2, x: 5, z: -20 },
+      { id: 3, x: 5, z: 20 },
+    ] as never;
+    const [s] = bridgeWaterCrossings([stream], [bridge(0, 1)], skew);
+    expect(Math.hypot(s.pts[1][0] - s.pts[0][0], s.pts[1][1] - s.pts[0][1])).toBeGreaterThan(14 * 1.4);
+    expect(bridgeWaterCrossings([stream], [bridge(2, 3)], skew)).toHaveLength(0);
   });
 });
