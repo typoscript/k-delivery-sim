@@ -36,6 +36,7 @@ import { ServiceStations, WorldPropHost } from './serviceStations';
 import { ApartmentGateEvent, DeliveryLocationProps, PropColliders } from './deliveryProps';
 import { SNOW_COVER, stepSnowCover } from './snowCover';
 import { setFoliageSeason } from './seasonFoliage';
+import { BlackIceField, IcePatch } from './blackIce';
 import type { SeasonId } from '../game/seasons';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
@@ -66,6 +67,8 @@ export interface CityMapInfo {
   constructionZones?: ConstructionZoneMarker[];
   rivalRiders?: RivalRiderMarker[];
   speedBumps?: SpeedBumpInfo[];
+  /** Today's black ice spots (winter nights / mornings; empty otherwise) */
+  icePatches?: readonly IcePatch[];
   landmarks?: LandmarkMarker[];
   upcomingCamera?: UpcomingCameraAlert | null;
   obstacles: ObstacleBox[];
@@ -246,6 +249,7 @@ export class CityWorld {
     this.root.add(this.beaconGroup);
 
     this.mapInfo = {
+      icePatches: this.blackIce.patches,
       roadLines: CITY_ROAD_LINES,
       blockCenters: CITY_BLOCK_CENTERS,
       roadWidth: 12,
@@ -560,6 +564,9 @@ export class CityWorld {
   public setWeather(mode: WeatherMode): void {
     setWeatherFn(this, mode);
   }
+
+  /** Winter black ice on shaded side streets and ramps (see blackIce.ts) */
+  public readonly blackIce = new BlackIceField(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
 
   /** Season of the working day: tree crowns take its colours */
   public setSeason(season: SeasonId): void {

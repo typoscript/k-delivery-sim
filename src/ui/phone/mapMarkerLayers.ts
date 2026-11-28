@@ -86,6 +86,31 @@ export function drawMapMarkers(f: MapFrame): void {
     }
   }
 
+  // Winter black ice spots (🧊): pale blue discs sized to the patch, with an upright icon
+  if (mapInfo.icePatches && mapInfo.icePatches.length > 0) {
+    for (const ice of mapInfo.icePatches) {
+      if (!inView(ice.x - ice.radius, ice.x + ice.radius, ice.z - ice.radius, ice.z + ice.radius)) continue;
+      const ix = toX(ice.x);
+      const iy = toY(ice.z);
+      const r = Math.max(9, Math.hypot(toX(ice.x + ice.radius) - ix, toY(ice.z) - iy));
+      ctx.fillStyle = 'rgba(125, 211, 252, 0.7)';
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(ix, iy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(ix, iy);
+      if (rotateHeadingUp) ctx.rotate(-player.heading);
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🧊', 0, 0.5);
+      ctx.restore();
+    }
+  }
+
   // Rival AI Delivery Scooter Rider Dots on Smartphone GPS Map!
   if (mapInfo.rivalRiders) {
     for (const rr of mapInfo.rivalRiders) {

@@ -45,6 +45,15 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       isRiding,
       (id) => delivery.activeMissions.some((m) => m.order.customer.id === id && m.pickedUp),
     );
+    // Black ice ahead (winter nights): warn once per patch while riding toward it
+    if (isRiding && world.blackIce.isActive) {
+      const ice = world.blackIce.nearest(scooterPhysics.state.x, scooterPhysics.state.z, 32);
+      if (ice && ice.id !== world.blackIce.warnedId) {
+        world.blackIce.warnedId = ice.id;
+        audio.playCameraApproachBeep(false);
+        hud.showToast('🧊 결빙 주의! 앞 그늘진 노면 블랙아이스 — 미리 속도를 줄이고 브레이크·급회전 금지', 3400);
+      }
+    }
     if (gateEvent) {
       hud.showToast(
         gateEvent.kind === 'blocked'

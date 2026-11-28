@@ -2,6 +2,7 @@ import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
 import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/demandEvents';
 import { seasonOfDay } from './seasons';
+import { blackIceActive } from '../world/blackIce';
 
 /** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */
 const eventNote = (e: DemandEventSpec) =>
@@ -72,6 +73,17 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
         5200
       );
     }
+  }
+  // Winter nights / mornings: shaded side streets and ramps freeze into black ice
+  const icy = blackIceActive(season.id, world.isNight, clock.minute);
+  const wasIcy = world.blackIce.isActive;
+  world.blackIce.set(delivery.shiftDay, icy); // cheap when nothing changed; a new working day freezes other spots
+  if (announce && icy && !wasIcy) {
+    hud.showToast(
+      '🧊 영하의 겨울 밤 · 그늘진 골목과 램프에 블랙아이스! 휴대폰 지도의 🧊 표시 구간에선 브레이크·급회전 금지',
+      5200
+    );
+    voiceNav.speak('노면 결빙 주의. 그늘진 골목에 블랙아이스가 있습니다.');
   }
   hud.setClock(clock.label, phase, delivery.shiftDay, season.emoji);
 
