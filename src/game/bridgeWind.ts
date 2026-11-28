@@ -7,7 +7,7 @@ import type { WeatherMode } from '../types';
 /** Below this speed the wind is not felt (pushing / crawling over the bridge) */
 export const WIND_MIN_KMH = 20;
 /** Peak sideways push (m/s) on a clear day */
-export const WIND_PEAK_MS = 0.55;
+export const WIND_PEAK_MS = 1.1;
 const WEATHER_MUL: Record<WeatherMode, number> = { clear: 1, cloudy: 1.25, rain: 1.7, snow: 1.9 };
 
 /**
