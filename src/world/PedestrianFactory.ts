@@ -60,6 +60,37 @@ export function setPedestrianWeather(rig: PedestrianRig, weather: 'clear' | 'clo
 
 /** Shared material of every far-LOD pedestrian */
 const LOW_DETAIL_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84 });
+/** Shared material of the near rigs' merged parts */
+const NEAR_RIG_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
+
+let privateSeed = 0x2545f491;
+/** Runs `fn` with Math.random swapped for a private sequence (unique uuids, global sequence untouched) */
+function withPrivateRandom<T>(fn: () => T): T {
+  const orig = Math.random;
+  Math.random = () => {
+    privateSeed = (Math.imul(privateSeed, 1664525) + 1013904223) >>> 0;
+    return privateSeed / 4294967296;
+  };
+  try {
+    return fn();
+  } finally {
+    Math.random = orig;
+  }
+}
+
+/** Merges the direct mesh children of `group` (skipping `skip`) into one vertex-coloured mesh in group space */
+function mergeRigParts(group: THREE.Object3D, skip: (o: THREE.Object3D) => boolean = () => false): void {
+  const meshes = group.children.filter((c) => (c as THREE.Mesh).isMesh && !skip(c)) as THREE.Mesh[];
+  if (meshes.length < 2) return;
+  const parts: ColoredPart[] = meshes.map((m) => {
+    m.updateMatrix();
+    return { geometry: m.geometry, matrix: m.matrix.clone(), color: (m.material as THREE.MeshStandardMaterial).color };
+  });
+  const merged = new THREE.Mesh(mergeColoredParts(parts), NEAR_RIG_MAT);
+  merged.castShadow = meshes.some((m) => m.castShadow);
+  for (const m of meshes) group.remove(m);
+  group.add(merged);
+}
 
 /**
  * Switches a pedestrian between the articulated 12-part rig (near) and its single merged mesh (far).
@@ -279,6 +310,14 @@ export class PedestrianFactory {
     const lowDetail = new THREE.Mesh(mergeColoredParts(parts), LOW_DETAIL_MAT);
     lowDetail.visible = false;
     root.add(lowDetail);
+
+    // Near rig: the static body parts become one vertex-coloured mesh and each limb one more (12-14 -> 5 draw calls).
+    // Built with a private random source: three.js draws Math.random for every new object's uuid, and the crowd's
+    // walk is driven by Math.random too, so this keeps the pedestrians' behaviour exactly as before.
+    withPrivateRandom(() => {
+      mergeRigParts(bodyGroup, (o) => o === leftArmPivot || o === rightArmPivot || o === leftLegPivot || o === rightLegPivot);
+      for (const pivot of [leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot]) mergeRigParts(pivot);
+    });
 
     // Umbrella (colour from the outfit picks: no extra random draws, the crowd stays the same)
     const umbrellaColor = (topIdx * 7 + botIdx * 3 + hairIdx) % UMBRELLA_COLORS.length;
