@@ -15,6 +15,8 @@ import { NO_GROUND_WALK_BONUS } from '../../delivery/apartmentRules';
 /** Puddles slow the scooter (speed decay per second) above this speed (m/s) */
 const PUDDLE_DRAG = 1.4;
 const PUDDLE_MIN_SPEED = 3;
+/** Faster than this (m/s, ~22 km/h) the splash reaches people on the sidewalk */
+const PUDDLE_SPLASH_PEOPLE_SPEED = 6;
 
 /** Outdoors: streaming, traffic, pedestrians, hazards, sidewalk / red-light / pedestrian warnings. Indoors: the corridor and elevator */
 export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: LoopState, f: FrameState): void {
@@ -59,7 +61,19 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
           world.puddles.splashedId = puddle.id;
           ctx.visorRain.splash(Math.min(34, 10 + Math.abs(sp.speed) * 1.6));
           audio.playCargoBoxSound();
-          hud.showToast('💦 첨벙! 물웅덩이 — 속도가 줄고 바이저에 물이 튀었어요 ([G]로 닦기)', 2400);
+          // fast through a puddle by the sidewalk: people nearby get soaked
+          const soaked =
+            Math.abs(sp.speed) > PUDDLE_SPLASH_PEOPLE_SPEED ? pedestrians.splashNear(puddle.x, puddle.z, 4.5) : 0;
+          if (soaked > 0) {
+            const lost = delivery.penalizePuddleSplash();
+            audio.playPedestrianStartle();
+            hud.showToast(
+              `💢 행인 ${soaked}명에게 흙탕물을 튀겼어요! 웅덩이 근처에선 천천히 (신뢰 평점 -${lost.toFixed(1)})`,
+              3400,
+            );
+          } else {
+            hud.showToast('💦 첨벙! 물웅덩이 — 속도가 줄고 바이저에 물이 튀었어요 ([G]로 닦기)', 2400);
+          }
         }
       }
     }

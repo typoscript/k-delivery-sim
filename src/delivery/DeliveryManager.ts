@@ -137,6 +137,9 @@ import {
   recordConvenienceExpense as recordConvenienceExpenseFn,
 } from './finesAndExpenses';
 
+/** Trust rating lost for soaking pedestrians from a puddle */
+export const PUDDLE_SPLASH_RATING_PENALTY = 0.1;
+
 
 export class DeliveryManager {
   public availableOrders: DeliveryOrder[] = [];
@@ -233,6 +236,14 @@ export class DeliveryManager {
   public setReferencePosition(x: number, z: number): void {
     this.refX = x;
     this.refZ = z;
+  }
+
+  /** Splashed pedestrians from a puddle: trust rating -0.1 (rude riding, like a near miss) */
+  public penalizePuddleSplash(): number {
+    const before = this.riderRating;
+    this.riderRating = Math.max(0, Math.round((this.riderRating - PUDDLE_SPLASH_RATING_PENALTY) * 10) / 10);
+    this.persistCareer();
+    return Math.round((before - this.riderRating) * 10) / 10;
   }
 
   public persistCareer(): void {

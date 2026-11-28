@@ -67,4 +67,17 @@ describe('the city reacts to the weather', () => {
     expect(umbrellas()).toBe(0);
     expect(peds.walkSpeedMul).toBe(1);
   });
+
+  it('a puddle splash soaks the pedestrians close by (they stop and step back); people farther off are left alone', () => {
+    const peds = new PedestrianManager(new THREE.Scene());
+    const a = peds.agents.find((x) => x.visible && x.fsm === 'WALKING') ?? peds.agents[0];
+    a.visible = true;
+    a.fsm = 'WALKING';
+    const n = peds.splashNear(a.x + 2, a.z, 4.5);
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(a.fsm).toBe('STARTLED');
+    expect(a.evadeDirX).toBeLessThan(0); // steps away from the splash (it came from +x)
+    const far = peds.splashNear(a.x + 5000, a.z, 4.5);
+    expect(far).toBe(0);
+  });
 });

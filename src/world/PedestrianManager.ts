@@ -17,6 +17,8 @@ import {
   MAX_RECYCLES_PER_TICK,
   PEDESTRIAN_COLLISION_MIN_KMH,
   PEDESTRIAN_RAIN_PACE,
+  STARTLE_HOLD_SEC,
+  EVADE_STEP_DIST,
   PEDESTRIAN_SNOW_PACE,
   PEDESTRIAN_INITIAL_SPAWN_RADIUS,
   PEDESTRIAN_RECYCLE_DISTANCE,
@@ -289,6 +291,33 @@ export class PedestrianManager {
    * 3.5m sidewalk scooter proximity avoidance reactions, and >= 5 km/h pedestrian collision detection.
    * Completely pauses all tick updates while player is inside underground apartment corridors!
    */
+  /**
+   * A scooter splashed through a puddle at (x, z): pedestrians within `radius` get soaked - they stop, turn to the
+   * rider and step back like a startle. Returns how many were splashed (fallen people and those far off are not).
+   */
+  public splashNear(x: number, z: number, radius: number): number {
+    let n = 0;
+    for (const a of this.agents) {
+      if (!a.visible || a.fsm === 'FALLEN') continue;
+      const dx = a.x - x;
+      const dz = a.z - z;
+      const d = Math.hypot(dx, dz);
+      if (d > radius) continue;
+      if (a.fsm !== 'STARTLED' && (a.fsm === 'WALKING' || a.fsm === 'WAITING_CROSSWALK' || a.fsm === 'CROSSING')) {
+        a.resumeFsm = a.fsm;
+      }
+      a.fsm = 'STARTLED';
+      a.currentSpeed = 0;
+      a.reactPhase = 0;
+      a.reactionTimer = STARTLE_HOLD_SEC * 1.6;
+      a.evadeRemaining = EVADE_STEP_DIST;
+      a.evadeDirX = d > 0.05 ? dx / d : 1;
+      a.evadeDirZ = d > 0.05 ? dz / d : 0;
+      n++;
+    }
+    return n;
+  }
+
   /** Rain / snow: umbrellas come out and the pace changes */
   public setWeather(mode: WeatherMode): void {
     this.weather = mode;

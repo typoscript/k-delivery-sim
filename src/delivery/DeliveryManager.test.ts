@@ -369,3 +369,15 @@ describe('weather surcharges on new calls', () => {
     expect(dm.availableOrders.every((o) => o.rainBonus === 0 && !o.snowDay)).toBe(true);
   });
 });
+
+describe('puddle splash', () => {
+  it('soaking pedestrians costs 0.1 trust rating (never below 0)', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    const before = dm.riderRating;
+    expect(dm.penalizePuddleSplash()).toBe(0.1);
+    expect(dm.riderRating).toBeCloseTo(before - 0.1, 5);
+    dm.riderRating = 0.05;
+    dm.penalizePuddleSplash();
+    expect(dm.riderRating).toBe(0);
+  });
+});
