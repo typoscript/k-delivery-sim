@@ -1,3 +1,4 @@
+import { SIDEWALK_MIN_OFFSET_M } from '../game/trafficViolations';
 import { WALKWAY_M } from './streamPaths';
 import { EMBANKMENT_M } from './openworld/ChunkMeshBuilder';
 import { IceSheen } from './iceSheen';
@@ -490,7 +491,8 @@ export class CityWorld {
    */
   public isOnStreamWalkway(x: number, z: number): boolean {
     const d = this.distanceToStream(x, z);
-    return d >= -0.3 && d <= WALKWAY_M + EMBANKMENT_M && activeRoadProximity().curbOffset(x, z) > 0.5;
+    // same road clearance as the sidewalk rule: riding at a road's edge beside a stream is not walkway riding
+    return d >= -0.3 && d <= WALKWAY_M + EMBANKMENT_M && activeRoadProximity().curbOffset(x, z) > SIDEWALK_MIN_OFFSET_M;
   }
 
   /** Standing in a stream's water at (x, z) - not on a stepping stone, bridge or road (open world only) */
