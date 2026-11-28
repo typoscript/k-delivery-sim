@@ -1,3 +1,4 @@
+import { signalColor } from '../game/accessibility';
 import * as THREE from 'three';
 import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
@@ -146,6 +147,7 @@ export class TrafficSystem {
     });
 
     buildTrafficSignals(this);
+    this.setSignalColorSafe(false);
     spawnTrafficVehicles(this);
   }
 
@@ -248,5 +250,19 @@ export class TrafficSystem {
     this.fleet.commit();
 
     if (this.recycleTimer > 2.5) this.recycleTimer = 0;
+  }
+
+  /** Signal lamp colours: the usual ones or the red-green safe palette (설정 색약 친화 색) */
+  public setSignalColorSafe(on: boolean): void {
+    for (const [mat, c] of [
+      [this.nsRedMat, 'red'],
+      [this.ewRedMat, 'red'],
+      [this.nsYellowMat, 'yellow'],
+      [this.ewYellowMat, 'yellow'],
+      [this.nsGreenMat, 'green'],
+      [this.ewGreenMat, 'green'],
+    ] as const) {
+      mat.emissive.setHex(signalColor(c, on));
+    }
   }
 }

@@ -147,3 +147,21 @@ describe('ambience volume (DOM)', () => {
     expect(new OnboardingAndSettings(callbacks).settings.ambienceVolume).toBe(0.35);
   });
 });
+
+describe('accessibility settings (DOM)', () => {
+  beforeEach(() => loadGamePageDom());
+
+  it('toggles are saved and reach the game; older settings get everything off', () => {
+    window.localStorage.setItem('k_delivery_settings_v1', JSON.stringify({ masterVolume: 0.5 }));
+    const applied: unknown[] = [];
+    const ob = new OnboardingAndSettings({ ...callbacks, onApplySettings: (s) => applied.push(s.accessibility) });
+    expect(ob.settings.accessibility).toEqual({ reduceMotion: false, largeText: false, colorSafe: false });
+    for (const key of ['reduceMotion', 'colorSafe']) {
+      const el = document.getElementById(`set-a11y-${key}`) as HTMLInputElement;
+      el.checked = true;
+      el.dispatchEvent(new Event('change'));
+    }
+    expect(applied.at(-1)).toEqual({ reduceMotion: true, largeText: false, colorSafe: true });
+    expect(new OnboardingAndSettings(callbacks).settings.accessibility.colorSafe).toBe(true);
+  });
+});

@@ -5826,3 +5826,13 @@ button.notif-row {
   text-align: left;
   cursor: pointer;
 }
+
+/* ♿ 글씨 크게: the HUD's text-heavy pieces, toasts, popups and the modals grow ~1.2x (layout kept) */
+body.a11y-large-text #hud .hud-panel,
+body.a11y-large-text .toast,
+body.a11y-large-text .fine-ticket-popup,
+body.a11y-large-text .customer-chat-popup,
+body.a11y-large-text .onboarding-card,
+body.a11y-large-text .modal-backdrop > * {
+  zoom: 1.18;
+}

@@ -1,3 +1,4 @@
+import { motionScale, setColorSafe } from './game/accessibility';
 import { baselineFromRuns, checkAgainstBaseline, formatDelta } from './game/perf/benchBaseline';
 import * as THREE from 'three';
 import { NO_MIRROR_LAYER } from './world/renderLayers';
@@ -165,6 +166,11 @@ const graphics = new GraphicsRuntime(renderer, world.sunLight);
 const applyGameSettings = (s: GameSettings) => {
   audio.setMasterVolume(s.masterVolume);
   audio.ambienceVolume = s.ambienceVolume;
+  // accessibility: camera motion, HUD text size, colour-safe signals
+  camController.motionScale = motionScale(s.accessibility);
+  document.body.classList.toggle('a11y-large-text', s.accessibility.largeText);
+  setColorSafe(s.accessibility.colorSafe);
+  traffic.setSignalColorSafe(s.accessibility.colorSafe);
   if (roadNavigator.avoidIce !== s.avoidIceRoutes) {
     roadNavigator.avoidIce = s.avoidIceRoutes;
     delivery.invalidateNavCache();

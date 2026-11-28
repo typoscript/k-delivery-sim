@@ -1,6 +1,9 @@
+import { AccessibilityPrefs, DEFAULT_ACCESSIBILITY, parseAccessibility } from '../game/accessibility';
 import { DEFAULT_NOTIFICATION_PREFS, NotificationPrefs, parseNotificationPrefs } from './phone/notificationPrefs';
 
 /** Settings toggles #set-notif-<key> */
+/** Settings toggles #set-a11y-<key> */
+const A11Y_KEYS: ReadonlyArray<keyof AccessibilityPrefs> = ['reduceMotion', 'largeText', 'colorSafe'];
 const NOTIF_KEYS: ReadonlyArray<keyof NotificationPrefs> = ['weather', 'messenger', 'goals', 'quietRiding'];
 import { GameSettings, GraphicsQuality } from '../types';
 import { DeliveryManager } from '../delivery/DeliveryManager';
@@ -35,6 +38,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   autoResolution: true,
   powerSaving: true,
   avoidIceRoutes: true,
+  accessibility: { ...DEFAULT_ACCESSIBILITY },
   notifications: { ...DEFAULT_NOTIFICATION_PREFS },
 };
 
@@ -175,6 +179,12 @@ export class OnboardingAndSettings {
       this.persistAndApply();
     });
 
+    for (const key of A11Y_KEYS) {
+      document.getElementById(`set-a11y-${key}`)?.addEventListener('change', (e) => {
+        this.settings.accessibility = { ...this.settings.accessibility, [key]: (e.target as HTMLInputElement).checked };
+        this.persistAndApply();
+      });
+    }
     for (const key of NOTIF_KEYS) {
       document.getElementById(`set-notif-${key}`)?.addEventListener('change', (e) => {
         this.settings.notifications = { ...this.settings.notifications, [key]: (e.target as HTMLInputElement).checked };
@@ -235,7 +245,12 @@ export class OnboardingAndSettings {
   private loadSettings(): GameSettings {
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) return { ...DEFAULT_GAME_SETTINGS, notifications: { ...DEFAULT_NOTIFICATION_PREFS } };
+      if (!raw)
+        return {
+          ...DEFAULT_GAME_SETTINGS,
+          notifications: { ...DEFAULT_NOTIFICATION_PREFS },
+          accessibility: { ...DEFAULT_ACCESSIBILITY },
+        };
       const parsed = JSON.parse(raw) as Partial<GameSettings>;
       return {
         masterVolume:
@@ -266,6 +281,7 @@ export class OnboardingAndSettings {
         avoidIceRoutes:
           typeof parsed.avoidIceRoutes === 'boolean' ? parsed.avoidIceRoutes : DEFAULT_GAME_SETTINGS.avoidIceRoutes,
         notifications: parseNotificationPrefs(parsed.notifications),
+        accessibility: parseAccessibility(parsed.accessibility),
       };
     } catch {
       return { ...DEFAULT_GAME_SETTINGS };
@@ -303,6 +319,10 @@ export class OnboardingAndSettings {
     if (this.powerSaveToggle) this.powerSaveToggle.checked = this.settings.powerSaving;
     const iceToggle = document.getElementById('set-avoid-ice') as HTMLInputElement | null;
     if (iceToggle) iceToggle.checked = this.settings.avoidIceRoutes;
+    for (const key of A11Y_KEYS) {
+      const el = document.getElementById(`set-a11y-${key}`) as HTMLInputElement | null;
+      if (el) el.checked = this.settings.accessibility[key];
+    }
     for (const key of NOTIF_KEYS) {
       const el = document.getElementById(`set-notif-${key}`) as HTMLInputElement | null;
       if (el) el.checked = this.settings.notifications[key];

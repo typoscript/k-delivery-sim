@@ -28,6 +28,8 @@ export class CameraController {
   private smoothedRoll = 0;
   /** Extra horizon roll from a crosswind gust while riding (set every frame by the world frame, radians) */
   public windRoll = 0;
+  /** Share of the camera motion kept (설정 화면 흔들림 줄이기: walk bob, bump bounce, horizon roll) */
+  public motionScale = 1;
   private smoothedEyeY = 1.62;
 
   private readonly tmpEye = new THREE.Vector3();
@@ -129,7 +131,7 @@ export class CameraController {
 
     // 2. On-Foot 1st-Person Camera
     if (player.mode === 'on_foot') {
-      const bobAmp = Math.min(player.moveSpeed / 7.5, 1) * 0.055;
+      const bobAmp = Math.min(player.moveSpeed / 7.5, 1) * 0.055 * this.motionScale;
       const walkBob = player.grounded ? Math.sin(player.walkCycle * 2) * bobAmp : 0;
       const targetY = 1.62 + walkBob;
       this.smoothedEyeY += (targetY - this.smoothedEyeY) * Math.min(1, clampedDt * 14);
@@ -157,12 +159,12 @@ export class CameraController {
     scooterMesh.getFirstPersonEyeWorld(this.tmpEye);
     // Physical vertical suspension bounce when hitting a speed bump at speed!
     if (scooter.bumpJolt > 0.01) {
-      this.tmpEye.y += Math.sin(scooter.bumpJolt * Math.PI) * 0.14 * scooter.bumpJolt;
+      this.tmpEye.y += Math.sin(scooter.bumpJolt * Math.PI) * 0.14 * scooter.bumpJolt * this.motionScale;
     }
     this.smoothedEyeY = this.tmpEye.y;
 
     // Horizon tilts smoothly with the scooter's physical cornering lean (~62% roll)
-    const targetRoll = scooter.leanAngle * 0.62 + this.windRoll;
+    const targetRoll = (scooter.leanAngle * 0.62 + this.windRoll) * this.motionScale;
     this.smoothedRoll += (targetRoll - this.smoothedRoll) * Math.min(1, clampedDt * 14);
 
     // Slight look-into-turn head turn + pitch

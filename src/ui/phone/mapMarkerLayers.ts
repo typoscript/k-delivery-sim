@@ -1,3 +1,4 @@
+import { signalHex } from '../../game/accessibility';
 /** Phone map markers: bus stops, service stations, signals, speed cameras, construction zones, rival riders */
 import type { MapFrame } from './mapFrame';
 import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
@@ -126,8 +127,7 @@ export function drawMapMarkers(f: MapFrame): void {
     }
   }
 
-  const sigHex = (c: 'green' | 'yellow' | 'red') =>
-    c === 'green' ? '#22c55e' : c === 'yellow' ? '#facc15' : '#ef4444';
+  const sigHex = (c: 'green' | 'yellow' | 'red') => signalHex(c);
 
   for (const sn of ACTIVE_MAP_DATA.nodes) {
     if (!sn.isSignal || !inView(sn.x, sn.x, sn.z, sn.z)) continue;
