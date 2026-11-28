@@ -57,7 +57,12 @@ export interface WeatherReportInput {
   puddles: number;
   /** Is it night now (sunset passed) */
   night: boolean;
+  /** Weather gear the rider owns (the app suggests what is missing) */
+  gear?: { raincoat: boolean; winterGear: boolean };
 }
+
+/** At or below this the air is freezing for a rider without winter gear */
+export const COLD_TEMP_C = 2;
 
 const BASE_TEMP: Record<SeasonId, number> = { spring: 14, summer: 28, autumn: 15, winter: -1 };
 const SWING: Record<SeasonId, number> = { spring: 6, summer: 5, autumn: 6, winter: 5 };
@@ -165,6 +170,36 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
       level: 'info',
     });
   }
+  // gear the weather calls for
+  const gear = input.gear ?? { raincoat: true, winterGear: true };
+  const precipNow = input.mode === 'rain' || input.mode === 'snow';
+  if (!gear.raincoat) {
+    const soon = input.forecast.slice(0, 6).findIndex((m) => m === 'rain' || m === 'snow');
+    if (precipNow) {
+      alerts.push({
+        icon: '🧥',
+        title: '우비 없음',
+        detail: '비·눈을 맞으면 체력 회복이 느려요 · 정비소 라이더 우비 세트',
+        level: 'warn',
+      });
+    } else if (soon >= 0) {
+      alerts.push({
+        icon: '🧥',
+        title: `${soon + 1}시간 뒤 ${WEATHER_LABEL[input.forecast[soon]]} 예보`,
+        detail: '우비를 챙기면 빗속에서도 체력이 그대로예요 (정비소)',
+        level: 'info',
+      });
+    }
+  }
+  if (!gear.winterGear && tempC <= COLD_TEMP_C) {
+    alerts.push({
+      icon: '🧤',
+      title: `${tempC}°C 추위`,
+      detail: '방한 장비가 없으면 체력 회복이 느려요 · 정비소 방한 장갑·넥워머',
+      level: 'warn',
+    });
+  }
+
   const ev = SEASON_EVENTS[season.id];
   if (ev) {
     const e = DEMAND_EVENTS[ev];

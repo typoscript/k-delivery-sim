@@ -82,7 +82,9 @@ export function stepVisualsFrame(
   perf.lap('visuals');
   // Weather local rain particles (InstancedMesh), 1st-person helmet visor droplets, wet asphalt & audio!
   weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
-  visorRain.update(dt, weather.rainIntensity, inCorridor, scooterPhysics.state.speed, isRiding);
+  // a raincoat's hood keeps most drops off the visor
+  const visorRainMul = ctx.delivery.hasUpgrade('raincoat') ? 0.35 : 1;
+  visorRain.update(dt, weather.rainIntensity * visorRainMul, inCorridor, scooterPhysics.state.speed, isRiding);
   if (!inCorridor) {
     world.updateWeatherVisuals(weather.rainIntensity, elapsed);
   }

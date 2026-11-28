@@ -1,5 +1,8 @@
 import { ObstacleBox, clamp, collidesWithWorld, wrapAngle } from '../types';
 import { HEAT_DRAIN_MUL, HEAT_RECOVER_MUL, HEAT_WALK_DRAIN, ION_DRINK_COOL_SEC } from '../game/heatwave';
+
+/** Stamina recovery outdoors while soaked (no raincoat) or freezing (no winter gear) - each */
+export const EXPOSURE_RECOVER_MUL = 0.55;
 import { SCOOTER_SPECS, ScooterState } from '../vehicle/ScooterPhysics';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 
@@ -88,6 +91,18 @@ export class PlayerController {
 
   /** Summer heatwave afternoon (set by the game clock): outdoors, walking drains stamina and resting is slow */
   public heatwave = false;
+
+  /**
+   * Outdoor exposure without the right gear (set by the game clock): soaked by rain / snow without a raincoat, or
+   * freezing without winter gear. Each slows stamina recovery outdoors.
+   */
+  public exposure = { wet: false, cold: false };
+
+  /** Stamina recovery factor of the exposure (outdoors only) */
+  private get exposureMul(): number {
+    if (this.state.inCorridor) return 1;
+    return (this.exposure.wet ? EXPOSURE_RECOVER_MUL : 1) * (this.exposure.cold ? EXPOSURE_RECOVER_MUL : 1);
+  }
 
   /** Heat applies outdoors, unless the iced ion drink is still cooling the rider */
   private get feelsHeat(): boolean {
@@ -260,7 +275,7 @@ export class PlayerController {
       p.canMountScooter = false;
       p.distanceToScooter = 0;
       // Recover stamina nicely while resting on scooter seat
-      const recMul = (p.coffeeBuffTimer > 0 ? 2.0 : 1.0) * (this.feelsHeat ? HEAT_RECOVER_MUL : 1);
+      const recMul = (p.coffeeBuffTimer > 0 ? 2.0 : 1.0) * (this.feelsHeat ? HEAT_RECOVER_MUL : 1) * this.exposureMul;
       p.stamina = clamp(p.stamina + 18 * recMul * clampedDt, 0, 100);
       return;
     }
@@ -380,7 +395,7 @@ export class PlayerController {
     // Stamina drain when climbing walk-up villa stairs or sprinting; buffed by convenience drinks!
     const heat = this.feelsHeat;
     const drainMul = (p.energyBuffTimer > 0 ? 0.5 : 1.0) * (heat ? HEAT_DRAIN_MUL : 1);
-    const recoverMul = (p.coffeeBuffTimer > 0 ? 2.0 : 1.0) * (heat ? HEAT_RECOVER_MUL : 1);
+    const recoverMul = (p.coffeeBuffTimer > 0 ? 2.0 : 1.0) * (heat ? HEAT_RECOVER_MUL : 1) * this.exposureMul;
     if (ascending) {
       const drain = (input.sprint ? 24 : 11) * drainMul;
       p.stamina = clamp(p.stamina - drain * clampedDt, 0, 100);

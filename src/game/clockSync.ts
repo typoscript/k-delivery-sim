@@ -4,7 +4,7 @@ import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/deman
 import { isMonsoonDay, seasonOfDay, weatherOddsOfDay } from './seasons';
 import { blackIceActive } from '../world/blackIce';
 import { ION_DRINK_COST, heatwaveActive } from './heatwave';
-import { buildWeatherReport } from './weatherReport';
+import { COLD_TEMP_C, buildWeatherReport, temperatureAt } from './weatherReport';
 import type { Hud } from '../ui/Hud';
 
 let lastReportKey = '';
@@ -138,8 +138,25 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   }
   hud.setClock(clock.label, phase, delivery.shiftDay, season.emoji);
 
+  // Weather gear: soaked without a raincoat in rain / snow, freezing (≤ 2°C) without winter gear -> slow recovery
+  const raincoat = delivery.hasUpgrade('raincoat');
+  const winterGear = delivery.hasUpgrade('winter_gear');
+  const precip = world.weatherMode === 'rain' || world.weatherMode === 'snow';
+  const tempC = temperatureAt(season.id, clock.minute, world.weatherMode, hot);
+  const wet = precip && !raincoat;
+  const cold = tempC <= COLD_TEMP_C && !winterGear;
+  const ex = ctx.playerCtrl.exposure;
+  if (announce && wet && !ex.wet) {
+    hud.showToast('🧥 우비가 없어 비·눈을 맞고 있어요 — 체력 회복이 느려져요 (정비소 🧥 라이더 우비 세트)', 3600);
+  }
+  if (announce && cold && !ex.cold) {
+    hud.showToast(`🥶 ${tempC}°C 추위 — 방한 장비가 없어 체력 회복이 느려져요 (정비소 🧤 방한 장갑·넥워머)`, 3600);
+  }
+  ex.wet = wet;
+  ex.cold = cold;
+
   // The phone's weather app (the only place the weather is shown): rebuilt every game minute or on a change
-  const reportKey = `${delivery.shiftDay}|${Math.floor(clock.minute)}|${world.weatherMode}|${hot}|${icy}|${world.puddles.puddles.length > 0}`;
+  const reportKey = `${delivery.shiftDay}|${Math.floor(clock.minute)}|${world.weatherMode}|${hot}|${icy}|${world.puddles.puddles.length > 0}|${raincoat}|${winterGear}`;
   if (reportKey !== lastReportKey) {
     lastReportKey = reportKey;
     hud.phoneMap.weatherReport = buildWeatherReport({
@@ -151,6 +168,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       blackIce: icy,
       puddles: world.puddles.puddles.length,
       night: world.isNight,
+      gear: { raincoat, winterGear },
     });
   }
 

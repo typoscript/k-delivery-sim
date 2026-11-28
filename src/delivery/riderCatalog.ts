@@ -5,7 +5,9 @@ export type UpgradeId =
   | 'suspension_tires'
   | 'fast_charger'
   | 'eco_tank'
-  | 'ecu_tune';
+  | 'ecu_tune'
+  | 'raincoat'
+  | 'winter_gear';
 
 export type RiderTierId = 'bronze' | 'silver' | 'gold' | 'master';
 
@@ -35,7 +37,30 @@ export interface UpgradeEffects {
   fuelBurnMul: number; // 0.75 with eco_tank
   accelMul: number; // 1.14 with ecu_tune
   speedMul: number; // 1.08 with ecu_tune
+  rainVisorMul: number; // 0.35 with raincoat (fewer drops on the visor)
+  rainProof: boolean; // raincoat: rain / snow do not slow stamina recovery
+  coldProof: boolean; // winter_gear: freezing air does not slow stamina recovery
 }
+
+/** Weather gear (bought at the repair shop like the other upgrades) */
+export const RIDER_GEAR: Record<'raincoat' | 'winter_gear', UpgradeSpec> = {
+  raincoat: {
+    id: 'raincoat',
+    icon: '🧥',
+    name: '라이더 우비 세트',
+    shortDesc: '비·눈을 맞아도 체력 회복이 느려지지 않고 헬멧 바이저에 물방울이 덜 맺힘',
+    statBadge: '빗속 체력 정상 · 바이저 물방울 -65%',
+    price: 18000,
+  },
+  winter_gear: {
+    id: 'winter_gear',
+    icon: '🧤',
+    name: '방한 장갑 · 넥워머',
+    shortDesc: '기온 2°C 이하 추위에도 체력 회복이 느려지지 않음 (겨울 새벽·밤)',
+    statBadge: '추위 체력 정상',
+    price: 15000,
+  },
+};
 
 export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
   thermal_box: {
@@ -78,6 +103,8 @@ export const RIDER_UPGRADES: Record<UpgradeId, UpgradeSpec> = {
     statBadge: '가속 +14% · 최고속 +8%',
     price: 60000,
   },
+  raincoat: RIDER_GEAR.raincoat,
+  winter_gear: RIDER_GEAR.winter_gear,
 };
 
 export const RIDER_UPGRADE_LIST: UpgradeSpec[] = [
@@ -86,6 +113,8 @@ export const RIDER_UPGRADE_LIST: UpgradeSpec[] = [
   RIDER_UPGRADES.fast_charger,
   RIDER_UPGRADES.eco_tank,
   RIDER_UPGRADES.ecu_tune,
+  RIDER_UPGRADES.raincoat,
+  RIDER_UPGRADES.winter_gear,
 ];
 
 export const RIDER_TIERS: RiderTierSpec[] = [
@@ -152,5 +181,8 @@ export function getUpgradeEffects(upgrades: readonly UpgradeId[]): UpgradeEffect
     fuelBurnMul: has('eco_tank') ? 0.75 : 1.0,
     accelMul: has('ecu_tune') ? 1.14 : 1.0,
     speedMul: has('ecu_tune') ? 1.08 : 1.0,
+    rainVisorMul: has('raincoat') ? 0.35 : 1.0,
+    rainProof: has('raincoat'),
+    coldProof: has('winter_gear'),
   };
 }
