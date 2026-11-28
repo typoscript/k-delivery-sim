@@ -2,6 +2,9 @@ import { WIND_MIN_KMH, bridgeGust, windLevelFor, windRollFor } from '../bridgeWi
 /** Per-frame stage of the game loop (gameLoop.ts calls the stages in order each frame) */
 import type { GameContext } from '../GameContext';
 import type { FrameState, GameLoopHooks, LoopState } from '../gameLoop';
+
+/** A stream walkway is judged like a sidewalk this far from the curb (inside the sidewalk band) */
+const WALKWAY_AS_SIDEWALK_OFFSET = 2;
 import { ALERT_MAX_DIST_M } from '../riderAlerts';
 import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
 import { getSignalAxis, signalNodesNear } from '../../world/TrafficRules';
@@ -277,11 +280,13 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
     );
 
     if (!inCorridor) {
-      world.updateStreamStrollers(
+      const startled = world.updateStreamStrollers(
         dt,
         isRiding ? scooterPhysics.state.x : playerCtrl.state.x,
         isRiding ? scooterPhysics.state.z : playerCtrl.state.z,
+        isRiding && !scooterPhysics.state.crashed ? scooterPhysics.state : undefined,
       );
+      if (startled > 0) audio.playPedestrianStartle();
     }
     perf.lap('pedestrians');
     roadHazards.step(
@@ -327,7 +332,13 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
     const sx = scooterPhysics.state.x;
     const sz = scooterPhysics.state.z;
     const speedKmh = Math.abs(scooterPhysics.state.speed) * 3.6;
-    const curbOffset = isRiding && speedKmh >= SIDEWALK_MIN_KMH ? roadProximity.curbOffset(sx, sz) : -1;
+    // a stream walkway counts as a sidewalk (it is one: people stroll there)
+    const onWalkway = isRiding && speedKmh >= SIDEWALK_MIN_KMH && world.isOnStreamWalkway(sx, sz);
+    const curbOffset = !(isRiding && speedKmh >= SIDEWALK_MIN_KMH)
+      ? -1
+      : onWalkway
+        ? WALKWAY_AS_SIDEWALK_OFFSET
+        : roadProximity.curbOffset(sx, sz);
     if (
       sidewalkMonitor.step(dt, {
         isRiding,
@@ -342,7 +353,9 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       else {
         audio.playPedestrianStartle();
         hud.showToast(
-          `🚸 인도 주행 중! 보행자 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`,
+          onWalkway
+            ? `🚶 하천 산책로 주행 중! 산책객 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`
+            : `🚸 인도 주행 중! 보행자 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`,
           3600,
         );
       }

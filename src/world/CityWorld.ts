@@ -1,3 +1,5 @@
+import { WALKWAY_M } from './streamPaths';
+import { EMBANKMENT_M } from './openworld/ChunkMeshBuilder';
 import { IceSheen } from './iceSheen';
 import { StreamWater } from './streamWater';
 import { StreamStrollers } from './pedestrians/streamStrollers';
@@ -453,16 +455,21 @@ export class CityWorld {
   /** One stable function (the strollers cache stone rows per road grid function) */
   private readonly curbOffsetFn = (x: number, z: number) => activeRoadProximity().curbOffset(x, z);
 
-  /** Steps the stream-walkway strollers around (px, pz) */
-  public updateStreamStrollers(dt: number, px: number, pz: number): void {
-    if (!this.streamer) return;
+  /** Steps the stream-walkway strollers around (px, pz); returns how many the scooter newly startled */
+  public updateStreamStrollers(
+    dt: number,
+    px: number,
+    pz: number,
+    scooter?: { x: number; z: number; speed: number },
+  ): number {
+    if (!this.streamer) return 0;
     this.refreshStreamLines();
     if (!this.strollers) {
-      if (this.streamLines.length === 0) return;
+      if (this.streamLines.length === 0) return 0;
       this.strollers = new StreamStrollers(this.root);
     }
     this.strollers.setWeather(this.weatherMode);
-    this.strollers.update(dt, px, pz, this.streamLines, this.curbOffsetFn);
+    return this.strollers.update(dt, px, pz, this.streamLines, this.curbOffsetFn, scooter);
   }
 
   /** The stream-walkway strollers (null until a stream was near) */
@@ -475,6 +482,15 @@ export class CityWorld {
       this.streamLinesVersion = this.streamer.version;
       this.streamLines = this.streamer.getBuiltChunkData().flatMap((c) => c.waterLines);
     }
+  }
+
+  /**
+   * On a stream walkway at (x, z): beside the water within the walkway and embankment strip, not on a road. Riding
+   * there counts as sidewalk riding.
+   */
+  public isOnStreamWalkway(x: number, z: number): boolean {
+    const d = this.distanceToStream(x, z);
+    return d >= -0.3 && d <= WALKWAY_M + EMBANKMENT_M && activeRoadProximity().curbOffset(x, z) > 0.5;
   }
 
   /** Standing in a stream's water at (x, z) - not on a stepping stone, bridge or road (open world only) */

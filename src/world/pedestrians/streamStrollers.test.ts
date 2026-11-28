@@ -62,3 +62,19 @@ describe('stream strollers and roads', () => {
     expect(s.count).toBeGreaterThan(0);
   });
 });
+
+describe('stream strollers and the scooter', () => {
+  it('a scooter rushing past startles a stroller once (it stands still); a slow one does not', () => {
+    const s = new StreamStrollers(new THREE.Group());
+    for (let i = 0; i < 30 * 30 && s.count === 0; i++) s.update(1 / 30, 0, 150, [stream]);
+    const p = s.positions()[0];
+    expect(s.update(1 / 30, 0, 150, [stream], undefined, { x: p.x + 1, z: p.z, speed: 0.5 })).toBe(0);
+    const scooter = { x: p.x + 1, z: p.z, speed: 8 };
+    expect(s.update(1 / 30, 0, 150, [stream], undefined, scooter)).toBe(1);
+    expect(s.update(1 / 30, 0, 150, [stream], undefined, scooter)).toBe(0); // already startled
+    const at = s.positions()[0];
+    for (let i = 0; i < 10; i++) s.update(1 / 30, 0, 150, [stream], undefined, scooter);
+    expect(s.positions()[0]).toEqual(at); // stands still
+    expect(s.startledCount).toBeGreaterThan(0);
+  });
+});

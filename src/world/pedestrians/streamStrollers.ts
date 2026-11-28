@@ -24,6 +24,10 @@ export const DESPAWN_M = 170;
 /** Chance to take a row of stepping stones when passing one */
 export const CROSS_CHANCE = 0.35;
 const NEAR_RIG_M = 32;
+/** A scooter passing closer than this faster than STARTLE_SPEED_MS startles a stroller (stops, flinches) */
+export const STARTLE_RADIUS_M = 4;
+export const STARTLE_SPEED_MS = 2;
+const STARTLE_SEC = 1.4;
 /** Strollers keep this far from a road edge (they never walk over a bridge deck drawn across the walkway) */
 const ROAD_CLEAR_M = 0.8;
 
@@ -115,6 +119,8 @@ interface Stroller {
   x: number;
   z: number;
   heading: number;
+  /** Seconds left standing startled (a scooter rushed past) */
+  startled: number;
 }
 
 export class StreamStrollers {
@@ -147,14 +153,18 @@ export class StreamStrollers {
     for (const s of this.live) setPedestrianWeather(s.rig, w);
   }
 
-  /** Steps the strollers around the player on the loaded stream pieces (`lines`) */
+  /**
+   * Steps the strollers around the player on the loaded stream pieces (`lines`). `scooter` (when riding) startles
+   * the strollers it rushes past; returns how many were newly startled this step (the game plays a gasp).
+   */
   public update(
     dt: number,
     px: number,
     pz: number,
     lines: readonly WaterLineData[],
     curbOffset?: (x: number, z: number) => number,
-  ): void {
+    scooter?: { x: number; z: number; speed: number },
+  ): number {
     this.curbOffset = curbOffset;
     // drop strollers far away or on a stream piece that was unloaded
     for (let i = this.live.length - 1; i >= 0; i--) {
@@ -162,7 +172,26 @@ export class StreamStrollers {
       if (!lines.includes(s.line) || Math.hypot(s.x - px, s.z - pz) > DESPAWN_M) this.release(i);
     }
     if (this.live.length < MAX_STROLLERS && lines.length > 0) this.trySpawn(px, pz, lines, curbOffset);
-    for (const s of this.live) this.step(s, dt, px, pz);
+    let startled = 0;
+    for (const s of this.live) {
+      if (
+        scooter &&
+        Math.abs(scooter.speed) > STARTLE_SPEED_MS &&
+        Math.hypot(scooter.x - s.x, scooter.z - s.z) < STARTLE_RADIUS_M
+      ) {
+        if (s.startled <= 0) startled++;
+        s.startled = STARTLE_SEC;
+        // turn to face the scooter
+        s.heading = Math.atan2(scooter.x - s.x, scooter.z - s.z);
+      }
+      this.step(s, dt, px, pz);
+    }
+    return startled;
+  }
+
+  /** How many strollers are standing startled right now */
+  public get startledCount(): number {
+    return this.live.filter((s) => s.startled > 0).length;
   }
 
   private trySpawn(
@@ -201,11 +230,20 @@ export class StreamStrollers {
       x: p.x,
       z: p.z,
       heading: 0,
+      startled: 0,
     });
   }
 
   private step(s: Stroller, dt: number, px: number, pz: number): void {
     const d = Math.min(dt, 0.05);
+    if (s.startled > 0) {
+      // stands still, flinching, until the scooter is gone
+      s.startled -= d;
+      s.rig.root.rotation.y = s.heading;
+      const near = setPedestrianDetail(s.rig, Math.hypot(s.x - px, s.z - pz) < NEAR_RIG_M);
+      if (near) PedestrianFactory.updateStartledAnimation(s.rig, 1 - s.startled / STARTLE_SEC, dt);
+      return;
+    }
     let fx: number;
     let fz: number;
     if (s.crossing !== null) {
