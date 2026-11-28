@@ -1,8 +1,9 @@
-import { streamSoundLevel } from '../../world/streamWater';
 /** Per-frame stage of the game loop (gameLoop.ts calls the stages in order each frame) */
+import { stepDeliveryVisuals } from './deliveryVisualsFrame';
+import { stepFirstPerson } from './firstPersonFrame';
+import { stepWeatherVisuals } from './weatherVisualsFrame';
 import type { GameContext } from '../GameContext';
 import type { FrameState, GameLoopHooks, LoopState } from '../gameLoop';
-import { validateDeliveryPhotoFrame } from '../../camera/PhotoProofValidator';
 import type { NavigationPlan } from '../../delivery/DeliveryManager';
 
 /** Delivery markers, scooter, first-person hands, camera, photo viewfinder, weather and engine audio */
@@ -13,101 +14,9 @@ export function stepVisualsFrame(
   f: FrameState,
   navPlan: NavigationPlan,
 ): void {
-  const {
-    camera,
-    world,
-    corridorRoom,
-    weather,
-    visorRain,
-    delivery,
-    scooterPhysics,
-    scooterMesh,
-    playerCtrl,
-    playerMesh,
-    camController,
-    audio,
-    hud,
-    modalUi,
-    handheldPhone3D,
-    handheldFoodBag3D,
-  } = ctx;
   const { perf } = loop;
-  const { dt, elapsed, inCorridor, isRiding } = f;
-  // Outdoor Entrance Ground Marker + Shop Pickup Trays + 3-Slot Scooter Visuals
-  // (Navigation path is shown ONLY on the smartphone GPS screen, never on the 3D road!)
-  if (!inCorridor) {
-    world.updateBeacon(navPlan.target, navPlan.isPickupTarget, elapsed);
-
-    const cookingShopIds = new Set<string>();
-    const readyShopIds = new Set<string>();
-    for (const m of delivery.activeMissions) {
-      if (m.phase === 'cooking_wait') cookingShopIds.add(m.order.shop.id);
-      else if (m.phase === 'pickup_ready') readyShopIds.add(m.order.shop.id);
-    }
-    world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
-    // 산책로 쉼터: the customer of a riverside order waits on the bench, stands to take the food, waves goodbye
-    const benchWaiting = [];
-    let carryingTo: string | null = null;
-    for (const m of delivery.activeMissions) {
-      if (m.order.customer.residenceKind !== 'riverside' || m.phase === 'corridor_exit') continue;
-      benchWaiting.push(m.order.customer);
-      if (m.phase === 'carrying_to_lobby') carryingTo = m.order.customer.id;
-    }
-    world.syncBenchCustomers(dt, ctx.playerCtrl.state.x, ctx.playerCtrl.state.z, benchWaiting, carryingTo);
-
-    scooterMesh.sync(scooterPhysics.state, elapsed, dt, world.isNight, weather.rainIntensity);
-    scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());
-    scooterMesh.setPhoneMounted(
-      hud.phoneMap.placement === 'mounted' &&
-        !hud.phoneMap.isZoomed &&
-        !handheldPhone3D.isHoldingPhoneDuringMountAnim(),
-    );
-  }
-
-  // 1st-person 3D Right Hand Smartphone & 3D Left Hand Food Bag!
-  handheldPhone3D.update(
-    hud.phoneMap.placement === 'in_hand' && !hud.phoneMap.isZoomed && modalUi.activeModal === 'none',
-    playerCtrl.state,
-    dt,
-    elapsed,
-  );
-  const showHandBag =
-    (delivery.isCarryingFood() ||
-      (delivery.getCorridorMission()?.phase === 'meet_waiting' && !hooks.isNpcHoldingFoodBag())) &&
-    !isRiding &&
-    modalUi.activeModal !== 'transition';
-  handheldFoodBag3D.update(showHandBag, playerCtrl.state, dt, elapsed);
-
-  playerMesh.sync(playerCtrl.state, scooterMesh.riderMountPoint, scooterPhysics.state.steerAngle, true);
-
-  camController.update(camera, playerCtrl.state, scooterPhysics.state, scooterMesh, dt);
-
-  // Live viewfinder framing validation (Bounding Box + vector.project(camera)) when in PHOTO_DOOR camera mode!
-  if (inCorridor && modalUi.activeModal === 'camera') {
-    const { foodBagMesh, doorPlateMesh } = corridorRoom.getProofTargets();
-    const proofStatus = validateDeliveryPhotoFrame(camera, foodBagMesh, doorPlateMesh);
-    modalUi.updateCameraProofStatus(proofStatus);
-  }
-
+  stepDeliveryVisuals(ctx, f, navPlan);
+  stepFirstPerson(ctx, hooks, f);
   perf.lap('visuals');
-  // Weather local rain particles (InstancedMesh), 1st-person helmet visor droplets, wet asphalt & audio!
-  weather.update(dt, camera.position.x, camera.position.y, camera.position.z, inCorridor, world.isNight);
-  // a raincoat's hood keeps most drops off the visor
-  const visorRainMul = ctx.delivery.hasUpgrade('raincoat') ? 0.35 : 1;
-  visorRain.update(dt, weather.rainIntensity * visorRainMul, inCorridor, scooterPhysics.state.speed, isRiding);
-  if (!inCorridor) {
-    world.updateWeatherVisuals(weather.rainIntensity, elapsed);
-    world.streamWater?.update(dt, weather.rainIntensity);
-    // running water near a stream (louder after rain)
-    const lx = isRiding ? scooterPhysics.state.x : ctx.playerCtrl.state.x;
-    const lz = isRiding ? scooterPhysics.state.z : ctx.playerCtrl.state.z;
-    audio.setWater(streamSoundLevel(world.distanceToStream(lx, lz), weather.rainIntensity));
-  } else {
-    audio.setWater(0);
-    audio.setWind(0);
-  }
-  // snow keeps settling (and melting) while the rider is indoors too
-  world.updateSnowCover(dt, weather.isSnowing);
-  audio.updateWeatherAudio(weather.rainIntensity, inCorridor);
-  audio.update(scooterPhysics.state, elapsed);
+  stepWeatherVisuals(ctx, f);
 }
