@@ -450,6 +450,8 @@ export class CityWorld {
 
   /** People strolling on the stream walkways (open world only, made on first use) */
   private strollers: StreamStrollers | null = null;
+  /** One stable function (the strollers cache stone rows per road grid function) */
+  private readonly curbOffsetFn = (x: number, z: number) => activeRoadProximity().curbOffset(x, z);
 
   /** Steps the stream-walkway strollers around (px, pz) */
   public updateStreamStrollers(dt: number, px: number, pz: number): void {
@@ -460,8 +462,7 @@ export class CityWorld {
       this.strollers = new StreamStrollers(this.root);
     }
     this.strollers.setWeather(this.weatherMode);
-    const grid = activeRoadProximity();
-    this.strollers.update(dt, px, pz, this.streamLines, (x, z) => grid.curbOffset(x, z));
+    this.strollers.update(dt, px, pz, this.streamLines, this.curbOffsetFn);
   }
 
   /** The stream-walkway strollers (null until a stream was near) */

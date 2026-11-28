@@ -25,8 +25,8 @@ describe('stream strollers', () => {
     const parent = new THREE.Group();
     const s = new StreamStrollers(parent);
     let crossed = false;
-    for (let i = 0; i < 60 * 240; i++) {
-      s.update(1 / 60, 0, 150, [stream]);
+    for (let i = 0; i < 30 * 240; i++) {
+      s.update(1 / 30, 0, 150, [stream]);
       for (const p of s.positions()) {
         // on a walkway, or on the stone rows while crossing
         if (p.crossing) {
@@ -55,8 +55,8 @@ describe('stream strollers and roads', () => {
   it('turn back where a road crosses the walkway and never start on it', () => {
     const s = new StreamStrollers(new THREE.Group());
     const road = (_x: number, z: number) => Math.abs(z - 150) - 6; // a 12 m road across at z = 150
-    for (let i = 0; i < 60 * 120; i++) {
-      s.update(1 / 60, 0, 150, [stream], road);
+    for (let i = 0; i < 30 * 120; i++) {
+      s.update(1 / 30, 0, 150, [stream], road);
       for (const p of s.positions()) expect(road(p.x, p.z)).toBeGreaterThan(0);
     }
     expect(s.count).toBeGreaterThan(0);

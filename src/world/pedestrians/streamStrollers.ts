@@ -63,8 +63,22 @@ export function walkwayPoint(
   return { x, z, fx: 0, fz: 1 };
 }
 
-/** Distance along the line (s) of each stepping-stone row of a stream piece */
+const stationCache = new WeakMap<WaterLineData, WeakMap<object, number[]>>();
+const NO_CURB = {};
+
+/** Distance along the line (s) of each stepping-stone row of a stream piece (cached per piece and road grid) */
 export function stoneRowStations(wl: WaterLineData, curbOffset?: (x: number, z: number) => number): number[] {
+  let byCurb = stationCache.get(wl);
+  if (!byCurb) stationCache.set(wl, (byCurb = new WeakMap()));
+  const key = curbOffset ?? NO_CURB;
+  const hit = byCurb.get(key);
+  if (hit) return hit;
+  const out = computeStations(wl, curbOffset);
+  byCurb.set(key, out);
+  return out;
+}
+
+function computeStations(wl: WaterLineData, curbOffset?: (x: number, z: number) => number): number[] {
   const rows = steppingStoneRows(wl, curbOffset);
   return rows.map((r) => {
     const mid = r.stones[Math.floor(r.stones.length / 2)];
