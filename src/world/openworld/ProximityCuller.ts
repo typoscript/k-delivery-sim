@@ -25,13 +25,16 @@ interface LazyEntry {
   radius: number;
   disposeRadius: number;
   parent: THREE.Object3D;
-  build: () => { object: THREE.Object3D; dispose: () => void };
+  /** null: not ready yet (e.g. waiting for chunk data) - retried on later updates while in range */
+  build: () => { object: THREE.Object3D; dispose: () => void } | null;
   live: { object: THREE.Object3D; dispose: () => void } | null;
 }
 
 export class ProximityCuller {
   private readonly entries: Entry[] = [];
   private readonly lazy: LazyEntry[] = [];
+  /** In-range lazy entries whose build said "not ready yet" */
+  private readonly retry = new Set<LazyEntry>();
   private lastKey = '';
   public liveLazyCount = 0;
 
@@ -51,7 +54,7 @@ export class ProximityCuller {
     parent: THREE.Object3D,
     x: number,
     z: number,
-    build: () => { object: THREE.Object3D; dispose: () => void },
+    build: () => { object: THREE.Object3D; dispose: () => void } | null,
     radiusChunks = this.defaultRadius,
     disposeRadiusChunks = radiusChunks + 2
   ): void {
@@ -68,7 +71,11 @@ export class ProximityCuller {
   public update(px: number, pz: number, force = false): void {
     const pc = chunkCoordOf(this.spec, px, pz);
     const key = chunkKey(pc.ix, pc.iz);
-    if (!force && key === this.lastKey) return;
+    if (!force && key === this.lastKey) {
+      // only the few entries still waiting for data
+      if (this.retry.size > 0) for (const l of [...this.retry]) this.tryBuild(l);
+      return;
+    }
     this.lastKey = key;
     for (const e of this.entries) {
       e.obj.visible = chunkDistance(e, pc) <= e.radius;
@@ -76,15 +83,28 @@ export class ProximityCuller {
     for (const l of this.lazy) {
       const d = chunkDistance(l, pc);
       if (d <= l.radius && !l.live) {
-        l.live = l.build();
-        l.parent.add(l.live.object);
-        this.liveLazyCount++;
-      } else if (d > l.disposeRadius && l.live) {
+        this.tryBuild(l);
+      } else if (d > l.radius) {
+        this.retry.delete(l);
+      }
+      if (d > l.disposeRadius && l.live) {
         l.live.object.removeFromParent();
         l.live.dispose();
         l.live = null;
         this.liveLazyCount--;
       }
     }
+  }
+
+  private tryBuild(l: LazyEntry): void {
+    const built = l.build();
+    if (!built) {
+      this.retry.add(l);
+      return;
+    }
+    this.retry.delete(l);
+    l.live = built;
+    l.parent.add(built.object);
+    this.liveLazyCount++;
   }
 }

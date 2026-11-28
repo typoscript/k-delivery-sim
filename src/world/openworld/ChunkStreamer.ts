@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { OsmBuildingData } from '../../data/suwonTypes';
 import { activeRoadProximity } from '../roadProximity';
 import { ObstacleBox } from '../../types';
 import { OsmGraphEdge } from '../../data/suwonTypes';
@@ -137,6 +138,18 @@ export class ChunkStreamer {
     let arr = map.get(key);
     if (!arr) map.set(key, (arr = []));
     return arr;
+  }
+
+  /**
+   * Buildings of the chunk under (x, z): [] where the map has nothing, null while that chunk is not loaded yet
+   * (props that must avoid buildings wait for it)
+   */
+  public buildingsAt(x: number, z: number): readonly OsmBuildingData[] | null {
+    const c = chunkCoordOf(this.spec, x, z);
+    const key = chunkKey(c.ix, c.iz);
+    if (!this.existing.has(key)) return [];
+    const st = this.states.get(key);
+    return st && (st.kind === 'ready' || st.kind === 'built') ? st.data.buildings : null;
   }
 
   /** Call every frame (or a few times per second) with the player/camera position */

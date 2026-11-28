@@ -41,4 +41,32 @@ describe('ProximityCuller', () => {
     c.update(100, 100);
     expect(built).toBe(2);
   });
+
+  it('a lazy prop that is not ready yet is retried every update until it builds (and dropped when out of range)', () => {
+    const c = new ProximityCuller(SPEC, 1);
+    const parent = new THREE.Group();
+    let ready = false;
+    let attempts = 0;
+    c.registerLazy(parent, 100, 100, () => {
+      attempts++;
+      return ready ? { object: new THREE.Object3D(), dispose: () => {} } : null;
+    }, 1, 3);
+    c.update(0, 0);
+    c.update(0, 0); // same chunk: retried anyway
+    expect(attempts).toBe(2);
+    expect(parent.children).toHaveLength(0);
+    ready = true;
+    c.update(10, 10);
+    expect(parent.children).toHaveLength(1);
+    c.update(10, 10);
+    expect(attempts).toBe(3); // built: no more retries
+    // a waiting entry that goes out of range stops being retried
+    let waiting = 0;
+    c.registerLazy(parent, 150, 150, () => (waiting++, null), 1, 3);
+    c.update(0, 0);
+    c.update(850, 850); // far away
+    const before = waiting;
+    c.update(850, 850);
+    expect(waiting).toBe(before);
+  });
 });

@@ -255,7 +255,13 @@ export class CityWorld {
     this.stations.build();
     buildBusStops(this);
     this.initDeliveryLocations();
-    this.deliveryProps = new DeliveryLocationProps(this.propHost, this.root, this.culler, this.locations);
+    this.deliveryProps = new DeliveryLocationProps(
+      this.propHost,
+      this.root,
+      this.culler,
+      this.locations,
+      this.culler ? (x, z) => this.isFreeGround(x, z) : undefined
+    );
     this.deliveryProps.build();
     buildStreetLamps(this);
     if (this.culler) {
@@ -349,6 +355,21 @@ export class CityWorld {
   }
 
   /** Building / prop colliders relevant to the player (streamed 3x3 chunks in the unified city) */
+  /**
+   * Off the road (with a margin) and outside every building footprint of the chunk under (x, z): room for props
+   * like parked cars. null while that chunk's buildings are not loaded yet (the caller retries later).
+   */
+  public isFreeGround(x: number, z: number): boolean | null {
+    if (!(activeRoadProximity().curbOffset(x, z) > 0.6)) return false;
+    const buildings = this.streamer?.buildingsAt(x, z);
+    if (buildings === null) return null;
+    for (const b of buildings ?? []) {
+      if (x < b.minX - 0.3 || x > b.maxX + 0.3 || z < b.minZ - 0.3 || z > b.maxZ + 0.3) continue;
+      if (pointInPolygon(x, z, b.pts)) return false;
+    }
+    return true;
+  }
+
   public getCollisionObstacles(): ObstacleBox[] {
     return getCollisionObstaclesFn(this);
   }
@@ -503,4 +524,15 @@ export class CityWorld {
   public setNightness(nightness: number): boolean {
     return setNightnessFn(this, nightness);
   }
+}
+
+/** Even-odd point-in-polygon test (x/z footprint) */
+function pointInPolygon(x: number, z: number, pts: ReadonlyArray<[number, number]>): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, zi] = pts[i];
+    const [xj, zj] = pts[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
 }

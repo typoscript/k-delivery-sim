@@ -5,6 +5,7 @@ import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { mergeStaticByMaterial } from './instancing';
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { WorldPropHost } from './serviceStations';
+import { buildApartmentGrounds } from './apartmentGrounds';
 
 /** Pickup counters & lobby portals are built / shown within this many 200m chunks of the player */
 const LOCATION_PROP_RADIUS_CHUNKS = 1;
@@ -31,7 +32,9 @@ export class DeliveryLocationProps {
     private readonly host: WorldPropHost,
     private readonly root: THREE.Group,
     private readonly culler: ProximityCuller | undefined,
-    private readonly locations: readonly DeliveryLocation[]
+    private readonly locations: readonly DeliveryLocation[],
+    /** World spot free for apartment grounds (not on a road, not inside a building; null: not loaded yet) */
+    private readonly isFreeGround?: (x: number, z: number) => boolean | null
   ) {}
 
   /**
@@ -54,6 +57,7 @@ export class DeliveryLocationProps {
       }),
       pinPadMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x22c55e, emissiveIntensity: 0.6 }),
       shopGlassMat: new THREE.MeshLambertMaterial({ color: 0x3b5068, emissive: 0x3d3322, emissiveIntensity: 0.5 }),
+      groundsMat: new THREE.MeshLambertMaterial({ vertexColors: true }),
       canopyMats: [0xdc2626, 0x15803d, 0x1d4ed8, 0xea580c, 0x7c3aed, 0x0f766e].map(
         (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 })
       ),
@@ -79,11 +83,56 @@ export class DeliveryLocationProps {
           },
           LOCATION_PROP_RADIUS_CHUNKS
         );
+        // Apartment complexes: guard booth + barrier and parked cars beside the lobby, decided once the
+        // buildings around are loaded (so nothing lands inside a building)
+        if (loc.type === 'residential' && loc.residenceKind === 'apartment' && this.isFreeGround) {
+          const isFree = this.isFreeGround;
+          this.culler.registerLazy(
+            this.root,
+            loc.x,
+            loc.z,
+            () => {
+              const frame = this.lobbyFrame(loc);
+              const grounds = buildApartmentGrounds(loc.id, frame.toWorld, isFree, shared.groundsMat);
+              if (grounds === 'wait') return null;
+              const holder = new THREE.Group();
+              holder.position.copy(frame.position);
+              holder.rotation.y = frame.heading;
+              if (grounds !== 'none') holder.add(grounds);
+              excludeFromMirrors(holder);
+              freezeStatic(holder);
+              return {
+                object: holder,
+                dispose: () => {
+                  if (grounds !== 'none') grounds.geometry.dispose();
+                },
+              };
+            },
+            LOCATION_PROP_RADIUS_CHUNKS
+          );
+        }
       } else {
         const built = this.buildLocationProp(loc, shared);
         this.host.addProp(built.object, loc.x, loc.z, undefined, built.keep);
       }
     }
+  }
+
+  /** Where a location's prop stands (slightly back from the interaction point) and its lobby-local -> world map */
+  private lobbyFrame(loc: DeliveryLocation): {
+    position: THREE.Vector3;
+    heading: number;
+    toWorld: (lx: number, lz: number) => { x: number; z: number };
+  } {
+    const heading = loc.facingHeading ?? 0;
+    const position = new THREE.Vector3(loc.x - Math.sin(heading) * 1.1, 0.05, loc.z - Math.cos(heading) * 1.1);
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    return {
+      position,
+      heading,
+      toWorld: (lx, lz) => ({ x: position.x + lx * cos + lz * sin, z: position.z - lx * sin + lz * cos }),
+    };
   }
 
   private buildLocationProp(
@@ -97,6 +146,7 @@ export class DeliveryLocationProps {
       pinPadMat: THREE.Material;
       shopGlassMat: THREE.Material;
       canopyMats: THREE.Material[];
+      groundsMat: THREE.Material;
     }
   ): { object: THREE.Group; keep: (o: THREE.Object3D) => boolean } {
     const heading = loc.facingHeading ?? 0;
@@ -188,6 +238,7 @@ export class DeliveryLocationProps {
     // A lobby rebuilt while its door is unlocked starts open (updateLobbyDoors animates from here)
     this.lobbyDoors.set(loc.id, { leftDoor, rightDoor, open: this.openLobbyId === loc.id });
     g.add(archFrame, innerCut, leftDoor, rightDoor, pad, lobbySign);
+
     return { object: g, keep: (o) => o === leftDoor || o === rightDoor };
   }
 
