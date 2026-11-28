@@ -8,6 +8,7 @@ import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { SUWON_OPEN_WORLD } from '../data/suwonUnified';
 import { OsmParkData, OsmPlazaData } from '../data/suwonTypes';
 import { ChunkStreamer } from './openworld/ChunkStreamer';
+import { applySnowCover } from './snowCover';
 
 /** Sun direction (target -> sun) used by the stabilized follow-the-player shadow frustum */
 const SUN_OFFSET = new THREE.Vector3(160, 240, 120);
@@ -24,6 +25,12 @@ export function initOpenWorldStreaming(host: CityWorld): void {
   // chunk walls carry a per-building paint tint (vertex colours) on top of the facade texture
   for (const m of [b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat]) m.vertexColors = true;
   const shopfront = createStorefrontMaterials();
+  // snow settles on roofs, parks, plazas and (as slush) the roads
+  const park = new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 });
+  const plaza = host.plazaMat ?? new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 });
+  const farBuildings = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
+  for (const m of [b.roofMat, park, plaza, farBuildings]) applySnowCover(m);
+  applySnowCover(host.asphaltMat, 0.3);
   host.nightGlowMats.push(shopfront.storefront);
   host.streamer = new ChunkStreamer(
     host.root,
@@ -33,7 +40,7 @@ export function initOpenWorldStreaming(host: CityWorld): void {
       roof: b.roofMat,
       road: host.asphaltMat,
       roadLine: new THREE.MeshBasicMaterial({ color: 0xfacc15 }),
-      park: new THREE.MeshStandardMaterial({ color: 0x4b9454, roughness: 0.92 }),
+      park,
       water: new THREE.MeshStandardMaterial({
         color: 0x0284c7,
         emissive: 0x0369a1,
@@ -41,8 +48,8 @@ export function initOpenWorldStreaming(host: CityWorld): void {
         roughness: 0.14,
         metalness: 0.38,
       }),
-      plaza: host.plazaMat ?? new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
-      farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
+      plaza,
+      farBuildings,
       ...shopfront,
       ...createRoadEdgeMaterials(),
       ...createRoadTextMaterial(),

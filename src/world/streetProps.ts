@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { ColoredPart, mergeColoredParts } from './instancing';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
+import { applySnowCover } from './snowCover';
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { ChunkGridSpec } from './openworld/OpenWorldTypes';
 import { chunkCoordOf, chunkKey } from './openworld/ChunkGrid';
@@ -267,6 +268,7 @@ export function registerStreetProps(
   detail: () => MapDetail = () => 'high',
 ): number {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  applySnowCover(material, 0.85, 0.05); // snow on the tree crowns (their upper half, seen from the street)
   const byChunk = new Map<string, StreetPropPlacement[]>();
   for (const p of props) {
     const c = chunkCoordOf(spec, p.x, p.z);

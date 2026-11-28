@@ -3,12 +3,15 @@ import type { CityWorld } from './CityWorld';
 import * as THREE from 'three';
 import { CITY_WORLD_LIMIT } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { applySnowCover } from './snowCover';
+
+const snowy = <T extends THREE.Material>(m: T): T => (applySnowCover(m), m);
 
 export function buildBaseGround(host: CityWorld): void {
   // Outer Suwon suburban backdrop greenbelt
   const outerGround = new THREE.Mesh(
     new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2 + 600, CITY_WORLD_LIMIT * 2 + 600),
-    new THREE.MeshStandardMaterial({ color: 0x527358, roughness: 0.95 }),
+    snowy(new THREE.MeshStandardMaterial({ color: 0x527358, roughness: 0.95 })),
   );
   outerGround.rotation.x = -Math.PI / 2;
   outerGround.position.y = -0.02;
@@ -17,7 +20,7 @@ export function buildBaseGround(host: CityWorld): void {
   // Korean urban sidewalk interlocking brick base across playable Suwon Ingye-dong district
   const sidewalkBase = new THREE.Mesh(
     new THREE.PlaneGeometry(CITY_WORLD_LIMIT * 2, CITY_WORLD_LIMIT * 2),
-    new THREE.MeshStandardMaterial({ map: host.sizedSidewalkTexture(), roughness: 0.88 }),
+    snowy(new THREE.MeshStandardMaterial({ map: host.sizedSidewalkTexture(), roughness: 0.88 })),
   );
   sidewalkBase.rotation.x = -Math.PI / 2;
   sidewalkBase.position.y = 0;

@@ -3,6 +3,9 @@ import { DeliveryLocation, ObstacleBox } from '../types';
 import { HandheldFoodBag3D } from '../player/HandheldFoodBag3D';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { mergeStaticByMaterial } from './instancing';
+import { applySnowCover } from './snowCover';
+
+const applySnowCoverTo = <T extends THREE.Material>(m: T): T => (applySnowCover(m), m);
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { WorldPropHost } from './serviceStations';
 import { GATE_ARM_UP, GUARD_SPOT, GateState, buildApartmentGrounds, stepGate } from './apartmentGrounds';
@@ -98,7 +101,7 @@ export class DeliveryLocationProps {
       }),
       pinPadMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x22c55e, emissiveIntensity: 0.6 }),
       shopGlassMat: new THREE.MeshLambertMaterial({ color: 0x3b5068, emissive: 0x3d3322, emissiveIntensity: 0.5 }),
-      groundsMat: new THREE.MeshLambertMaterial({ vertexColors: true }),
+      groundsMat: applySnowCoverTo(new THREE.MeshLambertMaterial({ vertexColors: true })), // snowy car roofs
       canopyMats: [0xdc2626, 0x15803d, 0x1d4ed8, 0xea580c, 0x7c3aed, 0x0f766e].map(
         (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 })
       ),

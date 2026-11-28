@@ -34,6 +34,7 @@ import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 import { ServiceStations, WorldPropHost } from './serviceStations';
 import { ApartmentGateEvent, DeliveryLocationProps, PropColliders } from './deliveryProps';
+import { SNOW_COVER, stepSnowCover } from './snowCover';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
 import { buildSpeedBumps } from './speedBumps';
@@ -555,6 +556,11 @@ export class CityWorld {
 
   public setWeather(mode: WeatherMode): void {
     setWeatherFn(this, mode);
+  }
+
+  /** Snow settling on up-facing surfaces while it snows, melting after (see snowCover.ts) */
+  public updateSnowCover(dt: number, snowing: boolean): void {
+    SNOW_COVER.value = stepSnowCover(SNOW_COVER.value, snowing ? 1 : 0, dt);
   }
 
   public updateWeatherVisuals(rainIntensity: number, elapsedTime: number): void {

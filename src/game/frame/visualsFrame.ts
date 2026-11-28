@@ -86,6 +86,8 @@ export function stepVisualsFrame(
   if (!inCorridor) {
     world.updateWeatherVisuals(weather.rainIntensity, elapsed);
   }
+  // snow keeps settling (and melting) while the rider is indoors too
+  world.updateSnowCover(dt, weather.isSnowing);
   audio.updateWeatherAudio(weather.rainIntensity, inCorridor);
   audio.update(scooterPhysics.state, elapsed);
 }
