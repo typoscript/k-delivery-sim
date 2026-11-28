@@ -49,11 +49,14 @@ describe('seasons', () => {
     expect(summer.rain).toBeGreaterThan(0.05);
   });
 
-  it('each season (but autumn) has its own event call, and it changes what people order', () => {
+  it('each season has its own event call, and it changes what people order', () => {
     expect(activeDemandEvents(false, false, '', false, 'winter').map((e) => e.id)).toEqual(['winter_snack']);
     expect(activeDemandEvents(false, false, '', false, 'spring').map((e) => e.id)).toEqual(['spring_picnic']);
     expect(activeDemandEvents(false, false, '', false, 'summer').map((e) => e.id)).toEqual(['summer_cool']);
-    expect(activeDemandEvents(false, false, '', false, 'autumn')).toEqual([]);
+    expect(activeDemandEvents(false, false, '', false, 'autumn').map((e) => e.id)).toEqual(['autumn_baseball']);
+    // autumn chicken pays only when it arrives before the game starts (on time)
+    expect(DEMAND_EVENTS.autumn_baseball.menu.test('후라이드 치킨')).toBe(true);
+    expect(DEMAND_EVENTS.autumn_baseball.condition.onTime).toBe(true);
     // snowing in winter: the snow soup first, then the winter snack
     expect(activeDemandEvents(false, false, '', true, 'winter').map((e) => e.id)).toEqual([
       'snow_warm',

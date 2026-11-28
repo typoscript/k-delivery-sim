@@ -33,7 +33,7 @@ export const SEASONS: readonly SeasonSpec[] = [
     snowChance: 0,
     rainDurationMul: 1,
     sun: { dawnStart: 6 * 60, duskStart: 18 * 60 },
-    note: '맑은 날이 많아요',
+    note: '맑은 날이 많아요 · 가을 야구 치맥 주문 증가',
   },
   {
     id: 'winter',

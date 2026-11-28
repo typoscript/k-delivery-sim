@@ -15,7 +15,8 @@ export type DemandEventId =
   | 'cafe_time'
   | 'winter_snack'
   | 'spring_picnic'
-  | 'summer_cool';
+  | 'summer_cool'
+  | 'autumn_baseball';
 
 export interface DemandEventSpec {
   id: DemandEventId;
@@ -52,6 +53,8 @@ const CAFE_MENU =
 const WINTER_MENU = /만두|떡볶이|국밥|어묵|오뎅|호떡|붕어빵|군고구마|우동|라면|핫초코/;
 /** Spring picnic boxes */
 const PICNIC_MENU = /도시락|김밥|샌드위치|유부초밥/;
+/** Autumn baseball season: chicken & beer sets for the game on TV */
+const BASEBALL_MENU = /치킨|통닭|후라이드|양념|닭강정|피자|맥주|치맥/;
 /** Summer cold dishes and iced drinks */
 const SUMMER_MENU = /냉면|밀면|콩국수|빙수|스무디|에이드|아이스|콜드브루|프라푸치노/;
 
@@ -79,6 +82,18 @@ export const DEMAND_EVENTS: Record<DemandEventId, DemandEventSpec> = {
     conditionText: '안 흐트러지게(상태 85% 이상) 배달 시',
     missedText: '도시락이 흐트러져',
     menuNoun: '도시락·김밥·샌드위치',
+  },
+  autumn_baseball: {
+    id: 'autumn_baseball',
+    icon: '⚾',
+    label: '가을 야구 치맥',
+    bonus: 1000,
+    pickChance: 0.5,
+    menu: BASEBALL_MENU,
+    condition: { onTime: true },
+    conditionText: '경기 시작 전에(제시간) 배달 시',
+    missedText: '경기가 이미 시작해',
+    menuNoun: '치킨·피자',
   },
   summer_cool: {
     id: 'summer_cool',
@@ -168,7 +183,7 @@ export function activeDemandEvents(
   const out: DemandEventSpec[] = [];
   if (raining) out.push(DEMAND_EVENTS.rain_soup);
   else if (snowing) out.push(DEMAND_EVENTS.snow_warm);
-  // the season's own call (autumn has none: its weather is the treat)
+  // the season's own call
   const seasonal = season ? SEASON_EVENTS[season] : undefined;
   if (seasonal) out.push(DEMAND_EVENTS[seasonal]);
   if (phaseId === 'lunch_peak') out.push(DEMAND_EVENTS.lunch_meal);
@@ -182,6 +197,7 @@ export const SEASON_EVENTS: Partial<Record<SeasonId, DemandEventId>> = {
   winter: 'winter_snack',
   spring: 'spring_picnic',
   summer: 'summer_cool',
+  autumn: 'autumn_baseball',
 };
 
 /** The first running event this menu belongs to, or null */
