@@ -54,6 +54,12 @@ export function handle3DScreenTouch(
   host.lastZoomMapRenderTime = -1;
   host.callbacks.onScreenTap?.();
 
+  // The status bar pulls the notification list down (tap again to close); while it is open a tap closes it
+  if (cy <= 36 || host.isNotificationsOpen) {
+    host.toggleNotifications();
+    return 'switch_app';
+  }
+
   // The dock at the bottom of the screen switches apps right on the 3D phone
   const app = hitDock3D(cx, cy, host.texCanvas.width, host.texCanvas.height);
   if (app) {

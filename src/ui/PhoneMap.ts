@@ -482,12 +482,18 @@ export class PhoneMap {
     syncDeliverySheetFn(this, player, delivery, navPlan);
   }
 
+  /** Is the notification list pulled down (zoomed drawer and 3D screen) */
+  public get isNotificationsOpen(): boolean {
+    return this.notifOpen;
+  }
+
   /** Pulls the notification list down (or up); opening it reads everything */
   public toggleNotifications(open = !this.notifOpen): void {
     this.notifOpen = open;
     this.notifDrawerEl.classList.toggle('hidden', !open);
     if (open) this.notifications.markAllRead();
     this.notifKey = '';
+    this.last3DRenderTime = -1;
     this.syncNotifications();
   }
 

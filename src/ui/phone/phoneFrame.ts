@@ -177,6 +177,8 @@ export function update(
         unreadMessages: host.messenger?.unread ?? 0,
         app: host.app,
         powerSave: host.powerSave,
+        unreadNotifications: host.notifications.unread,
+        notifications: host.isNotificationsOpen ? host.notifications : null,
       },
       host.view,
       host.ripple3D,

@@ -4,6 +4,7 @@ import { loadGamePageDom } from '../test/domFixture';
 import { PhoneMap, PHONE_APP_STORAGE_KEY } from './PhoneMap';
 import { Messenger, CUSTOMER_REPLIES } from '../delivery/messenger';
 import type { PhoneCallbacks } from './phone/types';
+import { handle3DScreenTouch } from './phone/phoneTouch3D';
 
 const noop = () => {};
 const replies: Array<[string, string]> = [];
@@ -84,6 +85,22 @@ describe('phone apps (DOM)', () => {
     expect(phone.notifications.unread).toBe(0);
     (drawer.querySelector('[data-notif="close"]') as HTMLButtonElement).click();
     expect(drawer.classList.contains('hidden')).toBe(true);
+  });
+
+  it('3D phone: tapping the status bar pulls the notification list down, the next tap closes it', () => {
+    const phone = new PhoneMap(callbacks);
+    phone.notify('💬', '메신저', '문 앞에 놔 주세요');
+    const h = phone.texCanvas.height;
+    // a tap on the map does not open it
+    handle3DScreenTouch(phone, 0.5, 0.5, null);
+    expect(phone.isNotificationsOpen).toBe(false);
+    expect(handle3DScreenTouch(phone, 0.5, 1 - 12 / h, null)).toBe('switch_app');
+    expect(phone.isNotificationsOpen).toBe(true);
+    expect(phone.notifications.unread).toBe(0);
+    // while it is open any tap (even on the dock) just closes it
+    handle3DScreenTouch(phone, 0.5, 4 / h, null);
+    expect(phone.isNotificationsOpen).toBe(false);
+    expect(activeDock()).toBe('delivery');
   });
 
   it('below 15% the phone goes into power saving (dimmed) and leaves a battery notification', () => {

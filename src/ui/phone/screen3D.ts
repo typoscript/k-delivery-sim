@@ -16,6 +16,7 @@ import type { WeatherReport } from '../../game/weatherReport';
 import type { Messenger } from '../../delivery/messenger';
 import { renderMessenger3D } from './messengerApp';
 import { renderBank3D } from './bankApp';
+import { NotificationCenter, renderBell3D, renderNotifications3D } from './notifications';
 
 /** Phone status snapshot needed to draw the 3D screen */
 export interface Phone3DScreenStatus {
@@ -34,6 +35,10 @@ export interface Phone3DScreenStatus {
   unreadMessages?: number;
   /** Power saving: the screen is dimmed */
   powerSave?: boolean;
+  /** Notifications not read yet (🔔 badge on the status bar) */
+  unreadNotifications?: number;
+  /** The notification list is pulled down */
+  notifications?: NotificationCenter | null;
 }
 
 /** Expanding glass-touch ripple drawn on the 3D phone canvas (null when idle) */
@@ -103,11 +108,13 @@ export function render3DPhoneScreen(
     ctx.fillText(clockStr, 16, 18);
     ctx.textAlign = 'right';
     ctx.fillText(`🔋${Math.round(phone.battery)}%`, w - 14, 18);
+    renderBell3D(ctx, w, phone.unreadNotifications ?? 0);
     renderDock3D(ctx, w, h, phone.app ?? 'weather', { messenger: phone.unreadMessages ?? 0 });
     if (activeOffer) {
       if (phone.offerExpanded) render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
       else render3DCallBanner(ctx, w, activeOffer, elapsedTime);
     }
+    if (phone.notifications) renderNotifications3D(ctx, w, h, phone.notifications);
     if (phone.powerSave) dimForPowerSave(ctx, w, h);
     return;
   }
@@ -153,6 +160,7 @@ export function render3DPhoneScreen(
         ? '#f8fafc'
         : '#0f172a';
   ctx.fillText(isRidingNavMode ? `NAVI · ${battBadge}` : `5G · ${battBadge}`, w - 14, 18);
+  renderBell3D(ctx, w, phone.unreadNotifications ?? 0);
 
   if (isRidingNavMode) {
     renderRidingNavOverlay(ctx, w, h, scooter, delivery, navPlan, isNight, areaName, mapInfo, elapsedTime);
@@ -189,6 +197,7 @@ export function render3DPhoneScreen(
     }
   }
 
+  if (phone.notifications) renderNotifications3D(ctx, w, h, phone.notifications);
   if (phone.powerSave) dimForPowerSave(ctx, w, h);
   ctx.restore();
 }
