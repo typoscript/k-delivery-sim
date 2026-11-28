@@ -11,7 +11,9 @@ export function renderDailyMissionWidget(delivery: DeliveryManager): string {
     .map((g) => {
       const reward = g.claimed
         ? '✓ 지급완료'
-        : g.awardAt === 'clock_out'
+        : g.failed
+          ? '✕ 오늘은 불가'
+          : g.awardAt === 'clock_out'
           ? `퇴근 시 +₩${g.bonus.toLocaleString()}`
           : `+₩${g.bonus.toLocaleString()}`;
       const sub =
@@ -33,7 +35,7 @@ export function renderDailyMissionWidget(delivery: DeliveryManager): string {
               ? `빨간불·보행자 경고 뒤 멈추기 · 앞으로 ${g.target - g.current}회`
               : `앞으로 ${g.target - g.current}건`;
       return `
-      <div class="bc-mission-card ${g.claimed ? 'done' : ''}">
+      <div class="bc-mission-card ${g.claimed ? 'done' : g.failed ? 'failed' : ''}">
         <div class="bc-mission-top">
           <span>${g.icon} ${g.title} (${g.current}/${g.target})</span>
           <span class="bc-mission-reward">${reward}</span>
@@ -61,10 +63,10 @@ export function renderWeeklyGoalWidget(delivery: DeliveryManager): string {
   const rows = goals
     .map(
       (g) => `
-      <div class="bc-mission-card week ${g.met ? 'done' : ''}">
+      <div class="bc-mission-card week ${g.met ? 'done' : g.failed ? 'failed' : ''}">
         <div class="bc-mission-top">
           <span>${g.icon} ${g.title}</span>
-          <span class="bc-mission-reward">${g.met ? '✓ 달성' : `+₩${g.bonus.toLocaleString()}`}</span>
+          <span class="bc-mission-reward">${g.met ? '✓ 달성' : g.failed ? '✕ 이번 주는 불가' : `+₩${g.bonus.toLocaleString()}`}</span>
         </div>
         <div class="bc-mission-track">
           <div class="bc-mission-fill" style="width:${weekGoalProgressPct(g)}%"></div>
@@ -245,7 +247,7 @@ function weekCardHtml(delivery: DeliveryManager): string {
         .getWeekGoalsLive()
         .map(
           (g) =>
-            `<div class="cw-goal ${g.met ? 'met' : ''}"><span>${g.met ? '✅' : '⬜'} ${g.icon} ${g.title}</span><span>${weekGoalProgressText(g)} · +₩${g.bonus.toLocaleString()}</span></div>`,
+            `<div class="cw-goal ${g.met ? 'met' : g.failed ? 'failed' : ''}"><span>${g.met ? '✅' : g.failed ? '✖️' : '⬜'} ${g.icon} ${g.title}</span><span>${weekGoalProgressText(g)} · ${g.failed ? '이번 주 불가' : `+₩${g.bonus.toLocaleString()}`}</span></div>`,
         )
         .join('')}
       <div class="cw-sub">${left === 0 ? '오늘 퇴근하면 주간 정산서가 나와요' : `${w.lastDay}일차 퇴근 때 주간 정산서가 나와요 (${left}일 남음)`}${w.bestDay ? ` · 최고 ${w.bestDay.day}일차 ${won(w.bestDay.net)}` : ''}</div>

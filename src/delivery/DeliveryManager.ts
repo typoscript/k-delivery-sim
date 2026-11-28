@@ -281,7 +281,8 @@ export class DeliveryManager {
    * The phone shows these while riding; getWeekGoals() is finished days only.
    */
   public getWeekGoalsLive(): WeekGoalStatus[] {
-    return weekGoalStatuses(weekSummary(historyWithTodayFn(this), this.shiftDay), this.weekGoalSpecs());
+    const w = weekSummary(historyWithTodayFn(this), this.shiftDay);
+    return weekGoalStatuses(w, this.weekGoalSpecs(), w.lastDay - this.shiftDay);
   }
 
   /**

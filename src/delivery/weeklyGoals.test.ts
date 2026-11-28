@@ -50,7 +50,7 @@ describe('weekly goals', () => {
 });
 
 describe('week goal display helpers', () => {
-  const g = (over: Partial<WeekGoalStatus>): WeekGoalStatus => ({ id: 'week_deliveries', icon: '📦', title: '주간 배달 25건', target: 25, bonus: 20000, current: 18, met: false, unit: 'count', ...over });
+  const g = (over: Partial<WeekGoalStatus>): WeekGoalStatus => ({ id: 'week_deliveries', icon: '📦', title: '주간 배달 25건', target: 25, bonus: 20000, current: 18, met: false, failed: false, unit: 'count', ...over });
   it('progress percent is clamped to 0..100', () => {
     expect(weekGoalProgressPct(g({}))).toBe(72);
     expect(weekGoalProgressPct(g({ current: 40 }))).toBe(100);
@@ -59,5 +59,27 @@ describe('week goal display helpers', () => {
   });
   it('summary line marks met goals', () => {
     expect(weekGoalsSummaryText([g({}), g({ id: 'week_all_days', icon: '📅', current: 7, target: 7, met: true })])).toBe('📦 18/25 · ✅ 7/7');
+  });
+});
+
+describe('week goals that can no longer be met', () => {
+  const week = (days: number, safeDays: number) =>
+    ({ week: 1, firstDay: 1, lastDay: 7, days: Array.from({ length: days }, (_, i) => ({ day: i + 1 })), deliveries: 0, income: 0, expenses: 0, net: 0, bestDay: null, avgStars: null, safeDays, achievements: [] }) as unknown as Parameters<typeof weekGoalStatuses>[0];
+  const goals = [WEEK_DELIVERIES_GOAL, ...ROTATING_WEEK_GOALS];
+  const by = (s: ReturnType<typeof weekGoalStatuses>, id: string) => s.find((g) => g.id === id)!;
+
+  it('a day-count goal fails when the days left cannot reach it', () => {
+    // day 4 of 7 worked, 3 days left: 7일 모두 출근 still possible; 무사고 5일 with 1 safe day is not
+    const s = weekGoalStatuses(week(4, 1), goals, 3);
+    expect(by(s, 'week_all_days').failed).toBe(false);
+    expect(by(s, 'week_safe').failed).toBe(true);
+    // a skipped day: 5 days worked by day 6 + 1 left = 6 < 7
+    expect(by(weekGoalStatuses(week(5, 5), goals, 1), 'week_all_days').failed).toBe(true);
+  });
+
+  it('deliveries / profit / stars goals never fail early, and nothing fails without a day count', () => {
+    const s = weekGoalStatuses(week(6, 0), goals, 1);
+    for (const id of ['week_deliveries', 'week_net', 'week_stars']) expect(by(s, id).failed).toBe(false);
+    expect(weekGoalStatuses(week(1, 0), goals).every((g) => !g.failed)).toBe(true);
   });
 });

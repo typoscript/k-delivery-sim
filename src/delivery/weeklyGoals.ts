@@ -25,6 +25,8 @@ export interface WeekGoalStatus {
   current: number;
   met: boolean;
   unit: WeekGoalSpec['unit'];
+  /** Can no longer be met this week (too few days left for a day-count goal) */
+  failed: boolean;
 }
 
 /** Every week */
@@ -73,10 +75,23 @@ export function weekGoalsFromIds(ids: readonly string[]): WeekGoalSpec[] | null 
 /** Rotating goal ids of a week's goals (what gets pinned in the save) */
 export const rotatingWeekGoalIds = (goals: readonly WeekGoalSpec[]) => goals.filter((g) => g !== WEEK_DELIVERIES_GOAL).map((g) => g.id);
 
-export function weekGoalStatuses(w: WeekSummary, goals: readonly WeekGoalSpec[] = weekGoalsFor(w.week)): WeekGoalStatus[] {
+/** Goals that count working days: one more per remaining day at most */
+const DAY_COUNT_GOALS = new Set(['week_safe', 'week_all_days']);
+
+/**
+ * `daysLeft`: working days of the week still to come after the ones in `w` (live view: the days after today);
+ * a day-count goal that cannot reach its target any more is marked failed.
+ */
+export function weekGoalStatuses(
+  w: WeekSummary,
+  goals: readonly WeekGoalSpec[] = weekGoalsFor(w.week),
+  daysLeft = Infinity,
+): WeekGoalStatus[] {
   return goals.map((g) => {
     const current = g.progress(w);
-    return { id: g.id, icon: g.icon, title: g.title, target: g.target, bonus: g.bonus, unit: g.unit, current, met: current >= g.target };
+    const met = current >= g.target;
+    const failed = !met && DAY_COUNT_GOALS.has(g.id) && current + daysLeft < g.target;
+    return { id: g.id, icon: g.icon, title: g.title, target: g.target, bonus: g.bonus, unit: g.unit, current, met, failed };
   });
 }
 

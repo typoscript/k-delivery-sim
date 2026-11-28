@@ -3028,6 +3028,21 @@ kbd {
   background: #059669;
 }
 
+/* Can no longer be met (accident / traffic violation today, too few days left this week) */
+.bc-mission-card.failed {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.45);
+  opacity: 0.72;
+}
+
+.bc-mission-card.failed .bc-mission-reward {
+  background: #94a3b8;
+}
+
+.bc-mission-card.failed .bc-mission-fill {
+  background: #94a3b8;
+}
+
 .bc-mission-track {
   height: 7px;
   border-radius: 999px;
@@ -5264,4 +5279,9 @@ body.phone-3d-hover canvas {
 }
 .career-week-card .cw-goal.met {
   color: #059669;
+}
+
+.career-week-card .cw-goal.failed {
+  opacity: 0.55;
+  text-decoration: line-through;
 }

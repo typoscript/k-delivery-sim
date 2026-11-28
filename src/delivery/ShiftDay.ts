@@ -191,6 +191,8 @@ export interface ShiftGoalStatus extends ShiftGoalSpec {
   claimed: boolean;
   /** Condition currently met (for 'safe': would pay if clocking out now) */
   met: boolean;
+  /** Can no longer be met today (an accident / a traffic violation already happened) */
+  failed: boolean;
   progressPct: number;
 }
 
@@ -209,7 +211,9 @@ export function shiftGoalStatuses(goals: readonly ShiftGoalSpec[], s: ShiftGoalS
   return goals.map((g) => {
     const { current, met } = progressOf(g, s);
     const shown = Math.min(current, g.target);
-    return { ...g, current: shown, claimed: s.claimed.has(g.id), met, progressPct: Math.round((shown / g.target) * 100) };
+    const failed =
+      (g.id === SAFE_GOAL.id && s.pedestrianAccidentCount > 0) || (g.id === CLEAN_GOAL.id && (s.counters[VIOLATION_COUNTER] ?? 0) > 0);
+    return { ...g, current: shown, claimed: s.claimed.has(g.id), met, failed, progressPct: Math.round((shown / g.target) * 100) };
   });
 }
 

@@ -52,3 +52,18 @@ describe('daily goals', () => {
     expect(st[1].progressPct).toBe(50);
   });
 });
+
+describe('goals that can no longer be met today', () => {
+  it('an accident fails 무사고 퇴근, a traffic violation fails 무위반 퇴근', () => {
+    const goals = goalsForDay(1, DISTRICTS);
+    const st = (accidents: number, violations: number) =>
+      shiftGoalStatuses(goals, { completedCount: 1, pedestrianAccidentCount: accidents, counters: { _violations: violations }, claimed: new Set() });
+    const by = (s: ReturnType<typeof st>, id: string) => s.find((g) => g.id === id)!;
+    expect(by(st(0, 0), 'safe').failed).toBe(false);
+    expect(by(st(0, 0), 'clean').failed).toBe(false);
+    expect(by(st(1, 0), 'safe').failed).toBe(true);
+    expect(by(st(1, 0), 'clean').failed).toBe(false);
+    expect(by(st(0, 2), 'clean').failed).toBe(true);
+    expect(st(1, 2).filter((g) => g.failed).map((g) => g.id)).toEqual(['safe', 'clean']);
+  });
+});
