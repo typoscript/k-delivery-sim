@@ -1,5 +1,7 @@
 import { DeliveryManager } from '../../delivery/DeliveryManager';
-import { bestDay, safeDayStreak } from '../../delivery/careerHistory';
+import { WeekSummary, bestDay, safeDayStreak } from '../../delivery/careerHistory';
+import { seasonOfDay } from '../../game/seasons';
+import { weeklyStatementHtml } from '../modals/modalViews';
 import { weekGoalProgressPct, weekGoalProgressText } from '../../delivery/weeklyGoals';
 import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, lineValue } from '../receiptLines';
 
@@ -226,6 +228,7 @@ export function renderCareerTab(delivery: DeliveryManager): string {
       <div><b>${streak}일</b><span>무사고 연속</span></div>
     </div>
     ${weekCardHtml(delivery)}
+    ${pastWeeksHtml(delivery.getPastWeeks())}
     <div class="career-section-title">📈 최근 7일 순수익</div>
     ${chartHtml}
     ${rowsHtml ? `<div class="career-day-list">${rowsHtml}</div>` : ''}
@@ -252,4 +255,50 @@ function weekCardHtml(delivery: DeliveryManager): string {
         .join('')}
       <div class="cw-sub">${left === 0 ? '오늘 퇴근하면 주간 정산서가 나와요' : `${w.lastDay}일차 퇴근 때 주간 정산서가 나와요 (${left}일 남음)`}${w.bestDay ? ` · 최고 ${w.bestDay.day}일차 ${won(w.bestDay.net)}` : ''}</div>
     </div>`;
+}
+
+/** The past week left open: the sheet is redrawn as the game runs, so its open line is restored on every redraw */
+let openPastWeek: number | null = null;
+let watchingToggles = false;
+function watchPastWeekToggles(): void {
+  if (watchingToggles || typeof document === 'undefined') return;
+  watchingToggles = true;
+  // 'toggle' does not bubble: listen in the capture phase
+  document.addEventListener(
+    'toggle',
+    (e) => {
+      const el = e.target as HTMLElement;
+      if (!(el instanceof HTMLDetailsElement) || !el.classList.contains('past-week')) return;
+      const week = Number(el.dataset.week);
+      if (el.open) openPastWeek = week;
+      else if (openPastWeek === week) openPastWeek = null;
+    },
+    true,
+  );
+}
+
+/**
+ * "지난 주 기록": finished weeks, newest first, one line each (season, deliveries, net and the change against the week
+ * before); tapping a line opens that week's full statement (the same one shown at its last clock-out)
+ */
+export function pastWeeksHtml(weeks: readonly WeekSummary[]): string {
+  if (weeks.length === 0) return '';
+  watchPastWeekToggles();
+  const won = (n: number) => `${n < 0 ? '-' : ''}₩${Math.abs(n).toLocaleString()}`;
+  const rows = weeks
+    .map((w, i) => {
+      const season = seasonOfDay(w.firstDay);
+      const before = weeks[i + 1];
+      const diff = before && before.week === w.week - 1 ? w.net - before.net : null;
+      const delta =
+        diff === null
+          ? ''
+          : `<span class="pw-delta ${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}">${diff > 0 ? '▲' : diff < 0 ? '▼' : '='} ${won(Math.abs(diff))}</span>`;
+      return `<details class="past-week" data-week="${w.week}"${w.week === openPastWeek ? ' open' : ''}>
+        <summary><span class="pw-name">${season.emoji} ${w.week}주차 <small>${w.firstDay}~${w.lastDay}일차 · ${season.label}</small></span><span class="pw-stats">${w.deliveries}건 · <b class="${w.net < 0 ? 'neg' : ''}">${won(w.net)}</b>${delta}</span></summary>
+        ${weeklyStatementHtml(w)}
+      </details>`;
+    })
+    .join('');
+  return `<div class="career-section-title">📚 지난 주 기록</div><div class="past-weeks">${rows}</div>`;
 }

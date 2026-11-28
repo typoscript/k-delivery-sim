@@ -1,7 +1,7 @@
 import { DeliveryLocation } from '../types';
 import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
-import { QUICK_REPLY_COUNTER } from './careerHistory';
+import { pastWeeks, QUICK_REPLY_COUNTER } from './careerHistory';
 import {
   CUSTOMER_REPLIES,
   LATE_ASK_SEC,
@@ -381,6 +381,11 @@ export class DeliveryManager {
   /** The current week so far (finished days of this week) */
   public getWeekSummary(): WeekSummary {
     return weekSummary(this.progress.history, this.shiftDay, this.getAchievements());
+  }
+
+  /** Finished weeks still in the history, newest first (bank app 지난 주 기록) */
+  public getPastWeeks(): WeekSummary[] {
+    return pastWeeks(this.progress.history, this.shiftDay, this.getAchievements());
   }
 
   public getAchievements(): AchievementStatus[] {

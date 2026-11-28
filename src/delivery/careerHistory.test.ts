@@ -15,6 +15,7 @@ import {
   weekOfDay,
   weekSummary,
   parseCountMap,
+  pastWeeks,
   parseDayHistory,
   safeDayStreak,
 } from './careerHistory';
@@ -133,3 +134,15 @@ describe('career history', () => {
   });
 });
 
+describe('past weeks (bank app 지난 주 기록)', () => {
+  it('lists finished weeks newest first, skips weeks not worked and the current week', () => {
+    // week 1: days 1-3, week 2: nothing, week 3: days 15 and 20, current week 4 (day 23)
+    const history = [day(1, 4, 30_000), day(2, 5, 40_000), day(3, 2, -5_000), day(15, 6, 50_000), day(20, 3, 20_000), day(22, 1, 1_000)];
+    const weeks = pastWeeks(history, 23);
+    expect(weeks.map((w) => w.week)).toEqual([3, 1]);
+    expect(weeks[0]).toMatchObject({ firstDay: 15, lastDay: 21, deliveries: 9, net: 70_000 });
+    expect(weeks[1]).toMatchObject({ deliveries: 11, net: 65_000 });
+    expect(pastWeeks(history, 23, [], 1)).toHaveLength(1);
+    expect(pastWeeks(history, 5)).toEqual([]);
+  });
+});

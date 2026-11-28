@@ -314,3 +314,18 @@ export function weekSummary(history: readonly DayRecord[], day: number, achievem
   };
 }
 
+
+/**
+ * Finished weeks kept in the history (before the week of `currentDay`), newest first, at most `max`: the bank app's
+ * "지난 주 기록". Weeks with no worked day are skipped.
+ */
+export function pastWeeks(
+  history: readonly DayRecord[],
+  currentDay: number,
+  achievements: readonly AchievementStatus[] = [],
+  max = 4,
+): WeekSummary[] {
+  const current = weekOfDay(currentDay);
+  const weeks = [...new Set(history.map((d) => weekOfDay(d.day)))].filter((w) => w < current).sort((a, b) => b - a);
+  return weeks.slice(0, max).map((w) => weekSummary(history, w * DAYS_PER_WEEK, achievements));
+}

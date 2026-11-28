@@ -5712,3 +5712,70 @@ body.phone-3d-hover canvas {
 .phone-device.power-save .phone-screen {
   filter: brightness(0.72);
 }
+
+/* Bank app: finished weeks (지난 주 기록), each opens its weekly statement */
+.past-weeks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.past-week {
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+.past-week summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 10.5px;
+  cursor: pointer;
+  list-style: none;
+}
+.past-week summary::-webkit-details-marker {
+  display: none;
+}
+.past-week .pw-name {
+  font-weight: 900;
+}
+.past-week .pw-name small {
+  font-weight: 700;
+  color: #64748b;
+}
+.past-week .pw-stats .neg {
+  color: #dc2626;
+}
+.past-week .pw-delta {
+  margin-left: 4px;
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #64748b;
+}
+.past-week .pw-delta.up {
+  color: #16a34a;
+}
+.past-week .pw-delta.down {
+  color: #dc2626;
+}
+.past-week[open] summary {
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.5);
+}
+.past-week .weekly-statement {
+  margin: 0;
+  padding: 6px 10px 8px;
+}
+/* the statement is styled for the dark report modal: dark text on the light phone sheet */
+.past-week .weekly-statement,
+.past-week .weekly-statement * {
+  color: #1e293b;
+}
+.past-week .weekly-statement .neg {
+  color: #dc2626;
+}
+.past-week .weekly-statement .week-bar-col span,
+.past-week .weekly-statement .recap-none {
+  color: #64748b;
+}
