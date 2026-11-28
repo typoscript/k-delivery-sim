@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`RoadNavigator fingerprint > finds the same routes and guidance for a fixed set of queries 1`] = `
+{
+  "hash": -934531897,
+  "points": 1051,
+  "routes": 40,
+}
+`;

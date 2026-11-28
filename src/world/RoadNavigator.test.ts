@@ -85,3 +85,51 @@ describe('RoadNavigator roadworks', () => {
     expect(res.avoidedRoadworks).toBeUndefined();
   });
 });
+
+/**
+ * Same queries -> same routes and guidance. Pins A* + projection + roadwork detours + turn guidance on the real map,
+ * so refactoring the navigator must keep every route identical (update with `npx vitest -u` only on purpose).
+ */
+describe('RoadNavigator fingerprint', () => {
+  it('finds the same routes and guidance for a fixed set of queries', () => {
+    const { nodes, edges } = ACTIVE_MAP_DATA;
+    const nav = new RoadNavigator();
+    // a few construction segments spread over the map
+    nav.setRoadworks([0, 7, 19, 41].map((i) => edges[(i * 997) % edges.length]).map((e) => ({ edgeA: e.a, edgeB: e.b })));
+    let hash = 0;
+    const mix = (v: number) => {
+      hash = (Math.imul(hash, 31) + Math.round(v * 10)) | 0;
+    };
+    const mixStr = (s: string) => {
+      for (let i = 0; i < s.length; i++) hash = (Math.imul(hash, 31) + s.charCodeAt(i)) | 0;
+    };
+    let routes = 0;
+    let points = 0;
+    for (let i = 0; i < 40; i++) {
+      const a = nodes[(i * 7919) % nodes.length];
+      const b = nodes[(i * 104729 + 13) % nodes.length];
+      // off-road start / end points so projection onto the nearest road is exercised too
+      const r = nav.findShortestPath(a.x + 7, a.z - 4, b.x - 5, b.z + 6);
+      routes++;
+      points += r.points.length;
+      mix(r.distance);
+      mix(r.points.length);
+      mix(r.roadworks ?? -1);
+      mix(r.avoidedRoadworks ?? -1);
+      for (const p of r.points) {
+        mix(p.x);
+        mix(p.z);
+      }
+      mix(nav.estimateRoadDistance(a.x, a.z, b.x, b.z));
+      for (const heading of [0, 1.3, -2.4]) {
+        const g = nav.computeTurnGuidance(r.points, r.distance, heading);
+        mixStr(g.direction);
+        mix(g.distanceToTurn);
+        mix(g.totalDistance);
+        mixStr(g.instructionText);
+      }
+    }
+    expect(points).toBeGreaterThan(routes * 2);
+    expect({ routes, points, hash }).toMatchSnapshot();
+  });
+});
