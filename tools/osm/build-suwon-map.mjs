@@ -268,7 +268,10 @@ async function main() {
     } else if (osmSignal) gNodes[i].osmSignal = true;
     return i;
   };
-  const gEdges = []; // {a,b,highway,name}
+  const gEdges = []; // {a,b,highway,name,structure}
+  // bridges / underpasses (지하차도) - kept on the graph edges so the game can rail bridges, roof tunnels etc.
+  const structureOf = (t) =>
+    t.bridge && t.bridge !== 'no' ? 'bridge' : t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage' ? 'tunnel' : null;
   for (const w of roadWays) {
     const pts = geomToPts(w.geometry);
     // split at junction / endpoint / signal nodes, simplify the shape points in between
@@ -286,7 +289,7 @@ async function main() {
         const cur = isEnd
           ? nodeFor(`o${nid}`, sub[j], osmSignalIds.has(nid))
           : nodeFor(`s${w.id}_${segStart + j}`, sub[j], false);
-        gEdges.push({ a: prev, b: cur, highway: w.tags.highway, name: w.tags.name ?? '' });
+        gEdges.push({ a: prev, b: cur, highway: w.tags.highway, name: w.tags.name ?? '', structure: structureOf(w.tags) });
         prev = cur;
       }
       segStart = i;
@@ -368,8 +371,13 @@ async function main() {
       highway: e.highway,
       name: e.name,
       isMajor: cls.major,
+      ...(e.structure ? { [e.structure]: true } : {}),
     };
   });
+  stats.structures = {
+    bridges: outEdges.filter((e) => e.bridge).length,
+    tunnels: outEdges.filter((e) => e.tunnel).length,
+  };
 
   // signals: OSM-tagged + real arterial junctions. The legacy rule (>=3 roads, >=2 major) also caught every
   // side street T-junction along an arterial; over the whole city that gave 1,185 signals (one every ~100m).

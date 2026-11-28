@@ -67,6 +67,19 @@ export function drawRoads(f: MapFrame): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
+  // Bridges: a wide dark deck band under the road (OSM bridge tags)
+  ctx.strokeStyle = 'rgba(51, 65, 85, 0.95)';
+  for (const e of osmEdges) {
+    if (!e.bridge) continue;
+    const na = osmNodes[e.a];
+    const nb = osmNodes[e.b];
+    ctx.lineWidth = Math.max(4, e.width * scale + 6);
+    ctx.beginPath();
+    ctx.moveTo(toX(na.x), toY(na.z));
+    ctx.lineTo(toX(nb.x), toY(nb.z));
+    ctx.stroke();
+  }
+
   // Road outlines
   ctx.strokeStyle = theme.roadOutline;
   for (const e of osmEdges) {
@@ -89,6 +102,22 @@ export function drawRoads(f: MapFrame): void {
     ctx.moveTo(toX(na.x), toY(na.z));
     ctx.lineTo(toX(nb.x), toY(nb.z));
     ctx.stroke();
+  }
+
+  // Underpasses (지하차도): dashed grey cover over the road (OSM tunnel tags)
+  for (const e of osmEdges) {
+    if (!e.tunnel) continue;
+    const na = osmNodes[e.a];
+    const nb = osmNodes[e.b];
+    ctx.save();
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.55)';
+    ctx.lineWidth = Math.max(2, e.width * scale);
+    ctx.setLineDash([3 * effectiveZoom, 3 * effectiveZoom]);
+    ctx.beginPath();
+    ctx.moveTo(toX(na.x), toY(na.z));
+    ctx.lineTo(toX(nb.x), toY(nb.z));
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Yellow center lines on major Suwon boulevards (효원로, 권광로, 경수대로, 권선로)

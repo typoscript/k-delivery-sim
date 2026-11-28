@@ -51,7 +51,12 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       if (ice && ice.id !== world.blackIce.warnedId) {
         world.blackIce.warnedId = ice.id;
         audio.playCameraApproachBeep(false);
-        hud.showToast('🧊 결빙 주의! 앞 그늘진 노면 블랙아이스 — 미리 속도를 줄이고 브레이크·급회전 금지', 3400);
+        hud.showToast(
+          ice.onBridge
+            ? '🧊 다리 위 결빙 주의! 다리는 가장 먼저 얼어요 — 미리 속도를 줄이고 브레이크·급회전 금지'
+            : '🧊 결빙 주의! 앞 그늘진 노면 블랙아이스 — 미리 속도를 줄이고 브레이크·급회전 금지',
+          3400,
+        );
       }
     }
     if (gateEvent) {

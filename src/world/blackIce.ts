@@ -1,6 +1,6 @@
 /**
- * Winter black ice (블랙아이스): on winter nights and early mornings a few shaded spots - quiet residential alleys,
- * living streets and on/off ramps - freeze into invisible ice. Riding over one is like braking on a wet manhole:
+ * Winter black ice (블랙아이스): on winter nights and early mornings bridges (half of their segments) and a few shaded
+ * spots - quiet residential alleys, living streets and on/off ramps - freeze into invisible ice. Riding over one is like braking on a wet manhole:
  * almost no grip. Spots are picked per working day from the road graph (deterministic hash, different every day),
  * kept in a coarse grid for quick lookups; the phone map and a warning toast show the ones nearby.
  */
@@ -11,6 +11,8 @@ export interface IcePatch {
   x: number;
   z: number;
   radius: number;
+  /** On a bridge deck (shown as 다리 위 결빙) */
+  onBridge?: boolean;
 }
 
 /** Share of road segments that freeze over, by road type (shaded side streets and ramps most) */
@@ -23,6 +25,8 @@ const FREEZE_CHANCE: Record<string, number> = {
   tertiary_link: 0.12,
 };
 const CELL_M = 100;
+/** Bridges freeze first (cold air under the deck): this share of bridge segments ices over */
+const BRIDGE_FREEZE_CHANCE = 0.5;
 
 function hash01(a: number, b: number): number {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be5ab, 0xc2b2ae35);
@@ -34,7 +38,8 @@ function hash01(a: number, b: number): number {
 export function planBlackIce(nodes: readonly OsmGraphNode[], edges: readonly OsmGraphEdge[], day: number): IcePatch[] {
   const out: IcePatch[] = [];
   edges.forEach((e, i) => {
-    const chance = FREEZE_CHANCE[e.highway] ?? 0;
+    // underpasses stay dry; bridges freeze first, whatever the road class
+    const chance = e.tunnel ? 0 : e.bridge ? BRIDGE_FREEZE_CHANCE : (FREEZE_CHANCE[e.highway] ?? 0);
     if (chance === 0 || e.dist < 20 || hash01(i, day) >= chance) return;
     const a = nodes[e.a];
     const b = nodes[e.b];
@@ -43,7 +48,8 @@ export function planBlackIce(nodes: readonly OsmGraphNode[], edges: readonly Osm
       id: i,
       x: a.x + (b.x - a.x) * t,
       z: a.z + (b.z - a.z) * t,
-      radius: Math.min(7, Math.max(3.5, e.width * 0.7)),
+      radius: e.bridge ? Math.max(5, e.width * 0.75) : Math.min(7, Math.max(3.5, e.width * 0.7)),
+      ...(e.bridge ? { onBridge: true } : {}),
     });
   });
   return out;

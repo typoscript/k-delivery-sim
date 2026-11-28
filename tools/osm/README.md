@@ -17,6 +17,7 @@ npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map
 ## 규칙 (기존 구역 데이터와 호환)
 - 좌표: 미터, `+Z` = 북, `+X` = **서** (`x = -(lon - lon0) * mPerDegLon`, `z = (lat - lat0) * 111320`), 원점은 전체 범위 중심
 - 도로 폭: trunk 16 · primary 14.5 · secondary 13 · tertiary 12 · 링크 9.5~11 · residential/unclassified 8.6 · living_street 7.2 (primary~tertiary = 간선)
+- 다리·지하차도: OSM `bridge`·`tunnel` 태그(`building_passage` 제외)를 도로 그래프 간선에 `bridge: true` / `tunnel: true`로 남김
 - 신호등: OSM `traffic_signals` + 간선 3개 이상 교차 또는 간선이 있는 4지 교차로
 - 건물 높이: `building:levels × 3.2m`, 없으면 용도·면적별 기본값 (ID 해시로 결정적)
 - 도로는 가장 큰 연결 요소만 유지(AI·내비가 모든 도로에 도달 가능), 3m 미만 구간은 병합

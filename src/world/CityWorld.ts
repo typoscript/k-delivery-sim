@@ -40,6 +40,7 @@ import { setFoliageSeason } from './seasonFoliage';
 /** Midday sun height per season (deg): high in summer (short shadows), low in winter (long shadows) */
 export const SEASON_SUN_ELEVATION_DEG: Record<SeasonId, number> = { summer: 68, spring: 52, autumn: 44, winter: 30 };
 import { BlackIceField, IcePatch } from './blackIce';
+import { RoadStructureIndex } from './roadStructures';
 import type { SeasonId } from '../game/seasons';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
@@ -571,6 +572,8 @@ export class CityWorld {
 
   /** Winter black ice on shaded side streets and ramps (see blackIce.ts) */
   public readonly blackIce = new BlackIceField(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
+  /** Bridges / underpasses of the road graph (dry underpasses, icy bridges, phone map) */
+  public readonly roadStructures = new RoadStructureIndex(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
 
   /** Season of the working day: tree crowns take its colours, the day sky its light */
   public setSeason(season: SeasonId): void {

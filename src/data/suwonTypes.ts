@@ -18,6 +18,9 @@ export interface OsmGraphEdge {
   highway: string;
   name: string;
   isMajor: boolean;
+  /** On a bridge / in an underpass (OSM bridge / tunnel tags; open world only) */
+  bridge?: boolean;
+  tunnel?: boolean;
 }
 
 export interface OsmBuildingData {
