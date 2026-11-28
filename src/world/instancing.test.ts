@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { NearbyInstances, buildInstanced, mergeStaticByMaterial } from './instancing';
+import { NearbyInstances, buildInstanced, mergeByVertexColor, mergeStaticByMaterial } from './instancing';
 import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 
 const meshes = (o: THREE.Object3D) => {
@@ -108,5 +108,35 @@ describe('NearbyInstances', () => {
     expect(mesh.count).toBe(1);
     mesh.getMatrixAt(0, m);
     expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBe(500);
+  });
+});
+
+describe('mergeByVertexColor', () => {
+  it('merges plain parts of different colours into one vertex-coloured mesh, keeping the rest', () => {
+    const red = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+    const blue = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+    const sign = new THREE.MeshBasicMaterial();
+    const target = new THREE.MeshStandardMaterial({ vertexColors: true });
+    const g = new THREE.Group();
+    const box = () => new THREE.BoxGeometry();
+    const a = new THREE.Mesh(box(), red);
+    const b = new THREE.Mesh(box(), blue);
+    b.position.x = 3;
+    const door = new THREE.Mesh(box(), red);
+    const s = new THREE.Mesh(box(), sign);
+    g.add(a, b, door, s);
+    const saved = mergeByVertexColor(g, new Set([red, blue]), target, (o) => o === door);
+    expect(saved).toBe(1);
+    const meshes = g.children as THREE.Mesh[];
+    expect(meshes).toContain(door);
+    expect(meshes).toContain(s);
+    const merged = meshes.find((m) => m.material === target)!;
+    const col = merged.geometry.getAttribute('color');
+    const pos = merged.geometry.getAttribute('position');
+    // the blue box (moved to x = 3) keeps its colour in the merged mesh
+    let blueRight = true;
+    for (let i = 0; i < pos.count; i++) if (pos.getX(i) > 2 && col.getZ(i) < 0.5) blueRight = false;
+    expect(blueRight).toBe(true);
+    expect(g.children).toHaveLength(3);
   });
 });

@@ -133,6 +133,49 @@ export function mergeStaticByMaterial(group: THREE.Object3D, keep?: (o: THREE.Ob
 }
 
 /**
+ * Merges the static meshes of `group` whose material is one of `plainMats` (opaque, single-colour, untextured) into
+ * ONE vertex-coloured mesh with `target` (each part keeps its material's colour). Different materials -> one draw
+ * call. Meshes for which `keep(o)` is true, and anything below them, stay as they are. Returns the draw calls saved.
+ */
+export function mergeByVertexColor(
+  group: THREE.Object3D,
+  plainMats: ReadonlySet<THREE.Material>,
+  target: THREE.Material,
+  keep?: (o: THREE.Object3D) => boolean,
+): number {
+  group.updateMatrixWorld(true);
+  const toGroup = new THREE.Matrix4().copy(group.matrixWorld).invert();
+  const meshes: THREE.Mesh[] = [];
+  const kept = new Set<THREE.Object3D>();
+  group.traverse((o) => {
+    if ((o.parent && kept.has(o.parent)) || keep?.(o)) {
+      kept.add(o);
+      return;
+    }
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || (o as THREE.InstancedMesh).isInstancedMesh || !m.visible) return;
+    if (Array.isArray(m.material) || !plainMats.has(m.material)) return;
+    meshes.push(m);
+  });
+  if (meshes.length < 2) return 0;
+  const materials = new Set(meshes.map((m) => m.material as THREE.Material));
+  const parts: ColoredPart[] = meshes.map((m) => ({
+    geometry: m.geometry,
+    matrix: new THREE.Matrix4().multiplyMatrices(toGroup, m.matrixWorld),
+    color: ((m.material as THREE.MeshStandardMaterial).color ?? new THREE.Color(0xffffff)).clone(),
+  }));
+  const merged = new THREE.Mesh(mergeColoredParts(parts), target);
+  merged.castShadow = meshes.some((m) => m.castShadow);
+  merged.receiveShadow = meshes.some((m) => m.receiveShadow);
+  for (const m of meshes) {
+    m.removeFromParent();
+    m.geometry.dispose();
+  }
+  group.add(merged);
+  return materials.size - 1;
+}
+
+/**
  * City-wide InstancedMeshes (signal gantries, street lamps, park trees, crosswalk stripes) hold thousands of
  * instances, and the GPU draws every one of them each frame: an InstancedMesh is only culled as a whole. This keeps
  * just the instances within a radius of the player in each mesh's instance buffer (re-picked after the player moves
