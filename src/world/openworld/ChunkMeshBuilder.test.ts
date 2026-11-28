@@ -262,6 +262,12 @@ describe('ground-floor storefronts', () => {
     expect(meshesWith([box(0, 14, 20, 12, 60)], STORE).found).toHaveLength(0); // 60m apartment
     expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'shop' }], MATS).found).toHaveLength(0);
   });
+
+  it('graphics "낮음" (lowDetail) skips shopfronts', () => {
+    const r = buildChunkMeshes(chunkOf([{ ...box(0, 14, 24, 12, 12), kind: 'shop' }]), roadsWith, STORE, true);
+    expect(meshesOf(r.group).some((m) => m.material === shopMat)).toBe(false);
+    r.dispose();
+  });
 });
 
 describe('storefronts anywhere on the map', () => {
@@ -306,7 +312,7 @@ describe('facade tints and rooftops', () => {
   });
 
   it('low buildings get a parapet and roof structures, towers none', () => {
-    const roofVerts = (b: OsmBuildingData) => {
+    const roofVerts = (b: OsmBuildingData, lowDetail = false) => {
       const chunk: ChunkData = {
         ix: 0,
         iz: 0,
@@ -316,7 +322,7 @@ describe('facade tints and rooftops', () => {
         waterLines: [],
         pedestrianPlazas: [],
       };
-      const r = buildChunkMeshes(chunk, NO_ROADS, MATS);
+      const r = buildChunkMeshes(chunk, NO_ROADS, MATS, lowDetail);
       const v = meshesOf(r.group)
         .filter((m) => m.material === MATS.roof)
         .reduce((a, m) => a + m.geometry.attributes.position.count, 0);
@@ -328,6 +334,7 @@ describe('facade tints and rooftops', () => {
     const villa = { ...box(0, 0, 16, 12, 12), area: 192 };
     const tower = { ...box(0, 0, 20, 20, 80), area: 400 };
     expect(roofVerts(small)).toBe(flat + 4 * 6); // parapet only
+    expect(roofVerts(villa, true)).toBe(flat); // graphics "낮음": bare roofs
     expect(roofVerts(villa)).toBeGreaterThan(flat + 4 * 6); // + stair housing, tank, AC units
     expect(roofVerts(tower)).toBe(flat);
   });
@@ -455,6 +462,13 @@ describe('bus lanes and road text', () => {
     r.dispose();
     return out;
   };
+
+  it('graphics "낮음" (lowDetail) paints no road words, but keeps the lines', () => {
+    const r = buildChunkMeshes(chunkWith(), roadsOf(14.5, true), mats, true);
+    expect(meshesOf(r.group).some((m) => m.material === textMat)).toBe(false);
+    expect(meshesOf(r.group).some((m) => m.material === markings)).toBe(true);
+    r.dispose();
+  });
 
   it('an alley gets 천천히 in each approaching lane, readable by the driver heading to the junction', () => {
     const w = wordsOf(chunkWith(), roadsOf(6, false));

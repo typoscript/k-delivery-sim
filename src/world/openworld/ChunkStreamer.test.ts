@@ -40,7 +40,10 @@ function makeWorld(): OpenWorldData {
 }
 
 function chunkFor(url: string): ChunkData {
-  const [ix, iz] = url.match(/c_(\d+)_(\d+)\.json/)!.slice(1).map(Number);
+  const [ix, iz] = url
+    .match(/c_(\d+)_(\d+)\.json/)!
+    .slice(1)
+    .map(Number);
   const cx = -1000 + ix * 200 + 100;
   const cz = -1000 + iz * 200 + 100;
   return {
@@ -124,6 +127,28 @@ describe('ChunkStreamer', () => {
     expect(s.stats.buildings).toBe(25);
     expect(s.collisionObstacles).toHaveLength(9);
     expect(s.isReadyAt(100, 100)).toBe(true);
+  });
+
+  it('setLowDetail rebuilds the built chunks in place: same chunks and colliders, nothing leaked', async () => {
+    const f = controllableFetcher();
+    const root = new THREE.Group();
+    const s = new ChunkStreamer(root, makeWorld(), MATS, { chunkBaseUrl: '', fetcher: f.fetcher });
+    for (let i = 0; i < 40; i++) {
+      s.update(100, 100);
+      await f.resolveAll();
+    }
+    const before = { built: s.stats.built, colliders: s.collisionObstacles.length, groups: s.root.children.length };
+    const v = s.version;
+    s.setLowDetail(true);
+    expect(s.version).toBeGreaterThan(v);
+    expect({ built: s.stats.built, colliders: s.collisionObstacles.length, groups: s.root.children.length }).toEqual(
+      before,
+    );
+    // test chunks hold one 10 m building: its roof loses the parapet
+    const lowTris = s.stats.triangles;
+    s.setLowDetail(false);
+    expect(s.stats.triangles).toBeGreaterThan(lowTris);
+    expect(s.root.children.length).toBe(before.groups);
   });
 
   it('releases far chunks: disposes built geometry and aborts in-flight requests', async () => {

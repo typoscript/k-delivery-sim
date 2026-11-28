@@ -87,6 +87,7 @@ export class ChunkStreamer {
   private totalAborted = 0;
   private fetchErrors = 0;
   private disposed = false;
+  private lowDetail = false;
   /** Increments whenever a chunk is built or released (lets consumers refresh derived data lazily) */
   public version = 0;
 
@@ -192,7 +193,7 @@ export class ChunkStreamer {
       const key = this.buildQueue.shift()!;
       const st = this.states.get(key);
       if (st?.kind !== 'ready') continue;
-      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials);
+      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials, this.lowDetail);
       this.root.add(result.group);
       this.states.set(key, { kind: 'built', result, data: st.data });
       this.version++;
@@ -200,6 +201,24 @@ export class ChunkStreamer {
       this.colliderKey = '';
       builds++;
     }
+  }
+
+  /**
+   * Graphics "낮음" drops rooftop structures, shopfronts and road words. Chunks already built are rebuilt in place
+   * right away (colliders stay the same, so physics never sees a gap)
+   */
+  public setLowDetail(low: boolean): void {
+    if (low === this.lowDetail) return;
+    this.lowDetail = low;
+    for (const [key, st] of this.states) {
+      if (st.kind !== 'built') continue;
+      st.result.dispose();
+      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials, low);
+      this.root.add(result.group);
+      this.states.set(key, { kind: 'built', result, data: st.data });
+    }
+    this.version++;
+    this.colliderKey = '';
   }
 
   private roadsFor(key: string): ChunkRoads {

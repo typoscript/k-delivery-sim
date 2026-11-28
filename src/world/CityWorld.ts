@@ -150,6 +150,9 @@ export class CityWorld {
   readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
   /** @internal world builders */
   readonly streetLampPoolGroup = new THREE.Group();
+  /** Roadside trees / poles / lamps and their light pools (hidden on graphics "낮음") */
+  private readonly streetPropsGroup = new THREE.Group();
+  private readonly streetPropPoolsGroup = new THREE.Group();
   /** Additive night light-pool material of the street lamps (set by buildStreetLamps) */
   lampPoolMat?: THREE.Material;
   /** Pickup counters & lobby portals with their animated doors / food trays (deliveryProps.ts) */
@@ -275,10 +278,13 @@ export class CityWorld {
       }
       const roads = activeRoadProximity();
       const props = planStreetProps(nodes, edges, nodeMaxWidth, (x, z) => roads.curbOffset(x, z));
-      registerStreetProps(this.culler, gridSpecOf(SUWON_OPEN_WORLD), this.root, props, {
+      this.streetPropsGroup.name = 'street_props_root';
+      this.root.add(this.streetPropsGroup);
+      this.streetLampPoolGroup.add(this.streetPropPoolsGroup);
+      registerStreetProps(this.culler, gridSpecOf(SUWON_OPEN_WORLD), this.streetPropsGroup, props, {
         headMaterial: this.lampGlowMat,
         poolMaterial: this.lampPoolMat!,
-        poolParent: this.streetLampPoolGroup,
+        poolParent: this.streetPropPoolsGroup,
       });
     }
 
@@ -354,7 +360,16 @@ export class CityWorld {
     placeSunStabilizedFn(this, px, pz);
   }
 
-  /** Building / prop colliders relevant to the player (streamed 3x3 chunks in the unified city) */
+  /**
+   * Graphics "낮음": open-world chunks drop rooftop structures, shopfronts and road words, and roadside trees /
+   * poles / lamps are hidden (not drawn)
+   */
+  public setLowDetail(low: boolean): void {
+    this.streamer?.setLowDetail(low);
+    this.streetPropsGroup.visible = !low;
+    this.streetPropPoolsGroup.visible = !low;
+  }
+
   /**
    * Off the road (with a margin) and outside every building footprint of the chunk under (x, z): room for props
    * like parked cars. null while that chunk's buildings are not loaded yet (the caller retries later).
@@ -370,6 +385,7 @@ export class CityWorld {
     return true;
   }
 
+  /** Building / prop colliders relevant to the player (streamed 3x3 chunks in the unified city) */
   public getCollisionObstacles(): ObstacleBox[] {
     return getCollisionObstaclesFn(this);
   }
@@ -378,6 +394,8 @@ export class CityWorld {
   public markStaticContainers(): void {
     makeStaticContainer(this.root);
     makeStaticContainer(this.streetLampPoolGroup);
+    makeStaticContainer(this.streetPropsGroup);
+    makeStaticContainer(this.streetPropPoolsGroup);
     if (this.streamer) makeStaticContainer(this.streamer.root);
   }
 

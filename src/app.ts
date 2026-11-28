@@ -169,6 +169,9 @@ const applyGameSettings = (s: GameSettings) => {
 
   // Resolution range, shadow map size / refresh rate and dynamic resolution per quality level
   graphics.apply(s);
+  // "낮음" also trims map detail (rooftop structures, shopfronts, road words, roadside trees / poles / lamps)
+  world.setLowDetail(s.graphicsQuality === 'low');
+  graphics.invalidateShadows();
 };
 
 /** Unified open world: [P] district list moves the rider there instantly (missions, cargo & career kept) */

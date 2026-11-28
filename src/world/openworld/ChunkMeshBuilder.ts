@@ -606,7 +606,16 @@ function addDisc(buf: GeoBuffer, cx: number, cz: number, r: number, y: number): 
   }
 }
 
-export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: ChunkMaterials): ChunkBuildResult {
+/**
+ * `lowDetail` (graphics "낮음"): no rooftop structures, shopfronts or painted road words - plain walls / roofs, lane
+ * lines and curbs only
+ */
+export function buildChunkMeshes(
+  chunk: ChunkData,
+  roads: ChunkRoads,
+  mats: ChunkMaterials,
+  lowDetail = false
+): ChunkBuildResult {
   const group = new THREE.Group();
   group.name = `chunk_${chunk.ix}_${chunk.iz}`;
   const geometries: THREE.BufferGeometry[] = [];
@@ -640,7 +649,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const roofLow = new GeoBuffer();
   const farBuf = new GeoBuffer(true);
   const shopfronts = new GeoBuffer(true);
-  const withStorefronts = !!(roads.curbOffset && mats.storefront);
+  const withStorefronts = !lowDetail && !!(roads.curbOffset && mats.storefront);
   const obstacles: ObstacleBox[] = [];
   let minX = Infinity;
   let maxX = -Infinity;
@@ -655,7 +664,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     farBuf.color.copy(FAR_WALL_COLORS[cat]);
     wb.color.copy(wallTintOf(cat, b));
     addBuilding(wb, tall ? roofTall : roofLow, b, farBuf);
-    addRooftop(tall ? roofTall : roofLow, b);
+    if (!lowDetail) addRooftop(tall ? roofTall : roofLow, b);
     if (withStorefronts) addStorefronts(shopfronts, shopfronts, b, roads.curbOffset!);
     obstacles.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, pts: b.pts });
     minX = Math.min(minX, b.minX);
@@ -697,7 +706,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const edges = mats.roadMarkings ? lines : null;
   // markings / curbs stop short of junction discs, and of crosswalks + stop lines at signals
   const trimAt = (id: number) => Math.max(roads.nodeMaxWidth[id] * 0.55 + 0.5, roads.nodes[id].isSignal ? 11.5 : 0);
-  const text = mats.roadText ? new GeoBuffer() : null;
+  const text = mats.roadText && !lowDetail ? new GeoBuffer() : null;
   // schools / kindergartens / daycare centres of this chunk: roads near them are children's protection zones
   const schools = text
     ? chunk.buildings.filter((b) => /초등학교|유치원|어린이집/.test(b.name)).map((b) => [b.cx, b.cz] as const)
