@@ -6,7 +6,7 @@ import { mergeStaticByMaterial } from './instancing';
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { WorldPropHost } from './serviceStations';
 import { GATE_ARM_UP, GUARD_SPOT, GateState, buildApartmentGrounds, stepGate } from './apartmentGrounds';
-import { isNoGroundVehicleComplex } from '../delivery/apartmentRules';
+import { indexComplexes, isNoGroundVehicleComplex } from '../delivery/apartmentRules';
 
 /** What the guard at an apartment gate did as the rider rode up (shown as a toast by the game) */
 export interface ApartmentGateEvent {
@@ -83,6 +83,7 @@ export class DeliveryLocationProps {
    * player comes near and disposed again when far away (ProximityCuller lazy entries).
    */
   public build(): void {
+    indexComplexes(this.locations);
     const shared = {
       counterMat: new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.35, metalness: 0.45 }),
       darkMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 }),

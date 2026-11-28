@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   NO_GROUND_PARK_LIMIT_M,
   NO_GROUND_WALK_BONUS,
+  COMPLEX_LINK_M,
+  complexIdOf,
   complexKeyOf,
+  indexComplexes,
   isNoGroundVehicleComplex,
   noGroundTagHtml,
   scooterInsideComplex,
@@ -89,5 +92,26 @@ describe('지상 차량 출입 금지 단지', () => {
       tierPromotedTo: null,
     } as unknown as Parameters<typeof settlementLines>[0]);
     expect(rows.find((r) => r.key === 'walkIn')?.amount).toBe(NO_GROUND_WALK_BONUS);
+  });
+
+  it('same-name complexes far apart are separate complexes; the 동s of one complex stay together', () => {
+    const at = (id: string, name: string, x: number, z: number): DeliveryLocation => ({ ...apt(name), id, x, z });
+    const list = [
+      at('a1', '현대아파트 101동', 0, 0),
+      at('a2', '현대아파트 102동', 120, 0),
+      at('a3', '현대아파트 103동', 120 + COMPLEX_LINK_M - 10, 0), // chained through a2
+      at('b1', '현대아파트 101동', 5000, 3000),
+      at('c1', '삼성래미안 101동', 60, 0),
+    ];
+    indexComplexes(list);
+    expect(complexIdOf(list[0])).toBe(complexIdOf(list[1]));
+    expect(complexIdOf(list[0])).toBe(complexIdOf(list[2]));
+    expect(complexIdOf(list[3])).not.toBe(complexIdOf(list[0]));
+    expect(complexIdOf(list[4])).not.toBe(complexIdOf(list[0]));
+    for (const l of list.slice(0, 3)) expect(isNoGroundVehicleComplex(l)).toBe(isNoGroundVehicleComplex(list[0]));
+    // across many same-name complexes the rule differs somewhere (it is not one rule per name any more)
+    const far = Array.from({ length: 30 }, (_, i) => at(`f${i}`, '현대아파트 101동', i * 2000, 9000));
+    indexComplexes(far);
+    expect(new Set(far.map((l) => isNoGroundVehicleComplex(l))).size).toBe(2);
   });
 });

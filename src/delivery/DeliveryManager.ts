@@ -1,4 +1,5 @@
 import { DeliveryLocation } from '../types';
+import { indexComplexes } from './apartmentRules';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
 import { ScooterState } from '../vehicle/ScooterPhysics';
@@ -204,6 +205,7 @@ export class DeliveryManager {
   private readonly routePlanner = new MissionRoutePlanner();
 
   constructor(locations: DeliveryLocation[]) {
+    indexComplexes(locations);
     this.shops = locations.filter((l) => l.type === 'shop');
     this.residences = locations.filter((l) => l.type === 'residential');
     this.career = loadRiderCareer();
