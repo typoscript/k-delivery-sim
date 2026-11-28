@@ -4,6 +4,15 @@ import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/deman
 import { isMonsoonDay, seasonOfDay, weatherOddsOfDay } from './seasons';
 import { blackIceActive } from '../world/blackIce';
 import { ION_DRINK_COST, heatwaveActive } from './heatwave';
+import { buildWeatherReport } from './weatherReport';
+import type { Hud } from '../ui/Hud';
+
+let lastReportKey = '';
+
+/** Weather news reach the rider as a push notification of the phone's weather app */
+function weatherPush(hud: Hud, text: string, ms: number): void {
+  hud.showToast(`📲 날씨 앱 · ${text}`, ms);
+}
 
 /** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */
 const eventNote = (e: DemandEventSpec) =>
@@ -70,7 +79,8 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     world.setSeason(season.id);
     if (announce && !first) {
       const ev = SEASON_EVENTS[season.id];
-      hud.showToast(
+      weatherPush(
+        hud,
         `${season.emoji} ${season.label}이 왔어요! ${season.note}${ev ? ` · ${eventNote(DEMAND_EVENTS[ev])}` : ''}`,
         5200
       );
@@ -86,7 +96,8 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     const first = world.monsoon === null;
     world.monsoon = monsoon;
     if (announce && !first) {
-      hud.showToast(
+      weatherPush(
+        hud,
         monsoon
           ? '☔ 장마 시작! 며칠 동안 거의 매일 긴 비가 와요 · 우천 할증 콜이 이어지지만 도로 곳곳에 물웅덩이가 생겨요 (지나가면 속도가 줄고 물이 튐)'
           : '🌤️ 장마가 끝났어요',
@@ -102,7 +113,8 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   const wasIcy = world.blackIce.isActive;
   world.blackIce.set(delivery.shiftDay, icy); // cheap when nothing changed; a new working day freezes other spots
   if (announce && icy && !wasIcy) {
-    hud.showToast(
+    weatherPush(
+      hud,
       '🧊 영하의 겨울 밤 · 그늘진 골목과 램프에 블랙아이스! 휴대폰 지도의 🧊 표시 구간에선 브레이크·급회전 금지',
       5200
     );
@@ -113,9 +125,9 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   if (hot !== delivery.heatwave) {
     delivery.heatwave = hot;
     ctx.playerCtrl.heatwave = hot;
-    hud.heatwave = hot;
     if (announce) {
-      hud.showToast(
+      weatherPush(
+        hud,
         hot
           ? `🥵 폭염! 한낮 땡볕에 걸으면 체력이 닳고 보냉 음식이 빨리 미지근해져요 · 편의점 ❄️ 얼음 이온음료(₩${ION_DRINK_COST.toLocaleString()})로 3분간 더위 무시`
           : '🌤️ 한낮 더위가 한풀 꺾였어요',
@@ -125,6 +137,22 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     }
   }
   hud.setClock(clock.label, phase, delivery.shiftDay, season.emoji);
+
+  // The phone's weather app (the only place the weather is shown): rebuilt every game minute or on a change
+  const reportKey = `${delivery.shiftDay}|${Math.floor(clock.minute)}|${world.weatherMode}|${hot}|${icy}|${world.puddles.puddles.length > 0}`;
+  if (reportKey !== lastReportKey) {
+    lastReportKey = reportKey;
+    hud.phoneMap.weatherReport = buildWeatherReport({
+      workDay: delivery.shiftDay,
+      minute: clock.minute,
+      mode: world.weatherMode,
+      forecast: ctx.weatherSchedule.forecast(6),
+      heatwave: hot,
+      blackIce: icy,
+      puddles: world.puddles.puddles.length,
+      night: world.isNight,
+    });
+  }
 
   // Weather changes on its own as game time passes (clock jumps with N do not skip it)
   const nextWeather = ctx.weatherSchedule.step(dtGameMin);
@@ -160,7 +188,8 @@ export function setWeatherMode(ctx: GameContext, mode: WeatherMode, source: 'aut
   if (mode === 'rain' || mode === 'snow') scooterPhysics.state.headlights = true;
   if (source === 'manual') weatherSchedule.override(mode);
   if (source === 'silent') return;
-  hud.showToast(WEATHER_MESSAGES[source][mode], 3800);
+  if (source === 'auto') weatherPush(hud, WEATHER_MESSAGES.auto[mode], 3800);
+  else hud.showToast(WEATHER_MESSAGES[source][mode], 3800);
   if (source === 'auto' && mode === 'rain') {
     ctx.audio.playThunderRumble();
     voiceNav.speak('비가 내리기 시작했습니다. 빗길 운전에 주의하세요.');

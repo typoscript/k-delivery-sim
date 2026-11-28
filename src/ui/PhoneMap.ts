@@ -15,6 +15,8 @@ import {
 import { TouchHandState, setupTouchHandInteraction } from './phone/touchHand';
 import { DispatchPopupEls, DispatchPopupState } from './phone/topbarBanners';
 import { Ripple3DState } from './phone/screen3D';
+import { PhoneApp, weatherAppHtml } from './phone/weatherApp';
+import type { WeatherReport } from '../game/weatherReport';
 
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
 
@@ -128,6 +130,14 @@ export class PhoneMap {
   /** @internal phone/* */
   readonly dispatchState: DispatchPopupState = { lastOfferPopupId: '', lastOfferPulseTick: 0, expandedOfferId: '', currentOfferId: '' };
 
+  /** Open app: the delivery app (map + calls) or the weather app (the only place the weather is shown) */
+  public app: PhoneApp = 'delivery';
+  /** Latest weather app report (set by the game clock every game minute) */
+  public weatherReport: WeatherReport | null = null;
+  private readonly appDockEl = document.getElementById('phone-app-dock')!;
+  private readonly weatherAppEl = document.getElementById('phone-weather-app')!;
+  private weatherHtmlKey = '';
+
   /** @internal phone/* */
   readonly callbacks: PhoneCallbacks;
   public placement: PhonePlacement = 'pocket';
@@ -201,6 +211,13 @@ export class PhoneMap {
       } else {
         this.callbacks.onToggleZoom();
       }
+    });
+
+    this.appDockEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
+      const app = btn?.dataset.app as PhoneApp | undefined;
+      if (app) this.setApp(app);
     });
 
     this.topNavEl.addEventListener('click', (e) => {
@@ -407,4 +424,31 @@ export class PhoneMap {
   ): void {
     syncDeliverySheetFn(this, player, delivery, navPlan);
   }
+
+  /** Switches the open app (zoomed phone dock; the 3D phone shows the same app) */
+  public setApp(app: PhoneApp): void {
+    if (app === this.app) return;
+    this.app = app;
+    this.phoneScreenEl.classList.toggle('app-weather', app === 'weather');
+    this.weatherAppEl.classList.toggle('hidden', app !== 'weather');
+    for (const b of this.appDockEl.querySelectorAll<HTMLButtonElement>('.dock-app')) {
+      b.classList.toggle('active', b.dataset.app === app);
+    }
+    this.weatherHtmlKey = '';
+    this.last3DRenderTime = -1;
+    this.lastSheetFingerprint = '';
+    this.callbacks.onAppSwitched?.(app);
+  }
+
+  /** @internal phone/* - redraws the weather app screen when its report changed */
+  syncWeatherApp(): void {
+    const r = this.weatherReport;
+    if (!r) return;
+    const key = JSON.stringify(r);
+    if (key === this.weatherHtmlKey) return;
+    this.weatherHtmlKey = key;
+    this.weatherAppEl.className = `phone-weather-app wx-${r.mode}`;
+    this.weatherAppEl.innerHTML = weatherAppHtml(r);
+  }
+
 }

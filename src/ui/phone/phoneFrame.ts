@@ -95,6 +95,12 @@ export function update(
       host.statusPillEl.className = 'app-status-pill foot';
     }
 
+    // Weather app open: its screen covers the delivery app (incoming calls still pop up over it)
+    if (host.app === 'weather') {
+      host.syncWeatherApp();
+      syncDispatchPopup(host.dispatchEls, host.dispatchState, activeOffer, delivery);
+      return;
+    }
     host.syncDeliverySheet(player, delivery, navPlan);
     syncPinTooltip(host.pinTooltipEl, delivery, navPlan);
     syncCameraAlertBanner(host.camAlertEl, mapInfo);
@@ -151,6 +157,7 @@ export function update(
         isWirelessCharging: host.isWirelessCharging,
         placement: host.placement,
         offerExpanded: activeOffer !== null && host.dispatchState.expandedOfferId === activeOffer.id,
+        weatherReport: host.app === 'weather' ? host.weatherReport : null,
       },
       host.view,
       host.ripple3D,

@@ -4,6 +4,8 @@ export type PhoneTopNav = 'calls' | 'nav' | 'earnings';
 export type PhoneTab = 'calls' | 'accepted' | 'checklist' | 'route' | 'finance' | 'reviews' | 'career';
 
 export interface PhoneCallbacks {
+  /** The rider switched apps (delivery / weather) on the phone dock */
+  onAppSwitched?: (app: 'delivery' | 'weather') => void;
   onAcceptOrder: (orderId: string) => void;
   onAcceptDispatchOffer: () => void;
   onRejectDispatchOffer: () => void;

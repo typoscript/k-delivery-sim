@@ -50,4 +50,19 @@ describe('WeatherSchedule', () => {
     expect(w.step(MANUAL_HOLD_MIN - 1)).toBeNull();
     expect(w.step(2)).toBe('cloudy');
   });
+
+  it('a seeded schedule forecasts exactly: the weather app sees what will happen', () => {
+    const w = new WeatherSchedule('clear', 12345);
+    const fc = w.forecast(12);
+    expect(fc).toHaveLength(12);
+    for (let h = 0; h < 12; h++) {
+      for (let m = 0; m < 60; m++) w.step(1);
+      expect(w.mode).toBe(fc[h]);
+    }
+    // forecasting does not disturb the schedule itself
+    const a = new WeatherSchedule('cloudy', 99);
+    const b = new WeatherSchedule('cloudy', 99);
+    a.forecast(24);
+    for (let m = 0; m < 600; m++) expect(a.step(1)).toBe(b.step(1));
+  });
 });

@@ -44,7 +44,8 @@
           <span id="rating-badge" class="rating-pill" title="배달 기사 신뢰 평점 (5.0 만점)">★ 5.0</span>
           <span id="clock-badge" class="clock-pill" title="게임 시각 (실제 1초 = 게임 1분) · 배달 수요 시간대 · [N] 저녁/아침으로 이동">🕐 10:40 · 🌅 오전</span>
           <span id="buff-badge" class="buff-pill hidden" title="편의점 음료 버프 활성화 중">⚡ 60s</span>
-          <button id="weather-badge" class="weather-pill clear" title="날씨 전환: 맑음 / 흐림 / 비 (U)">☀️ 맑음</button>
+          <!-- 날씨는 휴대폰 날씨 앱에서만 확인 (배지는 숨김) -->
+          <button id="weather-badge" class="weather-pill clear hidden" title="날씨 전환 (U)">☀️ 맑음</button>
           <button id="open-settings-btn" class="mini-btn" title="설정 메뉴 열기 (O)">⚙️ 설정</button>
           <button id="toggle-help-btn" class="mini-btn" title="조작법 열기/닫기 (F1)">조작법</button>
         </div>
@@ -114,6 +115,14 @@
                 <span id="sb-battery-wrap" class="sb-battery"><i id="sb-battery-fill"></i></span>
               </div>
             </div>
+
+            <!-- Home dock: switch between the delivery app and the weather app -->
+            <div id="phone-app-dock" class="phone-app-dock">
+              <button class="dock-app active" data-app="delivery">🛵 배달</button>
+              <button class="dock-app" data-app="weather">🌤️ 날씨</button>
+            </div>
+
+            <div id="phone-weather-app" class="phone-weather-app hidden"></div>
 
             <div class="app-topbar">
               <div class="app-loc-card">

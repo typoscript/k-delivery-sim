@@ -24,6 +24,7 @@ export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
       r.audio.ensureStarted();
       r.flow.tryAcceptIncomingOffer();
     },
+    onAppSwitched: () => r.audio.playPhoneScreenTap(),
     onRejectDispatchOffer: () => r.flow.handleRejectIncomingOffer(),
     onRefreshOrders: () => {
       r.delivery.refreshAvailableOrders();

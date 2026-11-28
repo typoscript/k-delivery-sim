@@ -31,12 +31,48 @@ export class WeatherSchedule {
   /** Season weights (rain / snow chance, shower length); none = the year-round defaults */
   private season: Pick<SeasonSpec, 'rainChance' | 'snowChance' | 'rainDurationMul'> | null = null;
 
+  /** Internal random state when seeded with a number (lets the weather app forecast by running a copy ahead) */
+  private rngState: number | null = null;
+  private readonly rand: () => number;
+
+  /**
+   * `randOrSeed`: a random source, or a numeric seed for the schedule's own generator (the game seeds it once,
+   * so the weather app can forecast exactly by running a copy ahead - `forecast`)
+   */
   constructor(
     initial: WeatherMode = 'clear',
-    private readonly rand: () => number = Math.random
+    randOrSeed: (() => number) | number = Math.floor(Math.random() * 2 ** 31),
   ) {
+    if (typeof randOrSeed === 'number') {
+      this.rngState = randOrSeed >>> 0 || 1;
+      this.rand = () => {
+        this.rngState = (Math.imul(this.rngState!, 1664525) + 1013904223) >>> 0;
+        return this.rngState / 4294967296;
+      };
+    } else {
+      this.rand = randOrSeed;
+    }
     this.mode = initial;
     this.remainingMin = this.durationFor(initial);
+  }
+
+  /**
+   * The weather at each of the next `hours` full game hours from now, by running a copy of the schedule ahead
+   * (exact for a seeded schedule; with an external random source it only knows the current spell)
+   */
+  public forecast(hours: number, stepMin = 60): WeatherMode[] {
+    if (this.rngState === null) return Array.from({ length: hours }, () => this.mode);
+    const copy = new WeatherSchedule(this.mode, this.rngState);
+    copy.rngState = this.rngState;
+    copy.remainingMin = this.remainingMin;
+    copy.season = this.season;
+    const out: WeatherMode[] = [];
+    for (let h = 0; h < hours; h++) {
+      // minute by minute, like the game clock, so no short spell is skipped
+      for (let m = 0; m < stepMin; m++) copy.step(1);
+      out.push(copy.mode);
+    }
+    return out;
   }
 
   /** The season changes how often clouds bring rain or snow (applies from the next change) */

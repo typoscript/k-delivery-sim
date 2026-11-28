@@ -6,13 +6,13 @@ import { SCOOTER_MODELS } from '../../vehicle/ScooterModels';
 import { CARGO_SLOT_COUNT, DeliveryManager, MAX_CONCURRENT_ORDERS } from '../../delivery/DeliveryManager';
 import { WeatherMode } from '../../types';
 
-/** Top-left pills: career tier & wallet, trust rating, drink buff, weather and the mode badge */
+/** Top-left pills: career tier & wallet, trust rating, drink buff and the mode badge (weather: phone weather app) */
 export function syncStatusPills(
   host: Hud,
   player: PlayerState,
   scooter: ScooterState,
   delivery: DeliveryManager,
-  weatherMode: WeatherMode,
+  _weatherMode: WeatherMode,
   ctx: InteractionContext,
 ): void {
   const isRiding = player.mode === 'riding';
@@ -41,23 +41,7 @@ export function syncStatusPills(
     host.buffBadge.classList.add('hidden');
   }
 
-  // Update top-left weather pill
-  if (weatherMode === 'clear' && host.heatwave) {
-    host.weatherBadge.textContent = '🥵 폭염 · 체력·보냉 주의';
-    host.weatherBadge.className = 'weather-pill heat';
-  } else if (weatherMode === 'snow') {
-    host.weatherBadge.textContent = '❄️ 눈 · 할증+₩2,000';
-    host.weatherBadge.className = 'weather-pill snow';
-  } else if (weatherMode === 'rain') {
-    host.weatherBadge.textContent = '🌧️ 비 · 할증+₩1,500';
-    host.weatherBadge.className = 'weather-pill rain';
-  } else if (weatherMode === 'cloudy') {
-    host.weatherBadge.textContent = '☁️ 흐림';
-    host.weatherBadge.className = 'weather-pill cloudy';
-  } else {
-    host.weatherBadge.textContent = '☀️ 맑음';
-    host.weatherBadge.className = 'weather-pill clear';
-  }
+  // (the weather is only shown in the phone's weather app)
   const carrying = delivery.getCarryingMission();
   const corridorM = delivery.getCorridorMission();
   const loadedCount = delivery.getLoadedCargoCount();

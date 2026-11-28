@@ -11,6 +11,8 @@ import { renderRidingNavOverlay } from './ridingNavOverlay3D';
 import { renderOnFootPhoneOverlay } from './onFootOverlay3D';
 import { render3DDispatchCallCard } from './dispatchCallCard3D';
 import { render3DCallBanner } from './callBanner3D';
+import { renderWeatherApp3D } from './weatherApp';
+import type { WeatherReport } from '../../game/weatherReport';
 
 /** Phone status snapshot needed to draw the 3D screen */
 export interface Phone3DScreenStatus {
@@ -19,6 +21,8 @@ export interface Phone3DScreenStatus {
   battery: number;
   isWirelessCharging: boolean;
   placement: PhonePlacement;
+  /** The weather app is open (drawn instead of the delivery app) */
+  weatherReport?: WeatherReport | null;
 }
 
 /** Expanding glass-touch ripple drawn on the 3D phone canvas (null when idle) */
@@ -73,6 +77,25 @@ export function render3DPhoneScreen(
   }
 
   const isRidingNavMode = player.mode === 'riding' && phone.placement === 'mounted';
+
+  // Weather app open: its own screen (the status bar and an incoming call still show)
+  if (phone.weatherReport) {
+    renderWeatherApp3D(ctx, w, h, phone.weatherReport);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+    ctx.fillRect(0, 0, w, 34);
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(clockStr, 16, 18);
+    ctx.textAlign = 'right';
+    ctx.fillText(`🌤️ 날씨 · 🔋${Math.round(phone.battery)}%`, w - 14, 18);
+    if (activeOffer) {
+      if (phone.offerExpanded) render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
+      else render3DCallBanner(ctx, w, activeOffer, elapsedTime);
+    }
+    return;
+  }
 
   // 1. Live GPS map background (Heading-Up rotating minimap when riding!)
   renderMapToContext(

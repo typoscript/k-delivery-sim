@@ -231,9 +231,6 @@ export class Hud {
   }
 
   /** Game clock pill (time + demand phase) and the smartphone status-bar clock */
-  /** Summer heatwave afternoon (weather pill shows it) */
-  public heatwave = false;
-
   public setClock(label: string, phase: DemandPhase, day: number, seasonEmoji = ''): void {
     const dayText = seasonEmoji ? `${seasonEmoji} ${day}일차` : `${day}일차`;
     const text = phase.isPeak
