@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { buildApartmentGrounds, planApartmentGrounds } from './apartmentGrounds';
+import {
+  GATE_RESET_M,
+  GATE_TRIGGER_M,
+  buildApartmentGrounds,
+  planApartmentGrounds,
+  stepGate,
+} from './apartmentGrounds';
 import { collidesWithWorld } from '../types';
 
 const identity = (lx: number, lz: number) => ({ x: lx, z: lz });
@@ -42,7 +48,11 @@ describe('apartment grounds', () => {
     const built = buildApartmentGrounds('apt-1', identity, () => true, mat);
     if (built === 'wait') throw new Error('should build');
     expect(built.mesh!.geometry.getAttribute('color')).toBeDefined();
-    expect(buildApartmentGrounds('apt-1', identity, () => false, mat)).toEqual({ mesh: null, obstacles: [] });
+    expect(buildApartmentGrounds('apt-1', identity, () => false, mat)).toEqual({
+      mesh: null,
+      arm: null,
+      obstacles: [],
+    });
     built.mesh!.geometry.dispose();
   });
 
@@ -64,5 +74,33 @@ describe('apartment grounds', () => {
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     expect(planApartmentGrounds('apt-1', identity, (x) => (x < -10 ? null : true))).toBeNull();
     expect(buildApartmentGrounds('apt-1', identity, () => null, mat)).toBe('wait');
+  });
+
+  it('a gate has a guard, a separate barrier arm, and a no-entry sign only at 지상 차량 출입 금지 complexes', () => {
+    const open = planApartmentGrounds('apt-1', identity, () => true)!;
+    const banned = planApartmentGrounds('apt-1', identity, () => true, true)!;
+    expect(open.armParts).toHaveLength(5);
+    expect(banned.parts.length - open.parts.length).toBe(3); // sign plate, bar, post
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const built = buildApartmentGrounds('apt-1', identity, () => true, mat);
+    if (built === 'wait') throw new Error('should build');
+    expect(built.arm).not.toBeNull();
+    expect(buildApartmentGrounds('apt-1', identity, (x) => x < 4, mat)).toMatchObject({ arm: null });
+  });
+
+  it('riding up lifts the barrier (the guard greets once), a 지상 차량 출입 금지 gate stays down', () => {
+    const g = { noEntry: false, lift: 0, open: false, spoke: false };
+    expect(stepGate(g, GATE_TRIGGER_M + 1, true, 0.1)).toBeNull();
+    expect(stepGate(g, GATE_TRIGGER_M - 1, false, 0.1)).toBeNull(); // on foot: nothing
+    expect(stepGate(g, GATE_TRIGGER_M - 1, true, 0.1)).toBe('welcome');
+    for (let i = 0; i < 30; i++) expect(stepGate(g, 3, true, 0.1)).toBeNull();
+    expect(g.lift).toBe(1);
+    for (let i = 0; i < 30; i++) stepGate(g, GATE_RESET_M + 1, true, 0.1);
+    expect(g.lift).toBe(0);
+    expect(stepGate(g, 5, true, 0.1)).toBe('welcome'); // next approach greets again
+    const b = { noEntry: true, lift: 0, open: false, spoke: false };
+    expect(stepGate(b, 5, true, 0.1)).toBe('blocked');
+    for (let i = 0; i < 30; i++) stepGate(b, 3, true, 0.1);
+    expect(b.lift).toBe(0);
   });
 });

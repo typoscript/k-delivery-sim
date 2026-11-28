@@ -1,4 +1,5 @@
 /** Contextual [E] / [F] interaction prompt: corridor, on foot outdoors, riding hints and mount / dismount */
+import { NO_GROUND_PARK_LIMIT_M, NO_GROUND_WALK_BONUS, isNoGroundVehicleComplex, scooterInsideComplex } from '../../delivery/apartmentRules';
 import type { InteractionContext } from '../Hud';
 import { PlayerState } from '../../player/PlayerController';
 import { ScooterState } from '../../vehicle/ScooterPhysics';
@@ -142,6 +143,10 @@ export function computePrompt(
       navPlan.focusMission?.phase === 'cargo_loaded' &&
       (navPlan.guidance?.totalDistance ?? 999) < 16
     ) {
+      const c = navPlan.focusMission.order.customer;
+      if (isNoGroundVehicleComplex(c) && scooterInsideComplex(c.x, c.z, scooter.x, scooter.z)) {
+        return `🚫 지상 차량 출입 금지 단지 — 정문 밖(${NO_GROUND_PARK_LIMIT_M}m 이상)에 세우고 걸어가면 도보 수당 +₩${NO_GROUND_WALK_BONUS}`;
+      }
       return `<kbd>F</kbd> 하차 후 배달통에서 [#${navPlan.focusMission.order.orderNumber}] 꺼내기`;
     }
   }

@@ -33,7 +33,7 @@ import { ProximityCuller } from './openworld/ProximityCuller';
 import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 import { ServiceStations, WorldPropHost } from './serviceStations';
-import { DeliveryLocationProps, PropColliders } from './deliveryProps';
+import { ApartmentGateEvent, DeliveryLocationProps, PropColliders } from './deliveryProps';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
 import { buildSpeedBumps } from './speedBumps';
@@ -512,6 +512,17 @@ export class CityWorld {
 
   public syncShopPickupTrays(cookingShopIds: Set<string>, readyShopIds: Set<string>, elapsedTime: number): void {
     this.deliveryProps.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsedTime);
+  }
+
+  /** Apartment gate barriers / guards around the rider (see DeliveryLocationProps.updateApartmentGates) */
+  public updateApartmentGates(
+    dt: number,
+    px: number,
+    pz: number,
+    riding: boolean,
+    isDestination: (locationId: string) => boolean
+  ): ApartmentGateEvent | null {
+    return this.deliveryProps.updateApartmentGates(dt, px, pz, riding, isDestination);
   }
 
   public updateLobbyDoors(dt: number): void {

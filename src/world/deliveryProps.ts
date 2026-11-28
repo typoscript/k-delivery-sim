@@ -5,7 +5,15 @@ import { excludeFromMirrors, freezeStatic } from './renderLayers';
 import { mergeStaticByMaterial } from './instancing';
 import { ProximityCuller } from './openworld/ProximityCuller';
 import { WorldPropHost } from './serviceStations';
-import { buildApartmentGrounds } from './apartmentGrounds';
+import { GATE_ARM_UP, GUARD_SPOT, GateState, buildApartmentGrounds, stepGate } from './apartmentGrounds';
+import { isNoGroundVehicleComplex } from '../delivery/apartmentRules';
+
+/** What the guard at an apartment gate did as the rider rode up (shown as a toast by the game) */
+export interface ApartmentGateEvent {
+  kind: 'welcome' | 'blocked';
+  locationId: string;
+}
+
 
 /** Pickup counters & lobby portals are built / shown within this many 200m chunks of the player */
 const LOCATION_PROP_RADIUS_CHUNKS = 1;
@@ -44,6 +52,11 @@ export class DeliveryLocationProps {
   private readonly lobbyDoors = new Map<
     string,
     { leftDoor: THREE.Mesh; rightDoor: THREE.Mesh; open: boolean }
+  >();
+  /** Built apartment gates near the player (barrier arm + guard), by location id */
+  private readonly gates = new Map<
+    string,
+    GateState & { arm: THREE.Mesh | null; gx: number; gz: number }
   >();
   /** Lobby whose door is unlocked (kept separately: open-world lobby props are rebuilt when re-approached) */
   private openLobbyId: string | null = null;
@@ -120,12 +133,18 @@ export class DeliveryLocationProps {
             loc.z,
             () => {
               const frame = this.lobbyFrame(loc);
-              const grounds = buildApartmentGrounds(loc.id, frame.toWorld, isFree, shared.groundsMat);
+              const noEntry = isNoGroundVehicleComplex(loc);
+              const grounds = buildApartmentGrounds(loc.id, frame.toWorld, isFree, shared.groundsMat, noEntry);
               if (grounds === 'wait') return null;
               const holder = new THREE.Group();
               holder.position.copy(frame.position);
               holder.rotation.y = frame.heading;
               if (grounds.mesh) holder.add(grounds.mesh);
+              if (grounds.arm) {
+                holder.add(grounds.arm);
+                const g = frame.toWorld(GUARD_SPOT.x, GUARD_SPOT.z);
+                this.gates.set(loc.id, { arm: grounds.arm, gx: g.x, gz: g.z, noEntry, lift: 0, open: false, spoke: false });
+              }
               this.colliders?.set(loc.id, grounds.obstacles);
               excludeFromMirrors(holder);
               freezeStatic(holder);
@@ -133,6 +152,8 @@ export class DeliveryLocationProps {
                 object: holder,
                 dispose: () => {
                   grounds.mesh?.geometry.dispose();
+                  grounds.arm?.geometry.dispose();
+                  this.gates.delete(loc.id);
                   this.colliders?.set(loc.id, []);
                 },
               };
@@ -314,6 +335,32 @@ export class DeliveryLocationProps {
         entry.ledMat.emissiveIntensity = 0.08;
       }
     }
+  }
+
+  /**
+   * Apartment gates around the rider: riding up to a guard lifts the barrier, except at a 지상 차량 출입 금지
+   * complex where it stays down. Returns what a guard said this frame when the gate belongs to a delivery
+   * destination (`isDestination`), so the game can show it; null otherwise.
+   */
+  public updateApartmentGates(
+    dt: number,
+    px: number,
+    pz: number,
+    riding: boolean,
+    isDestination: (locationId: string) => boolean
+  ): ApartmentGateEvent | null {
+    let event: ApartmentGateEvent | null = null;
+    for (const [id, g] of this.gates) {
+      const before = g.lift;
+      const said = stepGate(g, Math.hypot(px - g.gx, pz - g.gz), riding, dt);
+      if (said && !event && isDestination(id)) event = { kind: said, locationId: id };
+      if (g.lift === before || !g.arm) continue;
+      g.arm.rotation.z = g.lift * GATE_ARM_UP;
+      // grounds are frozen static props: push the moving arm's matrices explicitly
+      g.arm.updateMatrix();
+      g.arm.updateMatrixWorld(true);
+    }
+    return event;
   }
 
   public updateLobbyDoors(dt: number): void {

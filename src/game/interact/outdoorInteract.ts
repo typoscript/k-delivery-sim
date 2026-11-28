@@ -1,8 +1,9 @@
 import type { InteractEnv } from './interactEnv';
+import { NO_GROUND_WALK_BONUS, isNoGroundVehicleComplex, scooterInsideComplex } from '../../delivery/apartmentRules';
 
 /** Outdoors on foot: shop pickup counter / tray, the scooter's cargo box, the customer's lobby door */
 export function interactOutdoors(env: InteractEnv): void {
-  const { delivery, scooterMesh, playerCtrl, audio, hud, modalUi } = env.ctx;
+  const { delivery, scooterMesh, scooterPhysics, playerCtrl, audio, hud, modalUi } = env.ctx;
   const { isPlayerNearCargoBox, playerHasPhonePhysically, enterElevatorToCorridor } = env;
   // Outdoors (must be on foot)
   if (playerCtrl.state.mode !== 'on_foot') return;
@@ -66,6 +67,20 @@ export function interactOutdoors(env: InteractEnv): void {
   const lobbyMission = delivery.getMissionNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z);
   if (lobbyMission) {
     if (lobbyMission.phase === 'carrying_to_lobby') {
+      // 지상 차량 출입 금지 단지: the guard notices a scooter parked inside the complex (allowance forfeited)
+      const c = lobbyMission.order.customer;
+      if (
+        isNoGroundVehicleComplex(c) &&
+        !lobbyMission.groundRuleBroken &&
+        scooterInsideComplex(c.x, c.z, scooterPhysics.state.x, scooterPhysics.state.z)
+      ) {
+        lobbyMission.groundRuleBroken = true;
+        audio.playKeypadBeep(false);
+        hud.showToast(
+          `👮 경비원: "여긴 지상 차량 출입 금지 단지예요! 오토바이는 정문 밖에 세워 주세요" (도보 수당 ₩${NO_GROUND_WALK_BONUS.toLocaleString()} 없음)`,
+          4200,
+        );
+      }
       if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
       else hud.phoneMap.setZoomed(false);
       modalUi.openPinKeypad(lobbyMission.order, hasPhone);

@@ -10,6 +10,7 @@ import { SCOOTER_SPECS } from '../../vehicle/ScooterPhysics';
 import { PLAYER_RADIUS } from '../../player/PlayerController';
 import { pushOutOfBodies } from '../../world/vehicleBodies';
 import { getInstructionMeta } from '../../delivery/DeliveryManager';
+import { NO_GROUND_WALK_BONUS } from '../../delivery/apartmentRules';
 
 /** Outdoors: streaming, traffic, pedestrians, hazards, sidewalk / red-light / pedestrian warnings. Indoors: the corridor and elevator */
 export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: LoopState, f: FrameState): void {
@@ -37,6 +38,22 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
     );
     delivery.setReferencePosition(playerCtrl.state.x, playerCtrl.state.z);
     world.updateLobbyDoors(dt);
+    const gateEvent = world.updateApartmentGates(
+      dt,
+      isRiding ? scooterPhysics.state.x : playerCtrl.state.x,
+      isRiding ? scooterPhysics.state.z : playerCtrl.state.z,
+      isRiding,
+      (id) => delivery.activeMissions.some((m) => m.order.customer.id === id && m.pickedUp),
+    );
+    if (gateEvent) {
+      hud.showToast(
+        gateEvent.kind === 'blocked'
+          ? `👮 경비원: "지상 차량 출입 금지 단지예요! 오토바이는 여기 밖에 세우고 걸어가세요" (도보 수당 +₩${NO_GROUND_WALK_BONUS.toLocaleString()})`
+          : '👮 경비원: "배달 오셨어요? 들어가세요~" (차단기 올라감)',
+        3800,
+      );
+      if (gateEvent.kind === 'blocked') audio.playKeypadBeep(false);
+    }
     perf.lap('streaming');
     traffic.step(
       dt,

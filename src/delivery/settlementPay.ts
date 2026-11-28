@@ -1,4 +1,5 @@
 import { eventBonusEarned } from './demandEvents';
+import { NO_GROUND_WALK_BONUS, isNoGroundVehicleComplex } from './apartmentRules';
 import { ActiveMission, BASE_FLAT_FEE, OPTIMAL_TEMP_BONUS, REGULAR_CUSTOMER_TIP, VILLA_STAIR_BONUS } from './deliveryTypes';
 
 /** Itemized pay for one delivered order (all parts already rounded; `earned` is their exact sum) */
@@ -13,6 +14,8 @@ export interface SettlementPay {
   tipPenalty: number;
   tempBonus: number;
   villaStairBonus: number;
+  /** 지상 차량 출입 금지 단지: walked in with the scooter left outside */
+  walkInBonus: number;
   promisedTipBonus: number;
   rainBonus: number;
   nightBonus: number;
@@ -40,6 +43,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const tip = m.foodTemp < 50 ? Math.round((baseTip * 0.5) / 100) * 100 : baseTip;
   const tempBonus = m.foodTemp >= 80 ? OPTIMAL_TEMP_BONUS : 0;
   const villaStairBonus = o.customer.residenceKind === 'walkup_villa' ? VILLA_STAIR_BONUS : 0;
+  const walkInBonus = isNoGroundVehicleComplex(o.customer) && !m.groundRuleBroken ? NO_GROUND_WALK_BONUS : 0;
   const promisedTipBonus = m.promisedExtraTip > 0 && m.foodIntegrity >= 85 ? m.promisedExtraTip : 0;
   const peakBonus = o.peakBonus ?? 0;
   const onTime = m.remainingTimeSec > 0;
@@ -52,7 +56,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const distPart = Math.max(0, o.baseFee - basePart);
   const earned =
     o.baseFee - damageDed + tip + o.rainBonus + o.nightBonus + peakBonus + specialBonus + regularCustomerTip +
-    eventBonus + tierBonus + tempBonus + villaStairBonus + promisedTipBonus;
+    eventBonus + tierBonus + tempBonus + villaStairBonus + walkInBonus + promisedTipBonus;
   return {
     basePart,
     distPart,
@@ -61,6 +65,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
     tipPenalty: MAX_SAFETY_TIP - tip,
     tempBonus,
     villaStairBonus,
+    walkInBonus,
     promisedTipBonus,
     rainBonus: o.rainBonus,
     nightBonus: o.nightBonus,

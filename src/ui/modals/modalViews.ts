@@ -2,6 +2,7 @@
  * HTML for the data-heavy modals (cargo box, garage, daily statement, settlement). Pure string builders:
  * ModalUi puts them into its elements, tests can check them without a DOM.
  */
+import { noGroundTagHtml } from '../../delivery/apartmentRules';
 import {
   ActiveMission,
   CARGO_SLOT_COUNT,
@@ -72,7 +73,10 @@ function loadedSlotCard(i: number, m: ActiveMission, carrying: ActiveMission | n
   const intPct = Math.round(m.foodIntegrity);
   const tempPct = Math.round(m.foodTemp);
   const tempIcon = m.order.foodTempType === 'cold' ? '🧊' : '🔥';
-  const villaBadge = m.order.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜 계단 +₩500</span>' : '';
+  const villaBadge =
+    m.order.customer.residenceKind === 'walkup_villa'
+      ? '<span class="villa-tag">🪜 계단 +₩500</span>'
+      : noGroundTagHtml(m.order.customer);
   const chatBadge = m.chatNote ? `<div class="chat-note-tag">💬 ${m.chatNote}</div>` : '';
   return `
           <div class="cargo-slot-card occupied ${isHere ? 'near-dest' : ''}">

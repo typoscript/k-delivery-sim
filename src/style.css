@@ -3872,6 +3872,16 @@ body.phone-3d-hover canvas {
   color: #6ee7b7;
 }
 
+.villa-tag.no-ground-tag {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b91c1c;
+}
+
+.phone-device.night .villa-tag.no-ground-tag {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
+}
+
 .chat-note-tag {
   margin-top: 3px;
   padding: 3px 6px;

@@ -1,3 +1,4 @@
+import { noGroundTagHtml } from '../../delivery/apartmentRules';
 import { PlayerState } from '../../player/PlayerController';
 import { eventOrderChip, orderDisplayFee, regularCustomerChip, specialOrderChip } from './orderTags';
 import {
@@ -37,7 +38,7 @@ export function renderCallsTab(player: PlayerState, delivery: DeliveryManager): 
         </div>
         ${o.demandEvent ? `<div class="order-event-row">${eventOrderChip(o)}</div>` : ''}
         <div class="order-bottom">
-          <span class="order-dest">→ ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜계단+500</span>' : ''} (${o.distanceMeters}m)</span>
+          <span class="order-dest">→ ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜계단+500</span>' : ''}${noGroundTagHtml(o.customer)} (${o.distanceMeters}m)</span>
           <button class="order-accept-btn" data-action="accept" data-id="${o.id}" ${canAccept ? '' : 'disabled'}>
             ${full ? '3건 만석' : '수락'}
           </button>
@@ -123,7 +124,7 @@ export function renderAcceptedTab(
       const villaPill =
         m.order.customer.residenceKind === 'walkup_villa'
           ? '<span class="villa-tag">🪜계단+500</span>'
-          : '';
+          : noGroundTagHtml(m.order.customer);
       const chatRow = m.chatNote ? `<div class="chat-note-tag">💬 ${m.chatNote}</div>` : '';
 
       return `
