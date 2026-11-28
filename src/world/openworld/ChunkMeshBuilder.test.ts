@@ -333,3 +333,58 @@ describe('facade tints and rooftops', () => {
     expect(roofVerts(tower)).toBe(flat);
   });
 });
+
+describe('lane markings and curbs', () => {
+  const white = new THREE.MeshBasicMaterial();
+  const curb = new THREE.MeshBasicMaterial();
+  const mats = { ...MATS, roadLineWhite: white, curb };
+  const roadsOf = (width: number, signalA: boolean, isMajor = true) => ({
+    nodes: [
+      { id: 0, x: 0, z: 0, isSignal: signalA },
+      { id: 1, x: 0, z: 100, isSignal: false },
+    ],
+    edges: [{ a: 0, b: 1, dist: 100, width, highway: 'secondary', name: '', isMajor }],
+    discNodeIds: [],
+    nodeMaxWidth: new Float32Array([width, width]),
+  });
+  const empty: ChunkData = { ix: 0, iz: 0, buildings: [], parks: [], waters: [], waterLines: [], pedestrianPlazas: [] };
+  const meshFor = (roads: ReturnType<typeof roadsOf>, mat: THREE.Material) => {
+    const r = buildChunkMeshes(empty, roads, mats);
+    return { r, mesh: meshesOf(r.group).find((m) => m.material === mat) };
+  };
+
+  it('major roads get white edge lines and front-facing curbs on both sides', () => {
+    const { r, mesh: lines } = meshFor(roadsOf(10, false), white);
+    const curbMesh = meshesOf(r.group).find((m) => m.material === curb)!;
+    expect(lines).toBeDefined();
+    expectFrontFacing(curbMesh.geometry);
+    // curbs sit just outside both road edges (x = +-5 .. +-5.25)
+    const pos = curbMesh.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const ax = Math.abs(pos.getX(i));
+      expect(ax).toBeGreaterThanOrEqual(5 - 1e-6);
+      expect(ax).toBeLessThanOrEqual(5.25 + 1e-6);
+    }
+    r.dispose();
+  });
+
+  it('wide roads add dashed lane dividers; minor roads and alleys get nothing', () => {
+    const narrow = meshFor(roadsOf(10, false), white);
+    const wide = meshFor(roadsOf(16, false), white);
+    expect(wide.mesh!.geometry.attributes.position.count).toBeGreaterThan(
+      narrow.mesh!.geometry.attributes.position.count * 3,
+    );
+    expect(meshFor(roadsOf(10, false, false), white).mesh).toBeUndefined();
+    expect(meshFor(roadsOf(6, false), white).mesh).toBeUndefined();
+    for (const x of [narrow, wide]) x.r.dispose();
+  });
+
+  it('markings and curbs stop before a signal junction (crosswalk + stop line)', () => {
+    const { r, mesh } = meshFor(roadsOf(10, true), curb);
+    const pos = mesh!.geometry.getAttribute('position');
+    let minZ = Infinity;
+    for (let i = 0; i < pos.count; i++) minZ = Math.min(minZ, pos.getZ(i));
+    expect(minZ).toBeGreaterThanOrEqual(11.5 - 1e-6);
+    r.dispose();
+  });
+});

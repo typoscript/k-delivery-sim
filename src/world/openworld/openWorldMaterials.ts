@@ -19,6 +19,15 @@ export function createOpenWorldMaterials(): ChunkMaterials {
     plaza: new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
     farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
     ...createStorefrontMaterials(),
+    ...createRoadEdgeMaterials(),
+  };
+}
+
+/** White road markings and concrete curbs of chunk roads */
+export function createRoadEdgeMaterials(): { roadLineWhite: THREE.Material; curb: THREE.Material } {
+  return {
+    roadLineWhite: new THREE.MeshBasicMaterial({ color: 0xe5e7eb }),
+    curb: new THREE.MeshLambertMaterial({ color: 0xb8bcc2 }),
   };
 }
 

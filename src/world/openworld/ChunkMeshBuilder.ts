@@ -23,6 +23,9 @@ export interface ChunkMaterials {
   plaza: THREE.Material;
   /** Far LOD: untextured vertex-coloured buildings (one mesh per chunk) */
   farBuildings: THREE.Material;
+  /** White lane markings (edge lines, lane dividers) and raised curbs on major roads; none when omitted */
+  roadLineWhite?: THREE.Material;
+  curb?: THREE.Material;
   /** Ground-floor shopfronts (glass) and their signboards (vertex-coloured); none when omitted */
   storefrontGlass?: THREE.Material;
   storefrontSign?: THREE.Material;
@@ -355,6 +358,85 @@ export function addRooftop(roof: GeoBuffer, b: OsmBuildingData): void {
   addBox(roof, b.cx + off(16, b.w), h, b.cz + off(17, b.d), units * 1.1, 0.7, 0.55);
 }
 
+/** Curb: 0.25 m wide, 0.13 m above the sidewalk level */
+const CURB_W = 0.25;
+const CURB_TOP = 0.13;
+
+/**
+ * Lane markings and curbs of one major road segment, trimmed back from both junctions (discs / crosswalks):
+ * solid white edge lines, white dashed lane dividers on roads wide enough for two lanes a direction, and a raised
+ * curb (top + road-facing side) along both edges.
+ */
+export function addRoadEdges(
+  white: GeoBuffer | null,
+  curb: GeoBuffer | null,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  width: number,
+  y: number,
+  trimA: number,
+  trimB: number
+): void {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const len = Math.hypot(dx, dz);
+  if (len - trimA - trimB < 3) return;
+  const fx = dx / len;
+  const fz = dz / len;
+  // right = forward x up = (-fz, 0, fx)
+  const rx = -fz;
+  const rz = fx;
+  const sx = ax + fx * trimA;
+  const sz = az + fz * trimA;
+  const ex = bx - fx * trimB;
+  const ez = bz - fz * trimB;
+  const at = (off: number, x: number, z: number): [number, number] => [x + rx * off, z + rz * off];
+  const hw = width / 2;
+  if (white) {
+    for (const side of [-1, 1]) {
+      const off = side * (hw - 0.45);
+      addRibbon(white, [at(off, sx, sz), at(off, ex, ez)], 0.15, y + 0.012, 0);
+    }
+    // two lanes each way: dashed dividers half way between the centre and the edge
+    if (width >= 13) {
+      const usable = len - trimA - trimB;
+      const n = Math.floor(usable / 9);
+      for (const side of [-1, 1]) {
+        const off = side * (hw / 2);
+        for (let i = 0; i < n; i++) {
+          const t0 = trimA + i * 9 + 1.5;
+          const t1 = t0 + 3;
+          addRibbon(white, [at(off, ax + fx * t0, az + fz * t0), at(off, ax + fx * t1, az + fz * t1)], 0.13, y + 0.012, 0);
+        }
+      }
+    }
+  }
+  if (curb) {
+    for (const side of [-1, 1]) {
+      const inner = side * hw;
+      const outer = side * (hw + CURB_W);
+      const [p0x, p0z] = at(inner, sx, sz);
+      const [p1x, p1z] = at(inner, ex, ez);
+      const [q0x, q0z] = at(outer, sx, sz);
+      const [q1x, q1z] = at(outer, ex, ez);
+      // top
+      addFlatPolygon(curb, [
+        [p0x, p0z],
+        [p1x, p1z],
+        [q1x, q1z],
+        [q0x, q0z],
+      ], CURB_TOP);
+      // road-facing side: normal points back toward the road centre (-side * right)
+      const nx = -side * rx;
+      const nz = -side * rz;
+      if (side > 0) addWallQuad(curb, p0x, p0z, p1x, p1z, nx, nz, y, CURB_TOP, 0);
+      else addWallQuad(curb, p1x, p1z, p0x, p0z, nx, nz, y, CURB_TOP, 0);
+    }
+  }
+}
+
 /** Flat ribbon along a polyline (roads, rivers, pedestrian streets) */
 function addRibbon(
   buf: GeoBuffer,
@@ -498,11 +580,16 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   // --- Roads: merged ribbons + junction discs + yellow centre dashes on arterials
   const road = new GeoBuffer();
   const lines = new GeoBuffer();
+  const white = mats.roadLineWhite ? new GeoBuffer() : null;
+  const curbs = mats.curb ? new GeoBuffer() : null;
+  // markings / curbs stop short of junction discs, and of crosswalks + stop lines at signals
+  const trimAt = (id: number) => Math.max(roads.nodeMaxWidth[id] * 0.55 + 0.5, roads.nodes[id].isSignal ? 11.5 : 0);
   for (const e of roads.edges) {
     const a = roads.nodes[e.a];
     const b = roads.nodes[e.b];
     const y = e.isMajor ? ROAD_Y_MAJOR : ROAD_Y_MINOR;
     addRibbon(road, [[a.x, a.z], [b.x, b.z]], e.width, y, ROAD_UV_SCALE);
+    if (e.isMajor && e.width >= 8 && (white || curbs)) addRoadEdges(white, curbs, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b));
     if (e.isMajor && e.dist >= 10) {
       const dx = b.x - a.x;
       const dz = b.z - a.z;
@@ -521,6 +608,8 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   }
   addMesh(road, mats.road, {});
   addMesh(lines, mats.roadLine, { receive: false });
+  if (white) addMesh(white, mats.roadLineWhite!, { receive: false });
+  if (curbs) addMesh(curbs, mats.curb!, {});
 
   // --- Ground cover: parks, water bodies, rivers/streams, pedestrian streets
   const park = new GeoBuffer();

@@ -13,6 +13,13 @@ export interface SignalHazardZone {
   crosswalkRadius: number;
 }
 
+/** Zebra stripe size (stop lines reuse the same instanced geometry, scaled) */
+const STRIPE_W = 0.65;
+const STRIPE_L = 2.3;
+/** Stop line: 0.45 m wide, ~2.4 m behind the crosswalk centre (crosswalk is 2.3 m deep) */
+const STOP_LINE_W = 0.45;
+const STOP_LINE_FROM_CROSSWALK_M = 2.4;
+
 /** Renders all 218 real Suwon Ingye-dong OSM roads, 나혜석거리 pedestrian plaza, crosswalks & manholes */
 export function buildSuwonOsmRoads(host: CityWorld): void {
   host.asphaltMat = new THREE.MeshStandardMaterial({
@@ -135,7 +142,7 @@ export function buildSuwonOsmRoads(host: CityWorld): void {
   // Crosswalks & Wet Metallic Manhole Covers at Signalized Suwon Intersections!
   const manholeGeo = new THREE.CylinderGeometry(0.74, 0.78, 0.032, 14);
   const manholePositions: Array<[number, number]> = [];
-  const stripeGeo = new THREE.PlaneGeometry(0.65, 2.3);
+  const stripeGeo = new THREE.PlaneGeometry(STRIPE_W, STRIPE_L);
   stripeGeo.rotateX(-Math.PI / 2);
 
   const signalNodes = nodes.filter((n) => n.isSignal);
@@ -180,6 +187,17 @@ export function buildSuwonOsmRoads(host: CityWorld): void {
       const halfW = e.width * 0.42;
       for (let off = -halfW; off <= halfW; off += 1.65) {
         crosswalkMatrices.push(placeMatrix(cwCenterX + rx * off, 0.054, cwCenterZ + rz * off, heading));
+      }
+      // Stop line behind the crosswalk across the lanes coming INTO the junction: traffic heading to the node
+      // drives on its right = -r side (forward x up, forward = -u). Same stripe geometry, scaled per instance.
+      if (e.width >= 6) {
+        const span = e.width / 2 - 0.5;
+        const mid = -(0.15 + span / 2);
+        const sx = cwCenterX + ux * STOP_LINE_FROM_CROSSWALK_M + rx * mid;
+        const sz = cwCenterZ + uz * STOP_LINE_FROM_CROSSWALK_M + rz * mid;
+        crosswalkMatrices.push(
+          placeMatrix(sx, 0.054, sz, heading, new THREE.Matrix4().makeScale(span / STRIPE_W, 1, STOP_LINE_W / STRIPE_L))
+        );
       }
     }
   }
