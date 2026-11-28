@@ -9,6 +9,7 @@ import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
 import { getSignalAxis, signalNodesNear } from '../TrafficRules';
 import type { SignalColor, SignalStateSnapshot, TrafficSystem } from '../TrafficSystem';
 import { CYCLE_DURATION } from './trafficTypes';
+import { MID_BLOCK_CROSSINGS, midBlockPhaseNow } from './midBlockSignals';
 
 /** Signal phase at a game time: NS green 7s, yellow 2s, then EW green 7s, yellow 2s (18s cycle) */
 export function signalPhaseAt(elapsedTime: number): SignalStateSnapshot {
@@ -54,6 +55,24 @@ export function checkPlayerRedLight(
         if (prevD > 8.0 && curD <= 8.0) {
           const mySig = getSignalAxis(sn.id, moveX, moveZ) === 'ns' ? ns : ew;
           if (mySig === 'red') {
+            host.violationCooldown = 5.0;
+            onRedLightViolation();
+          }
+          break;
+        }
+      }
+      // mid-block signalized crosswalks: crossing the stop band on the car red
+      if (host.violationCooldown <= 0) {
+        for (let i = 0; i < MID_BLOCK_CROSSINGS.length; i++) {
+          const c = MID_BLOCK_CROSSINGS[i];
+          if (Math.abs(c.x - playerX) > 14 || Math.abs(c.z - playerZ) > 14) continue;
+          const ux = Math.sin(c.h);
+          const uz = Math.cos(c.h);
+          const prevAlong = (host.prevPlayerX - c.x) * ux + (host.prevPlayerZ - c.z) * uz;
+          const along = (playerX - c.x) * ux + (playerZ - c.z) * uz;
+          const across = Math.abs((playerX - c.x) * -uz + (playerZ - c.z) * ux);
+          if (across > c.w / 2 + 1 || Math.sign(prevAlong) === Math.sign(along)) continue;
+          if (midBlockPhaseNow(i).car === 'red') {
             host.violationCooldown = 5.0;
             onRedLightViolation();
           }

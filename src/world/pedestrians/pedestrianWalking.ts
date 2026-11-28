@@ -1,3 +1,4 @@
+import { midBlockPhaseNow } from '../traffic/midBlockSignals';
 /** Pedestrian navigation: sidewalk walking (yield + detour), waiting at / crossing roads, path following */
 import { isMarkedCrossingSafe, isRoadCrossingClear, overlapsBody, pushOutOfBodies, type VehicleBody } from '../vehicleBodies';
 import type { SignalStateSnapshot } from '../TrafficSystem';
@@ -80,10 +81,13 @@ export function stepNavigation(host: PedestrianManager, a: PedestrianAgent, f: P
       const look =
         prevWait === 0 ||
         Math.floor(prevWait / CROSS_LOOK_INTERVAL_SEC) !== Math.floor(a.crossWaitTimer / CROSS_LOOK_INTERVAL_SEC);
-      // a painted crosswalk: cars must stop (they see where it leads), so only a car too close to stop matters
-      a.markedCrossTo = a.activeEdge.marked ? { x: g.targetNode.x, z: g.targetNode.z } : null;
+      // with its own lights: only on the walk light (cars have red), then like any painted crosswalk
+      const walkLight = a.activeEdge.midSignal === undefined || midBlockPhaseNow(a.activeEdge.midSignal).walk;
+      // a painted crosswalk: cars must stop (they see where it leads) - with lights, only on the walk light
+      a.markedCrossTo = a.activeEdge.marked && walkLight ? { x: g.targetNode.x, z: g.targetNode.z } : null;
       const clear =
         look &&
+        walkLight &&
         (a.activeEdge.marked
           ? isMarkedCrossingSafe(a.x, a.z, g.targetNode.x, g.targetNode.z, f.cars)
           : isRoadCrossingClear(a.x, a.z, g.targetNode.x, g.targetNode.z, f.cars, a.walkSpeed));

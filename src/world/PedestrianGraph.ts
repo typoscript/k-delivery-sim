@@ -1,5 +1,6 @@
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { getSignalAxis } from './TrafficRules';
+import { midBlockAt } from './traffic/midBlockSignals';
 
 export type PedestrianNodeKind = 'corner_tactile' | 'sidewalk_mid';
 export type PedestrianEdgeKind = 'sidewalk' | 'crosswalk';
@@ -33,6 +34,8 @@ export interface PedestrianEdge {
    * car that could no longer stop, and cars stop for them
    */
   marked?: boolean;
+  /** A painted crosswalk with its own lights: index into MID_BLOCK_CROSSINGS (wait for the walk light) */
+  midSignal?: number;
   distance: number;
 }
 
@@ -206,7 +209,10 @@ export class PedestrianGraph {
       // Mid-block crosswalks: across the road between the two curb pads
       if (crossNodes.length === 2) {
         for (let k = 0; k < stations.length; k++) {
-          this.addBidirectionalEdge(crossNodes[0][k], crossNodes[1][k], 'sidewalk', undefined, true, true);
+          const p0 = this.nodes[crossNodes[0][k]];
+          const p1 = this.nodes[crossNodes[1][k]];
+          const mid = midBlockAt((p0.x + p1.x) / 2, (p0.z + p1.z) / 2);
+          this.addBidirectionalEdge(crossNodes[0][k], crossNodes[1][k], 'sidewalk', undefined, true, true, mid);
         }
       }
 
@@ -306,13 +312,18 @@ export class PedestrianGraph {
     kind: PedestrianEdgeKind,
     crossingAxis?: CrosswalkAxis,
     crossesRoad = false,
-    marked = false
+    marked = false,
+    midSignal = -1
   ): void {
     const na = this.nodes[a];
     const nb = this.nodes[b];
     const dist = Math.hypot(nb.x - na.x, nb.z - na.z);
     if (dist < 0.2) return;
-    const extra = { ...(crossesRoad ? { crossesRoad: true } : {}), ...(marked ? { marked: true } : {}) };
+    const extra = {
+      ...(crossesRoad ? { crossesRoad: true } : {}),
+      ...(marked ? { marked: true } : {}),
+      ...(midSignal >= 0 ? { midSignal } : {}),
+    };
     this.adjacency[a].push({ to: b, kind, crossingAxis, distance: dist, ...extra });
     this.adjacency[b].push({ to: a, kind, crossingAxis, distance: dist, ...extra });
   }

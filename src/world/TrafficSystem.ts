@@ -1,3 +1,5 @@
+import { MID_BLOCK_CROSSINGS, setMidBlockClock } from './traffic/midBlockSignals';
+import { MidBlockLamps } from './traffic/midBlockLamps';
 import { signalColor } from '../game/accessibility';
 import * as THREE from 'three';
 import { VehicleFleetRenderer } from './VehicleFleetRenderer';
@@ -50,6 +52,8 @@ export class TrafficSystem {
   /** @internal traffic/* */
   readonly nsYellowMat: THREE.MeshStandardMaterial;
   /** @internal traffic/* */
+  /** Lights of the mid-block signalized crosswalks (unified map) */
+  midBlockLamps: MidBlockLamps | null = null;
   readonly nsGreenMat: THREE.MeshStandardMaterial;
   /** @internal traffic/* */
   readonly ewRedMat: THREE.MeshStandardMaterial;
@@ -147,6 +151,7 @@ export class TrafficSystem {
     });
 
     buildTrafficSignals(this);
+    if (MID_BLOCK_CROSSINGS.length > 0) this.midBlockLamps = new MidBlockLamps(this.root);
     this.setSignalColorSafe(false);
     spawnTrafficVehicles(this);
   }
@@ -202,6 +207,8 @@ export class TrafficSystem {
 
     // 1. Signal phase (shared by every road user) and the player's red-light check
     this.signalState = signalPhaseAt(elapsedTime);
+    setMidBlockClock(elapsedTime);
+    this.midBlockLamps?.update();
     const { ns, ew } = this.signalState;
     applySignalLamps(this, ns, ew);
     checkPlayerRedLight(this, clampedDt, playerX, playerZ, playerSpeedMps, isRiding, ns, ew, onRedLightViolation);
@@ -264,5 +271,6 @@ export class TrafficSystem {
     ] as const) {
       mat.emissive.setHex(signalColor(c, on));
     }
+    this.midBlockLamps?.setColorSafe(on, { red: signalColor('red', on), yellow: signalColor('yellow', on), green: signalColor('green', on) });
   }
 }

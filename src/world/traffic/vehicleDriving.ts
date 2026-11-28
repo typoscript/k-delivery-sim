@@ -1,3 +1,4 @@
+import { midBlockAhead, midBlockPhaseNow } from './midBlockSignals';
 /** One AI vehicle's frame: bus stop dwell, sensing (cars, player, parked scooter, pedestrians), passing, speed and edge progress */
 import { clamp } from '../../types';
 import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
@@ -336,6 +337,10 @@ export function signalCapFor(v: AiVehicle, distToNode: number, ns: SignalColor, 
     const d = edgeDirection(v.fromNode, v.toNode);
     const sig = getSignalAxis(v.toNode, d.fx, d.fz) === 'ns' ? ns : ew;
     cap = Math.min(cap, signalSpeedCap(v.speed, distToNode - SIGNAL_STOP_LINE_OFFSET, sig));
+  }
+  // mid-block signalized crosswalks on this edge
+  for (const m of midBlockAhead(v.fromNode, v.toNode, v.edgeDist, v.progress)) {
+    if (m.stopDist < SIGNAL_LOOKAHEAD) cap = Math.min(cap, signalSpeedCap(v.speed, Math.max(0, m.stopDist), midBlockPhaseNow(m.index).car));
   }
   const ne = v.nextEdge;
   if (ne && nodes[ne.to].isSignal) {
