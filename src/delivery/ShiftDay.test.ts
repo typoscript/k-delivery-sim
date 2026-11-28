@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DELIVERIES_GOAL, ROTATING_GOALS, SAFE_GOAL, ShiftGoalId, goalsForDay, goalsToAward, shiftGoalStatuses } from './ShiftDay';
+import { CLEAN_GOAL, DELIVERIES_GOAL, ROTATING_GOALS, SAFE_GOAL, ShiftGoalId, goalsForDay, goalsToAward, shiftGoalStatuses } from './ShiftDay';
 
 const DISTRICTS = [
   { id: 'ingye', label: '인계동' },
@@ -14,12 +14,13 @@ const state = (completedCount: number, counters: Record<string, number> = {}, ac
 });
 
 describe('daily goals', () => {
-  it('every day has 배달 3건 first, two different rotating goals, and the clock-out goal last', () => {
+  it('every day has 배달 3건 first, two different rotating goals, and the two clock-out goals last', () => {
     for (let day = 1; day <= 60; day++) {
       const g = goalsForDay(day, DISTRICTS);
-      expect(g).toHaveLength(4);
+      expect(g).toHaveLength(5);
       expect(g[0]).toBe(DELIVERIES_GOAL);
       expect(g[3]).toBe(SAFE_GOAL);
+      expect(g[4]).toBe(CLEAN_GOAL);
       expect(g[1].id).not.toBe(g[2].id);
     }
     expect(goalsForDay(7, DISTRICTS)).toEqual(goalsForDay(7, DISTRICTS)); // same day, same goals

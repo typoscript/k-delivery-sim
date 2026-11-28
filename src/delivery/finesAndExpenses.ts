@@ -1,5 +1,6 @@
 /** Money going out: traffic tickets, fines, pedestrian accident penalty and fuel / repair / store expenses */
 import type { DeliveryManager } from './DeliveryManager';
+import { VIOLATION_COUNTER } from './ShiftDay';
 import { FineKind, PEDESTRIAN_ACCIDENT_FINE, PEDESTRIAN_RATING_PENALTY, fineCounterKey } from './deliveryTypes';
 
 /** Ticket written by a patrol (red light / sidewalk): fine + rider trust rating penalty */
@@ -19,6 +20,7 @@ export function applyTrafficTicket(
 export function applyFine(host: DeliveryManager, amount: number, kind?: FineKind): number {
   host.fineExpense += amount;
   if (kind) host.progress.bump(fineCounterKey(kind), amount);
+  if (kind && kind !== 'pedestrian') host.progress.bump(VIOLATION_COUNTER);
   host.totalEarnings -= amount;
   host.persistCareer();
   return amount;

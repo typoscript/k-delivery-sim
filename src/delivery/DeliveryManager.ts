@@ -15,6 +15,7 @@ import {
 } from './RiderCareer';
 import {
   SAFE_STOP_COUNTER,
+  VIOLATION_COUNTER,
   SAFE_STOP_RATING_DAILY_MAX,
   SAFE_STOP_RATING_GAIN,
   SHIFT_LEDGER_KEYS,
@@ -302,6 +303,11 @@ export class DeliveryManager {
     const { goals, bonus } = this.awardDueGoals('delivery');
     this.persistCareer();
     return { count, ratingGain, newRating: this.riderRating, goals, bonus };
+  }
+
+  /** Traffic violations today (speeding / red light / sidewalk riding) */
+  public get todayViolations(): number {
+    return this.progress.counters[VIOLATION_COUNTER] ?? 0;
   }
 
   /** The current week so far (finished days of this week) */

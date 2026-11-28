@@ -5,7 +5,7 @@ import {
   VILLA_STAIR_BONUS,
 } from './DeliveryManager';
 import { DeliveryLocation } from '../types';
-import { DELIVERIES_GOAL, SAFE_GOAL, goalsForDay } from './ShiftDay';
+import { CLEAN_GOAL, DELIVERIES_GOAL, SAFE_GOAL, goalsForDay } from './ShiftDay';
 import { SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 
 const DAILY_MISSION_TARGET = DELIVERIES_GOAL.target;
@@ -170,7 +170,7 @@ describe('DeliveryManager mission flow', () => {
     dm.shiftDay = day;
     const ids = dm.todaysGoals().map((g) => g.id);
     expect(ids[0]).toBe('deliveries');
-    expect(ids.at(-1)).toBe('safe');
+    expect(ids.slice(-2)).toEqual(['safe', 'clean']);
     expect(ids).toContain('peak');
     const paid: string[] = [];
     for (let i = 0; i < 3; i++) paid.push(...deliver(dm, accept(dm).order.id).goalsCompleted.map((g) => g.id));
@@ -190,8 +190,8 @@ describe('DeliveryManager mission flow', () => {
     const res = dm.clockOut()!;
     expect(res.day).toBe(1);
     expect(res.nextDay).toBe(2);
-    expect(res.awardedAtClockOut.map((g) => g.id)).toEqual(['safe']);
-    expect(dm.totalEarnings).toBe(wallet + SAFE_GOAL.bonus);
+    expect(res.awardedAtClockOut.map((g) => g.id)).toEqual(['safe', 'clean']);
+    expect(dm.totalEarnings).toBe(wallet + SAFE_GOAL.bonus + CLEAN_GOAL.bonus);
     expect(res.ledger.completedCount).toBe(3);
     // every claimed goal's bonus (deliveries, maybe a rotating one, and the clock-out goal) is in the ledger
     expect(res.ledger.missionBonusTotal).toBe(res.goals.filter((g) => g.claimed).reduce((a, g) => a + g.bonus, 0));
@@ -312,7 +312,28 @@ describe('DeliveryManager mission flow', () => {
     const m = accept(dm);
     expect(dm.clockOut()).toBeNull(); // still has an order
     dm.cancelMission(m.order.id);
-    expect(dm.clockOut()!.awardedAtClockOut).toEqual([]);
+    // no accident-free bonus; the no-violation goal is about traffic rules and still pays
+    expect(dm.clockOut()!.awardedAtClockOut.map((g) => g.id)).toEqual(['clean']);
+  });
+
+  it('a traffic violation loses today\'s no-violation bonus; days in a row without one unlock 무위반 7일', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);
+    expect(dm.getShiftGoals().find((g) => g.id === 'clean')!.met).toBe(true);
+    dm.applyFine(1000, 'signal'); // ran a red light
+    expect(dm.getShiftGoals().find((g) => g.id === 'clean')!.met).toBe(false);
+    const day1 = dm.clockOut()!;
+    expect(day1.awardedAtClockOut.map((g) => g.id)).toEqual(['safe']);
+    expect(dm.getDayHistory().at(-1)!.violations).toBe(1);
+    // the pedestrian accident fine is not a traffic violation
+    for (let d = 0; d < 7; d++) {
+      for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);
+      if (d === 0) dm.applyFine(500, 'pedestrian');
+      dm.clockOut();
+    }
+    const clean7 = dm.getAchievements().find((a) => a.id === 'clean7')!;
+    expect(clean7.current).toBe(7);
+    expect(clean7.unlocked).toBe(true);
   });
 
   it('a group order always waits at the counter; a customer becomes a regular after 2 deliveries', () => {

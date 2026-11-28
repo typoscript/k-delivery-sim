@@ -27,6 +27,10 @@ export const SAFE_STOP_RATING_GAIN = 0.1;
 
 /** Every day: the delivery count goal first, the accident-free clock-out goal last */
 export const DELIVERIES_GOAL: ShiftGoalSpec = { id: 'deliveries', icon: '📦', title: '배달 3건 완료', target: 3, bonus: 5000, awardAt: 'delivery' };
+/** Daily count of traffic violations (speeding / red light / sidewalk riding, warnings and tickets alike) */
+export const VIOLATION_COUNTER = '_violations';
+/** Every day: no traffic violation all day (paid at clock-out, like the accident-free goal) */
+export const CLEAN_GOAL: ShiftGoalSpec = { id: 'clean', icon: '🚦', title: '교통 위반 0회 퇴근 (3건 이상)', target: 3, bonus: 2500, awardAt: 'clock_out' };
 export const SAFE_GOAL: ShiftGoalSpec = { id: 'safe', icon: '🛡️', title: '무사고 퇴근 (3건 이상 · 보행자 사고 0건)', target: 3, bonus: 2000, awardAt: 'clock_out' };
 
 /** Rotating goals: two of these (plus district goals) are picked per working day */
@@ -68,7 +72,7 @@ export function goalsForDay(day: number, districts: readonly GoalDistrict[]): Sh
   const first = pool[Math.floor(dayRand(day, 1) * pool.length)];
   const rest = pool.filter((g) => g !== first);
   const second = rest[Math.floor(dayRand(day, 2) * rest.length)];
-  return [DELIVERIES_GOAL, first, second, SAFE_GOAL];
+  return [DELIVERIES_GOAL, first, second, SAFE_GOAL, CLEAN_GOAL];
 }
 
 /** Per-shift totals (the daily ledger) that are saved with the shift */
@@ -166,6 +170,9 @@ export interface ShiftGoalStatus extends ShiftGoalSpec {
 function progressOf(g: ShiftGoalSpec, s: ShiftGoalState): { current: number; met: boolean } {
   if (g.id === SAFE_GOAL.id) {
     return { current: s.completedCount, met: s.completedCount >= g.target && s.pedestrianAccidentCount === 0 };
+  }
+  if (g.id === CLEAN_GOAL.id) {
+    return { current: s.completedCount, met: s.completedCount >= g.target && (s.counters[VIOLATION_COUNTER] ?? 0) === 0 };
   }
   const current = g.counter ? (s.counters[g.counter] ?? 0) : s.completedCount;
   return { current, met: current >= g.target };

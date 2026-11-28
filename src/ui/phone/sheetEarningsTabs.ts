@@ -15,7 +15,13 @@ export function renderDailyMissionWidget(delivery: DeliveryManager): string {
           ? `퇴근 시 +₩${g.bonus.toLocaleString()}`
           : `+₩${g.bonus.toLocaleString()}`;
       const sub =
-        g.id === 'safe'
+        g.id === 'clean'
+          ? delivery.todayViolations > 0
+            ? `오늘 교통 위반 ${delivery.todayViolations}회 · 무위반 보너스는 지급되지 않아요`
+            : g.met
+              ? '지금 퇴근하면 무위반 보너스가 지급돼요'
+              : `${g.target - g.current}건 더 배달하고 신호·속도·인도 위반 없이 퇴근하기`
+          : g.id === 'safe'
           ? delivery.pedestrianAccidentCount > 0
             ? '오늘 보행자 사고가 있어 무사고 보너스는 지급되지 않아요'
             : g.met

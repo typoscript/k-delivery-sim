@@ -2,6 +2,7 @@
  * Career history across working days: one record per finished shift, lifetime counters and achievements.
  * Saved with the rider career (localStorage is user-editable, so every parser validates). Pure logic, unit tested.
  */
+import { VIOLATION_COUNTER } from './ShiftDay';
 
 /** Keep the most recent finished days */
 export const MAX_DAY_HISTORY = 30;
@@ -21,6 +22,8 @@ export interface DayRecord {
   goalsMet: number;
   goalsTotal: number;
   accidents: number;
+  /** Traffic violations of the day (missing on days recorded before violations were counted) */
+  violations?: number;
 }
 
 export interface CareerStats {
@@ -62,6 +65,20 @@ export function safeDayStreak(history: readonly DayRecord[]): number {
   for (let i = history.length - 1; i >= 0; i--) {
     const d = history[i];
     if (d.deliveries >= 3 && d.accidents === 0) streak++;
+    else break;
+  }
+  return streak;
+}
+
+/**
+ * Days in a row (newest first) with 3+ deliveries and no traffic violation. Days recorded before violations were
+ * counted end the streak (unknown, so never counted as clean).
+ */
+export function cleanDayStreak(history: readonly DayRecord[]): number {
+  let streak = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const d = history[i];
+    if (d.deliveries >= 3 && d.violations === 0) streak++;
     else break;
   }
   return streak;
@@ -110,7 +127,9 @@ export const ACHIEVEMENTS: readonly AchievementSpec[] = [
     desc: '모든 구역에 배달 1건 이상',
     target: 1,
     progress: (s) => (s.districtIds.length > 0 && s.districtIds.every((id) => (s.counters[`district:${id}`] ?? 0) > 0) ? 1 : 0),
-  },  { id: 'soup', icon: '🍲', title: '국물 장인', desc: '비 오는 날 국물 콜을 안 쏟고 20건 (이벤트 할증)', target: 20, progress: counter('eventSoup') },
+  },  { id: 'safestop30', icon: '🚦', title: '안전 운전 습관', desc: '경고 후 안전 정지 · 보행자 양보 누적 30회', target: 30, progress: counter('safeStop') },
+  { id: 'clean7', icon: '🏁', title: '무위반 7일', desc: '3건 이상 · 교통 위반 0회로 7일 연속 퇴근', target: 7, progress: (s) => cleanDayStreak(s.history) },
+  { id: 'soup', icon: '🍲', title: '국물 장인', desc: '비 오는 날 국물 콜을 안 쏟고 20건 (이벤트 할증)', target: 20, progress: counter('eventSoup') },
   { id: 'snack', icon: '🍗', title: '야식 배달왕', desc: '야식 콜을 따뜻하게 30건 (이벤트 할증)', target: 30, progress: counter('eventSnack') },
 ];
 
@@ -161,6 +180,7 @@ export function makeDayRecord(i: DayRecordInput): DayRecord {
     goalsMet: i.goalsMet,
     goalsTotal: i.goalsTotal,
     accidents: i.pedestrianAccidentCount,
+    violations: i.counters[VIOLATION_COUNTER] ?? 0,
   };
 }
 
@@ -193,6 +213,7 @@ export function parseDayHistory(raw: unknown): DayRecord[] {
       goalsMet: finite(o.goalsMet) ? Math.max(0, Math.min(goalsTotal, Math.floor(o.goalsMet))) : 0,
       goalsTotal,
       accidents: finite(o.accidents) ? Math.max(0, Math.floor(o.accidents)) : 0,
+      ...(finite(o.violations) ? { violations: Math.max(0, Math.floor(o.violations)) } : {}),
     });
   }
   let merged: DayRecord[] = [];
