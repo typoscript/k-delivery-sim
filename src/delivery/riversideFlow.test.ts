@@ -2,12 +2,13 @@
  * A riverside (산책로 쉼터) delivery from the call to the customer leaving, on the real map: accept, pick up at the
  * shop, load the cargo box, ride (timers, chat events), park and unload on the road, walk to the bench, hand over,
  * settle, and the bench customer waves and leaves. Scene-free: the systems the game wires together each frame, in
- * the same order the hand-over takes (deliveryFlow.handleRiversideHandoff). Refactors of any of them must keep this.
+ * the hand-over through the same functions deliveryFlow calls (riversideHandoff.ts). Refactors of any of them must keep this.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { DeliveryManager } from './DeliveryManager';
 import { RIVERSIDE_WALK_BONUS } from './apartmentRules';
+import { finishBenchHandoff, isBenchHandoff, startBenchHandoff } from './riversideHandoff';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { RoadNavigator } from '../world/RoadNavigator';
 import { BENCH_GOODBYE_SEC, BenchCustomers, benchSeat } from '../world/benchCustomers';
@@ -74,16 +75,18 @@ describe('riverside delivery, end to end (real map)', () => {
     expect(customers.root.children[0].position.y).toBe(0); // stood up for the food
     expect(dm.getMissionNearCustomerLobby(bench.x, bench.z)?.order.id).toBe(order.id);
 
-    // 4. the hand-over (as deliveryFlow.handleRiversideHandoff): settle right on the walkway
+    // 4. the hand-over, with the functions deliveryFlow calls: settle right on the walkway
+    expect(isBenchHandoff(dm.getMissionNearCustomerLobby(bench.x, bench.z))).toBe(true);
     const walletBefore = dm.totalEarnings;
-    m.phase = 'meet_waiting';
+    expect(startBenchHandoff(dm, order.id)).toBe(true);
+    expect(startBenchHandoff(dm, order.id)).toBe(false); // only once
     const r = dm.completePhotoSettlement()!;
     expect(r).not.toBeNull();
     expect(r.walkInBonus).toBe(RIVERSIDE_WALK_BONUS);
     expect(settlementLines(r).some((l) => l.key === 'walkIn' && l.label.includes('하천 산책로'))).toBe(true);
     expect(dm.totalEarnings).toBe(walletBefore + r.earned);
     expect(dm.messenger.get(`c:${order.id}`)!.messages.at(-1)!.text).toContain(r.review.comment);
-    dm.finishAfterCorridorExit();
+    finishBenchHandoff(dm);
     expect(dm.activeMissions).toHaveLength(0);
     expect(dm.getDailyLedger().completedCount).toBe(1);
 

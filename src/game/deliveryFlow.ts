@@ -1,3 +1,4 @@
+import { finishBenchHandoff, startBenchHandoff } from '../delivery/riversideHandoff';
 import * as THREE from 'three';
 import { GameContext } from './GameContext';
 import { setWeatherMode } from './clockSync';
@@ -383,9 +384,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
 
   /** 산책로 쉼터: the customer on the bench takes the food; the settlement opens right on the walkway */
   const handleRiversideHandoff = (missionId: string) => {
-    const m = delivery.getMissionById(missionId);
-    if (!m || m.phase !== 'carrying_to_lobby') return;
-    m.phase = 'meet_waiting';
+    if (!startBenchHandoff(delivery, missionId)) return;
     state.riversideHandoff = true;
     audio.playChime('pickup');
     voiceNav.speak('손님께 음식을 전달했습니다.');
@@ -397,7 +396,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
     if (riverside) {
       // outdoors already: the delivery ends right here
       state.riversideHandoff = false;
-      delivery.finishAfterCorridorExit();
+      finishBenchHandoff(delivery);
     }
     if (state.pendingMissionBonusPopup) {
       const info = state.pendingMissionBonusPopup;

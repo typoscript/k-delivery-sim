@@ -1,3 +1,4 @@
+import { isBenchHandoff } from '../../delivery/riversideHandoff';
 import type { InteractEnv } from './interactEnv';
 import { NO_GROUND_WALK_BONUS, isNoGroundVehicleComplex, scooterInsideComplex } from '../../delivery/apartmentRules';
 
@@ -66,7 +67,7 @@ export function interactOutdoors(env: InteractEnv): void {
   // 3. Customer 1st-Floor Lobby Glass Door PIN / Elevator
   const lobbyMission = delivery.getMissionNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z);
   if (lobbyMission) {
-    if (lobbyMission.phase === 'carrying_to_lobby' && lobbyMission.order.customer.residenceKind === 'riverside') {
+    if (isBenchHandoff(lobbyMission)) {
       env.handleRiversideHandoff(lobbyMission.order.id);
       return;
     }
