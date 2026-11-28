@@ -96,6 +96,12 @@ export interface CityMapInfo {
   areaParks?: OsmParkData[];
   areaWaters?: OsmParkData[];
   areaPlazas?: OsmPlazaData[];
+  /** Streams of the loaded chunks, their stepping-stone rows (first / last stone) and whether they are flooded */
+  areaStreams?: WaterLineData[];
+  streamStoneRows?: Array<[number, number, number, number]>;
+  streamsFlooded?: boolean;
+  /** 산책로 쉼터 benches (🌿 on the phone map) */
+  streamBenches?: Array<{ x: number; z: number }>;
 }
 
 
@@ -467,6 +473,7 @@ export class CityWorld {
     }
     this.refreshStreamLines();
     this.floodOverlay.sync(this.streamFlood.closed, this.streamLines, this.streamLinesVersion, this.curbOffsetFn);
+    this.mapInfo.streamsFlooded = this.streamFlood.closed;
   }
 
   /** People strolling on the stream walkways (open world only, made on first use) */

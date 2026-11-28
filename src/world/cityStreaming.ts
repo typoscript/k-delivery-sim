@@ -1,3 +1,5 @@
+import { steppingStoneRows } from './streamPaths';
+import { activeRoadProximity } from './roadProximity';
 import { StreamWater } from './streamWater';
 /** Open-world chunk streaming around the player, the sun that follows it, and nearby collision boxes */
 import type { CityWorld } from './CityWorld';
@@ -121,6 +123,18 @@ export function updateStreaming(host: CityWorld, px: number, pz: number): void {
       waters.push(...c.waters);
       plazas.push(...c.pedestrianPlazas);
     }
+    // streams for the phone map: water, walkways, stepping stones, benches
+    const streams = chunks.flatMap((c) => c.waterLines);
+    const grid = activeRoadProximity();
+    host.mapInfo.areaStreams = streams;
+    host.mapInfo.streamStoneRows = streams.flatMap((wl) =>
+      steppingStoneRows(wl, (x, z) => grid.curbOffset(x, z)).map((r) => {
+        const a = r.stones[0];
+        const b = r.stones[r.stones.length - 1];
+        return [a[0], a[1], b[0], b[1]] as [number, number, number, number];
+      }),
+    );
+    host.mapInfo.streamBenches ??= host.locations.filter((l) => l.residenceKind === 'riverside').map((l) => ({ x: l.x, z: l.z }));
     host.mapInfo.areaParks = parks;
     host.mapInfo.areaWaters = waters;
     host.mapInfo.areaPlazas = plazas;

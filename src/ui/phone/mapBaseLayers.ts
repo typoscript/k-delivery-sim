@@ -39,6 +39,8 @@ export function drawAreaOverlays(f: MapFrame): void {
     }
   }
 
+  drawStreams(f);
+
   // 1.5. Pedestrian Plazas (나혜석거리)
   ctx.lineCap = 'round';
   ctx.strokeStyle = isNight ? '#3d332a' : '#e9d8c8';
@@ -224,4 +226,76 @@ export function drawBuildingsAndLandmarks(f: MapFrame): void {
     ctx.fillText(st.badgeChar ?? '역', 0, 0.5);
     ctx.restore();
   }
+}
+
+
+/** Walkway colour by day / night */
+const WALKWAY = { day: '#d9c9a3', night: '#4a4234' };
+const WALKWAY_CENTRE_M = 0.9;
+
+/**
+ * Streams: the water, the walkways on both banks (in water colour while flooded), the stepping-stone rows as dashed
+ * lines across and the 🌿 benches (zoomed in)
+ */
+function drawStreams(f: MapFrame): void {
+  const { ctx, isNight, mapInfo, theme, scale, toX, toY, ptsInView, inView } = f;
+  const streams = mapInfo.areaStreams ?? [];
+  if (streams.length === 0) return;
+  const flooded = !!mapInfo.streamsFlooded;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const wl of streams) {
+    if (wl.pts.length < 2 || !ptsInView(wl.pts)) continue;
+    // walkways first (under the water's edge): offset lines on both banks
+    const off = wl.width / 2 + WALKWAY_CENTRE_M;
+    if (off * scale > 1.5) {
+      ctx.strokeStyle = flooded ? theme.water : isNight ? WALKWAY.night : WALKWAY.day;
+      ctx.lineWidth = Math.max(1.2, 1.8 * scale);
+      for (const side of [1, -1]) {
+        ctx.beginPath();
+        for (let i = 1; i < wl.pts.length; i++) {
+          const [px, pz] = wl.pts[i - 1];
+          const [qx, qz] = wl.pts[i];
+          const len = Math.hypot(qx - px, qz - pz) || 1;
+          const lx = ((qz - pz) / len) * off * side;
+          const lz = (-(qx - px) / len) * off * side;
+          if (i === 1) ctx.moveTo(toX(px + lx), toY(pz + lz));
+          ctx.lineTo(toX(qx + lx), toY(qz + lz));
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = theme.water;
+    ctx.lineWidth = Math.max(1.8, wl.width * scale);
+    ctx.beginPath();
+    ctx.moveTo(toX(wl.pts[0][0]), toY(wl.pts[0][1]));
+    for (let i = 1; i < wl.pts.length; i++) ctx.lineTo(toX(wl.pts[i][0]), toY(wl.pts[i][1]));
+    ctx.stroke();
+  }
+  // stepping stones (not while under water)
+  if (!flooded && scale > 0.35) {
+    ctx.strokeStyle = isNight ? '#cbd5e1' : '#64748b';
+    ctx.lineWidth = Math.max(1.2, 0.7 * scale);
+    ctx.setLineDash([Math.max(1.5, 0.7 * scale), Math.max(1.5, 0.3 * scale)]);
+    for (const [ax, az, bx, bz] of mapInfo.streamStoneRows ?? []) {
+      if (!inView(Math.min(ax, bx), Math.max(ax, bx), Math.min(az, bz), Math.max(az, bz))) continue;
+      ctx.beginPath();
+      ctx.moveTo(toX(ax), toY(az));
+      ctx.lineTo(toX(bx), toY(bz));
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  // benches
+  if (scale > 0.5) {
+    ctx.font = `${Math.round(Math.min(16, 9 + scale * 3))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const b of mapInfo.streamBenches ?? []) {
+      if (!inView(b.x, b.x, b.z, b.z)) continue;
+      ctx.fillText(flooded ? '🌊' : '🌿', toX(b.x), toY(b.z));
+    }
+  }
+  ctx.restore();
 }

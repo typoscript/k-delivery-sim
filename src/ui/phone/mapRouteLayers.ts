@@ -1,3 +1,4 @@
+import { walkwayPath } from '../../world/streamPaths';
 /** Phone map route and self markers: bundle preview, navigation route, numbered stops, scooter pin, GPS arrow */
 import type { MapFrame } from './mapFrame';
 import { NO_GROUND_PARK_LIMIT_M, isNoGroundVehicleComplex } from '../../delivery/apartmentRules';
@@ -82,6 +83,28 @@ export function drawRouteLayer(f: MapFrame): void {
     ctx.lineWidth = rotateHeadingUp ? 5.5 : 4.2;
     ctx.stroke();
     ctx.restore();
+  }
+
+  // 5b. Bench delivery: the walk from where the route leaves the road, along the walkway to the bench (dashed)
+  if (!player.inCorridor && navPlan.route.length >= 2 && navPlan.target?.residenceKind === 'riverside') {
+    const r = navPlan.route;
+    const walk = walkwayPath(f.mapInfo.areaStreams ?? [], r[r.length - 2], r[r.length - 1]);
+    if (walk) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = rotateHeadingUp ? 5 : 4;
+      ctx.beginPath();
+      ctx.moveTo(toX(walk[0].x), toY(walk[0].z));
+      for (let i = 1; i < walk.length; i++) ctx.lineTo(toX(walk[i].x), toY(walk[i].z));
+      ctx.stroke();
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = rotateHeadingUp ? 3 : 2.4;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   // 6. Numbered Bundled Stop Markers (1, 2, 3...), no-vehicle complex rings under them

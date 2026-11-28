@@ -42,3 +42,20 @@ describe('stream walkways and stepping stones', () => {
     expect(isWadingAt([stream], 0.2, 62.5 + 3, curb)).toBe(true); // beside it: the row was dropped
   });
 });
+
+describe('walking route to a bench', () => {
+  it('from the road onto the bench-side walkway, along it, to the bench', async () => {
+    const { walkwayPath } = await import('./streamPaths');
+    const bench = { x: 6, z: 200 }; // left bank (+X) of the north-running stream
+    const path = walkwayPath([stream], { x: 30, z: 120 }, bench)!;
+    expect(path[0]).toEqual({ x: 30, z: 120 });
+    expect(path.at(-1)).toEqual(bench);
+    const middle = path.slice(1, -1);
+    expect(middle.length).toBeGreaterThan(5);
+    for (const p of middle) expect(p.x).toBeCloseTo(5 + 0.9); // on the left walkway
+    expect(middle[0].z).toBeCloseTo(120, -1);
+    expect(middle.at(-1)!.z).toBeCloseTo(200, 0);
+    // no stream by the target: no walking route
+    expect(walkwayPath([stream], { x: 0, z: 0 }, { x: 200, z: 200 })).toBeNull();
+  });
+});

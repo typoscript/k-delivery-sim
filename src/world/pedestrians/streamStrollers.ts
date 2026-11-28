@@ -6,7 +6,9 @@
  */
 import * as THREE from 'three';
 import type { WaterLineData } from '../openworld/OpenWorldTypes';
-import { STONE_STEP_M, WALKWAY_M, steppingStoneRows } from '../streamPaths';
+import { STONE_STEP_M, lineLength, steppingStoneRows, walkwayPoint } from '../streamPaths';
+
+export { lineLength, walkwayPoint };
 import {
   PedestrianFactory,
   PedestrianRig,
@@ -30,42 +32,6 @@ export const STARTLE_SPEED_MS = 2;
 const STARTLE_SEC = 1.4;
 /** Strollers keep this far from a road edge (they never walk over a bridge deck drawn across the walkway) */
 const ROAD_CLEAR_M = 0.8;
-
-/** Length of a stream piece's centre line */
-export function lineLength(wl: WaterLineData): number {
-  let len = 0;
-  for (let i = 1; i < wl.pts.length; i++) len += Math.hypot(wl.pts[i][0] - wl.pts[i - 1][0], wl.pts[i][1] - wl.pts[i - 1][1]);
-  return len;
-}
-
-/**
- * Point `s` metres along a stream piece on the walkway of `side` (+1 = left of the flow direction, -1 = right),
- * with the walking direction (unit) along the line
- */
-export function walkwayPoint(
-  wl: WaterLineData,
-  s: number,
-  side: number,
-): { x: number; z: number; fx: number; fz: number } {
-  const off = side * (wl.width / 2 + WALKWAY_M / 2);
-  let walked = 0;
-  for (let i = 1; i < wl.pts.length; i++) {
-    const [px, pz] = wl.pts[i - 1];
-    const [qx, qz] = wl.pts[i];
-    const len = Math.hypot(qx - px, qz - pz);
-    if (len < 1e-6) continue;
-    if (s <= walked + len || i === wl.pts.length - 1) {
-      const t = Math.max(0, Math.min(1, (s - walked) / len));
-      const fx = (qx - px) / len;
-      const fz = (qz - pz) / len;
-      // left of the walking direction (heading 0 = +Z has +X on its left): left = (fz, 0, -fx)
-      return { x: px + (qx - px) * t + fz * off, z: pz + (qz - pz) * t - fx * off, fx, fz };
-    }
-    walked += len;
-  }
-  const [x, z] = wl.pts[0];
-  return { x, z, fx: 0, fz: 1 };
-}
 
 const stationCache = new WeakMap<WaterLineData, WeakMap<object, number[]>>();
 const NO_CURB = {};

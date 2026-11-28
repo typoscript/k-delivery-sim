@@ -108,3 +108,95 @@ export function isWadingAt(
   }
   return false;
 }
+
+/** Length of a stream piece's centre line */
+export function lineLength(wl: WaterLineData): number {
+  let len = 0;
+  for (let i = 1; i < wl.pts.length; i++) len += Math.hypot(wl.pts[i][0] - wl.pts[i - 1][0], wl.pts[i][1] - wl.pts[i - 1][1]);
+  return len;
+}
+
+/**
+ * Point `s` metres along a stream piece on the walkway of `side` (+1 = left of the flow direction, -1 = right),
+ * with the walking direction (unit) along the line
+ */
+export function walkwayPoint(
+  wl: WaterLineData,
+  s: number,
+  side: number,
+): { x: number; z: number; fx: number; fz: number } {
+  const off = side * (wl.width / 2 + WALKWAY_M / 2);
+  let walked = 0;
+  for (let i = 1; i < wl.pts.length; i++) {
+    const [px, pz] = wl.pts[i - 1];
+    const [qx, qz] = wl.pts[i];
+    const len = Math.hypot(qx - px, qz - pz);
+    if (len < 1e-6) continue;
+    if (s <= walked + len || i === wl.pts.length - 1) {
+      const t = Math.max(0, Math.min(1, (s - walked) / len));
+      const fx = (qx - px) / len;
+      const fz = (qz - pz) / len;
+      // left of the walking direction (heading 0 = +Z has +X on its left): left = (fz, 0, -fx)
+      return { x: px + (qx - px) * t + fz * off, z: pz + (qz - pz) * t - fx * off, fx, fz };
+    }
+    walked += len;
+  }
+  const [x, z] = wl.pts[0];
+  return { x, z, fx: 0, fz: 1 };
+}
+
+/**
+ * The walk from the road to a bench (phone map): from `from` (where the route leaves the road) onto the walkway on
+ * the bench's side, along it to the bench, then to `to`. Null when no stream piece runs by the bench.
+ */
+export function walkwayPath(
+  lines: readonly WaterLineData[],
+  from: { x: number; z: number },
+  to: { x: number; z: number },
+): Array<{ x: number; z: number }> | null {
+  let best: { wl: WaterLineData; s: number; side: number; d: number } | null = null;
+  for (const wl of lines) {
+    let walked = 0;
+    for (let i = 1; i < wl.pts.length; i++) {
+      const [px, pz] = wl.pts[i - 1];
+      const [qx, qz] = wl.pts[i];
+      const len = Math.hypot(qx - px, qz - pz);
+      if (len < 1e-6) continue;
+      const fx = (qx - px) / len;
+      const fz = (qz - pz) / len;
+      const t = Math.max(0, Math.min(len, (to.x - px) * fx + (to.z - pz) * fz));
+      const cx = px + fx * t;
+      const cz = pz + fz * t;
+      const d = Math.hypot(to.x - cx, to.z - cz);
+      if (!best || d < best.d) {
+        const side = (to.x - cx) * fz + (to.z - cz) * -fx >= 0 ? 1 : -1;
+        best = { wl, s: walked + t, side, d };
+      }
+      walked += len;
+    }
+  }
+  if (!best || best.d > best.wl.width / 2 + WALKWAY_M + 4) return null;
+  // where `from` meets the same walkway
+  const { wl, side } = best;
+  let fromS = 0;
+  let fromD = Infinity;
+  const len = lineLength(wl);
+  for (let s = 0; s <= len; s += 2) {
+    const p = walkwayPoint(wl, s, side);
+    const d = Math.hypot(p.x - from.x, p.z - from.z);
+    if (d < fromD) {
+      fromD = d;
+      fromS = s;
+    }
+  }
+  const out: Array<{ x: number; z: number }> = [{ x: from.x, z: from.z }];
+  const dir = best.s >= fromS ? 1 : -1;
+  for (let s = fromS; dir > 0 ? s < best.s : s > best.s; s += dir * 6) {
+    const p = walkwayPoint(wl, s, side);
+    out.push({ x: p.x, z: p.z });
+  }
+  const end = walkwayPoint(wl, best.s, side);
+  out.push({ x: end.x, z: end.z }, { x: to.x, z: to.z });
+  return out;
+}
+
