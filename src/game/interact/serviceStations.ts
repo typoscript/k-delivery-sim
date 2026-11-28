@@ -16,7 +16,7 @@ export function interactServiceStations(env: InteractEnv): boolean {
       }
       if (hud.phoneMap.placement === 'in_hand') hud.stowPhoneToPocket();
       else hud.phoneMap.setZoomed(false);
-      modalUi.openFuelModal(scooterPhysics.state.fuel);
+      modalUi.openFuelModal(scooterPhysics.state.fuel, delivery.totalEarnings);
       return true;
     }
 

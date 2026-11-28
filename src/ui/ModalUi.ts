@@ -263,10 +263,10 @@ export class ModalUi {
     renderCargoBoxSlotsFn(this, delivery, playerX, playerZ);
   }
 
-  public openFuelModal(currentFuel: number): void {
+  public openFuelModal(currentFuel: number, wallet = Infinity): void {
     this.closeAll();
     this.activeModal = 'fuel';
-    this.fuel.open(currentFuel);
+    this.fuel.open(currentFuel, wallet);
   }
 
   public openRepairModal(
