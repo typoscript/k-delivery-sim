@@ -113,3 +113,19 @@ describe('notification settings (DOM)', () => {
     expect(phone.notifications.unread).toBe(1);
   });
 });
+
+describe('settings saved by older versions', () => {
+  beforeEach(() => loadGamePageDom());
+
+  it('a settings save from before the notification options gets them all on, 방해 금지 off', () => {
+    window.localStorage.setItem(
+      'k_delivery_settings_v1',
+      JSON.stringify({ masterVolume: 0.3, voiceNaviEnabled: false, mouseSensitivity: 1.4, graphicsQuality: 'low' }),
+    );
+    const ob = new OnboardingAndSettings(callbacks);
+    expect(ob.settings.masterVolume).toBe(0.3);
+    expect(ob.settings.graphicsQuality).toBe('low');
+    expect(ob.settings.notifications).toEqual({ weather: true, messenger: true, goals: true, quietRiding: false });
+    expect((document.getElementById('set-notif-quietRiding') as HTMLInputElement).checked).toBe(false);
+  });
+});

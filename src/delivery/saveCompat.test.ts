@@ -327,3 +327,36 @@ describe('goals pinned in the save', () => {
     expect(loadRiderCareer().weekGoals).toEqual({ week: 2, ids: week2.slice(1) });
   });
 });
+
+describe('fields added in the 외상 / 알림 updates', () => {
+  it('an older save has no repair debt and no repayment line; a debt round-trips and survives junk', () => {
+    writeRaw({ walletBalance: 1000, lifetimeCompleted: 3, riderRating: 5, upgrades: [], reviews: [] });
+    let dm = new DeliveryManager(LOCATIONS);
+    expect(dm.repairDebt).toBe(0);
+    expect(dm.getDailyLedger().debtRepayExpense).toBe(0);
+    // credit repair, then reload: the debt is still owed
+    dm.repairOnCredit(9_000);
+    dm = new DeliveryManager(LOCATIONS);
+    expect(dm.repairDebt).toBe(8_000);
+    // a delivery pays it back and today's repayment is in the saved shift ledger
+    const dm2 = playThrough();
+    expect(dm2.repairDebt).toBeLessThan(8_000);
+    for (const junk of ['lots', -500, Infinity, null, { a: 1 }]) {
+      writeRaw({ walletBalance: 0, lifetimeCompleted: 0, riderRating: 5, upgrades: [], reviews: [], repairDebt: junk });
+      expect(new DeliveryManager(LOCATIONS).repairDebt).toBe(0);
+    }
+  });
+
+  it("today's repayment is kept in the shift ledger across a reload", () => {
+    writeRaw({ walletBalance: 0, lifetimeCompleted: 0, riderRating: 5, upgrades: [], reviews: [] });
+    const dm = new DeliveryManager(LOCATIONS);
+    dm.repairOnCredit(30_000);
+    deliverOne(dm);
+    const repaid = dm.getDailyLedger().debtRepayExpense;
+    expect(repaid).toBeGreaterThan(0);
+    const again = new DeliveryManager(LOCATIONS);
+    expect(again.getDailyLedger().debtRepayExpense).toBe(repaid);
+    expect(again.repairDebt).toBe(30_000 - repaid);
+    expectAllFinite(again.getDailyLedger(), 'ledger');
+  });
+});

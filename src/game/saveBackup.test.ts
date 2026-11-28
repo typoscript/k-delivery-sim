@@ -53,3 +53,17 @@ describe('save backup', () => {
     expect(parseBackup('x'.repeat(5_000_001))).toMatchObject({ ok: false });
   });
 });
+
+describe('backup carries the newest fields', () => {
+  it('repair debt (career) and notification settings go through a file unchanged', () => {
+    const career = JSON.stringify({ walletBalance: 0, repairDebt: 7_000 });
+    const settings = JSON.stringify({ masterVolume: 0.5, notifications: { weather: false, quietRiding: true } });
+    const src = memoryStorage({ k_delivery_rider_career_v1: career, k_delivery_settings_v1: settings });
+    const parsed = parseBackup(JSON.stringify(buildBackup(src, '2026-11-28T10:00:00.000Z')));
+    expect(parsed.ok).toBe(true);
+    const dst = memoryStorage();
+    if (parsed.ok) applyBackup(dst, parsed.backup);
+    expect(JSON.parse(dst.getItem('k_delivery_rider_career_v1')!).repairDebt).toBe(7_000);
+    expect(JSON.parse(dst.getItem('k_delivery_settings_v1')!).notifications).toEqual({ weather: false, quietRiding: true });
+  });
+});
