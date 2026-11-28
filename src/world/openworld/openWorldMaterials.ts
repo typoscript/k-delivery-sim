@@ -5,6 +5,7 @@ import { ChunkMaterials } from './ChunkMeshBuilder';
 /** Shared (never per-chunk) materials for streamed open-world chunks — same facades as CityWorld */
 export function createOpenWorldMaterials(): ChunkMaterials {
   const b = createBuildingMaterials();
+  for (const m of [b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat]) m.vertexColors = true;
   const asphalt = createAsphaltTexture();
   // Chunk road UVs are already in tiles (1 per 10m), so don't double the repeat
   asphalt.repeat.set(1, 1);

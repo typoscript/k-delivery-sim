@@ -287,6 +287,74 @@ export function addStorefronts(
   return units;
 }
 
+/** Per-building paint variation multiplied into the facade texture (subtle: same family of colours) */
+const WALL_TINTS: Record<BuildingWallCategory, THREE.Color[]> = {
+  shop: [0xffffff, 0xdfe8f5, 0xf3e6d6, 0xd5dde6, 0xf7eaea, 0xe3eedf].map((c) => new THREE.Color(c)),
+  apt: [0xffffff, 0xf3e9db, 0xdde5ee, 0xf6efe0, 0xe2dbd0, 0xe9e2f0].map((c) => new THREE.Color(c)),
+  villa: [0xffffff, 0xf7e0cf, 0xd8cdc0, 0xf2cbb8, 0xc9c1b6, 0xe6b39c, 0xc4cfdc, 0xe9e3c9].map((c) => new THREE.Color(c)),
+  public: [0xffffff, 0xdfe7f0, 0xececec, 0xdde6d8].map((c) => new THREE.Color(c)),
+};
+
+/** Paint tint of one building (stable: from its position) */
+export function wallTintOf(cat: BuildingWallCategory, b: Pick<OsmBuildingData, 'cx' | 'cz'>): THREE.Color {
+  const list = WALL_TINTS[cat];
+  return list[Math.floor(hash01(b.cx, b.cz, 3) * list.length)];
+}
+
+/** Rooftop details only on buildings up to this height (villas, shops, low offices) */
+const ROOFTOP_MAX_HEIGHT_M = 36;
+
+/** Axis-aligned box without a bottom face (rooftop structures) */
+function addBox(buf: GeoBuffer, cx: number, y0: number, cz: number, sx: number, sy: number, sz: number): void {
+  const x0 = cx - sx / 2;
+  const x1 = cx + sx / 2;
+  const z0 = cz - sz / 2;
+  const z1 = cz + sz / 2;
+  const y1 = y0 + sy;
+  // sides (outward normals), wound counter-clockwise from outside
+  addWallQuad(buf, x0, z1, x0, z0, -1, 0, y0, y1, 0);
+  addWallQuad(buf, x1, z0, x1, z1, 1, 0, y0, y1, 0);
+  addWallQuad(buf, x0, z0, x1, z0, 0, -1, y0, y1, 0);
+  addWallQuad(buf, x1, z1, x0, z1, 0, 1, y0, y1, 0);
+  addFlatPolygon(buf, [
+    [x0, z0],
+    [x1, z0],
+    [x1, z1],
+    [x0, z1],
+  ], y1);
+}
+
+/**
+ * Rooftop detail of one building in the roof material: a low parapet along the roof edge and, on roofs big enough,
+ * a water tank, air-conditioner units and the stair housing (stable per building).
+ */
+export function addRooftop(roof: GeoBuffer, b: OsmBuildingData): void {
+  // roofs of towers are out of sight from the street: keep their budget for the streets
+  if (b.pts.length < 3 || b.height > ROOFTOP_MAX_HEIGHT_M) return;
+  const pts = signedArea(b.pts) > 0 ? b.pts : [...b.pts].reverse();
+  const h = b.height;
+  // parapet: the wall line raised 0.9m (outer face only - seen from the street)
+  for (let i = 0; i < pts.length; i++) {
+    const [px, pz] = pts[i];
+    const [qx, qz] = pts[(i + 1) % pts.length];
+    const dx = qx - px;
+    const dz = qz - pz;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-3) continue;
+    addWallQuad(roof, px, pz, qx, qz, dz / len, -dx / len, h, h + 0.9, 0);
+  }
+  // roof structures only where they fit well inside the footprint
+  if (b.area < 100 || Math.min(b.w, b.d) < 8) return;
+  const r = (salt: number) => hash01(b.cx, b.cz, salt);
+  const off = (salt: number, extent: number) => (r(salt) - 0.5) * extent * 0.35;
+  // stair housing, and on low buildings a water tank
+  addBox(roof, b.cx + off(11, b.w), h, b.cz + off(12, b.d), 3.2, 2.6, 2.6);
+  if (h <= 20) addBox(roof, b.cx + off(13, b.w), h, b.cz + off(14, b.d), 2.0, 1.7, 2.0);
+  // a row of air-conditioner outdoor units (one box)
+  const units = 1 + Math.floor(r(15) * 3);
+  addBox(roof, b.cx + off(16, b.w), h, b.cz + off(17, b.d), units * 1.1, 0.7, 0.55);
+}
+
 /** Flat ribbon along a polyline (roads, rivers, pedestrian streets) */
 function addRibbon(
   buf: GeoBuffer,
@@ -387,9 +455,11 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     const cat = buildingWallCategory(b.kind, b.height);
     const key = `${cat}|${tall ? 'T' : 'L'}`;
     let wb = wallBufs.get(key);
-    if (!wb) wallBufs.set(key, (wb = new GeoBuffer()));
+    if (!wb) wallBufs.set(key, (wb = new GeoBuffer(true)));
     farBuf.color.copy(FAR_WALL_COLORS[cat]);
+    wb.color.copy(wallTintOf(cat, b));
     addBuilding(wb, tall ? roofTall : roofLow, b, farBuf);
+    addRooftop(tall ? roofTall : roofLow, b);
     if (withStorefronts) addStorefronts(shopGlass, shopSign, b, roads.curbOffset!);
     obstacles.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, pts: b.pts });
     minX = Math.min(minX, b.minX);

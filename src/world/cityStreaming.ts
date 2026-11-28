@@ -21,6 +21,8 @@ export function initOpenWorldStreaming(host: CityWorld): void {
   if (!host.unified) return;
   const b = createBuildingMaterials();
   host.buildingNightMats.push(b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat);
+  // chunk walls carry a per-building paint tint (vertex colours) on top of the facade texture
+  for (const m of [b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat]) m.vertexColors = true;
   host.streamer = new ChunkStreamer(
     host.root,
     SUWON_OPEN_WORLD,

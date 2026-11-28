@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { OsmBuildingData } from '../../data/suwonTypes';
-import { ChunkMaterials, buildChunkMeshes } from './ChunkMeshBuilder';
+import { ChunkMaterials, buildChunkMeshes, wallTintOf } from './ChunkMeshBuilder';
 import { ChunkData, OpenWorldData } from './OpenWorldTypes';
 
 const mat = () => new THREE.MeshBasicMaterial();
@@ -208,8 +208,9 @@ describe('buildChunkMeshes', () => {
     console.log(
       `[ChunkMeshBuilder] chunk ${heaviest.key}: ${heaviest.buildings} buildings -> ${r.drawCalls} draws, ${verts} verts in ${ms.toFixed(1)}ms`,
     );
-    expect(verts).toBeLessThanOrEqual(16000); // 12,222 when written
-    expect(verts / heaviest.buildings).toBeLessThanOrEqual(100);
+    // 12,222 when written; 24,696 with parapets / rooftop structures (towers above 36m have none)
+    expect(verts).toBeLessThanOrEqual(28000);
+    expect(verts / heaviest.buildings).toBeLessThanOrEqual(175);
   });
 });
 
@@ -280,5 +281,55 @@ describe('storefronts anywhere on the map', () => {
       const chunk = { ix: 0, iz: 0, buildings: [b], parks: [], waters: [], waterLines: [], pedestrianPlazas: [] };
       expect(() => buildChunkMeshes(chunk, roads, mats).dispose()).not.toThrow();
     }
+  });
+});
+
+describe('facade tints and rooftops', () => {
+  it('every building gets a stable paint tint; walls carry it as vertex colours', () => {
+    const b = box(10, 20, 12, 10, 12);
+    expect(wallTintOf('villa', b).getHex()).toBe(wallTintOf('villa', b).getHex());
+    const tints = new Set<number>();
+    for (let i = 0; i < 60; i++) tints.add(wallTintOf('villa', box(i * 17.3, i * -9.1, 10, 10, 12)).getHex());
+    expect(tints.size).toBeGreaterThan(3);
+    const chunk: ChunkData = {
+      ix: 0,
+      iz: 0,
+      buildings: [b],
+      parks: [],
+      waters: [],
+      waterLines: [],
+      pedestrianPlazas: [],
+    };
+    const r = buildChunkMeshes(chunk, NO_ROADS, MATS);
+    const wall = meshesOf(r.group).find((m) => m.material === MATS.walls.villa)!;
+    expect(wall.geometry.getAttribute('color')).toBeDefined();
+    r.dispose();
+  });
+
+  it('low buildings get a parapet and roof structures, towers none', () => {
+    const roofVerts = (b: OsmBuildingData) => {
+      const chunk: ChunkData = {
+        ix: 0,
+        iz: 0,
+        buildings: [b],
+        parks: [],
+        waters: [],
+        waterLines: [],
+        pedestrianPlazas: [],
+      };
+      const r = buildChunkMeshes(chunk, NO_ROADS, MATS);
+      const v = meshesOf(r.group)
+        .filter((m) => m.material === MATS.roof)
+        .reduce((a, m) => a + m.geometry.attributes.position.count, 0);
+      r.dispose();
+      return v;
+    };
+    const flat = 6; // a bare rectangular roof: 2 triangles
+    const small = { ...box(0, 0, 6, 6, 9), area: 36 };
+    const villa = { ...box(0, 0, 16, 12, 12), area: 192 };
+    const tower = { ...box(0, 0, 20, 20, 80), area: 400 };
+    expect(roofVerts(small)).toBe(flat + 4 * 6); // parapet only
+    expect(roofVerts(villa)).toBeGreaterThan(flat + 4 * 6); // + stair housing, tank, AC units
+    expect(roofVerts(tower)).toBe(flat);
   });
 });
