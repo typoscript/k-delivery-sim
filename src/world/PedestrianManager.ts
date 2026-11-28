@@ -3,7 +3,16 @@ import type { WeatherMode } from '../types';
 
 import { excludeFromMirrors } from './renderLayers';
 import { SignalStateSnapshot } from './TrafficSystem';
-import { PedestrianFactory, setPedestrianDetail, setPedestrianWeather, PedestrianRig } from './PedestrianFactory';
+import {
+  PedestrianFactory,
+  setAngryBubble,
+  setPedestrianDetail,
+  setPedestrianWeather,
+  PedestrianRig,
+} from './PedestrianFactory';
+
+/** How long a splashed pedestrian shows the 💢 bubble (s) */
+const ANGRY_BUBBLE_SEC = 3;
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { CrosswalkAxis, PedestrianEdge, PedestrianGraph } from './PedestrianGraph';
 import { VehicleBody } from './vehicleBodies';
@@ -91,6 +100,8 @@ export interface PedestrianAgent {
   yieldTimer: number;
   /** After recovering from a startle, ignore the same scooter for a while (prevents startle loops) */
   startleCooldown: number;
+  /** Seconds left of the 💢 bubble after being splashed from a puddle */
+  angryTimer: number;
   /** Seconds waited at an unsignalized road crossing for a gap in traffic */
   crossWaitTimer: number;
 }
@@ -187,6 +198,7 @@ export class PedestrianManager {
         hitCooldown: 0,
         yieldTimer: 0,
         startleCooldown: 0,
+        angryTimer: 0,
         crossWaitTimer: 0,
       };
       this.placeAgentOnNode(agent, startNodeId);
@@ -313,6 +325,8 @@ export class PedestrianManager {
       a.evadeRemaining = EVADE_STEP_DIST;
       a.evadeDirX = d > 0.05 ? dx / d : 1;
       a.evadeDirZ = d > 0.05 ? dz / d : 0;
+      a.angryTimer = ANGRY_BUBBLE_SEC;
+      setAngryBubble(a.rig, true);
       n++;
     }
     return n;
@@ -395,6 +409,11 @@ export class PedestrianManager {
       const isVisible = distPlayerSq <= CULL_DISTANCE_SQ;
       a.visible = isVisible;
       a.rig.root.visible = isVisible;
+      // 💢 over people splashed from a puddle, bobbing for a few seconds
+      if (a.angryTimer > 0) {
+        a.angryTimer = Math.max(0, a.angryTimer - clampedDt);
+        setAngryBubble(a.rig, a.angryTimer > 0, Math.abs(Math.sin(a.angryTimer * 6)));
+      }
       // LOD: full 12-part animated rig only close to the player; beyond that one merged mesh
       const fullDetail = isVisible && setPedestrianDetail(a.rig, distPlayerSq <= DETAIL_DISTANCE_SQ);
 

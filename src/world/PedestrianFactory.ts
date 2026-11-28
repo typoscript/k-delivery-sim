@@ -27,6 +27,8 @@ export interface PedestrianRig {
   umbrellaColor: number;
   /** Stable 0..1 per pedestrian: who carries an umbrella in which weather */
   umbrellaRoll: number;
+  /** 💢 bubble over the head after being splashed (made on first use) */
+  angryBubble?: THREE.Sprite;
 }
 
 const UMBRELLA_COLORS = [0x1e293b, 0x0ea5e9, 0xdc2626, 0xf8fafc, 0x7c3aed, 0x16a34a, 0xfacc15];
@@ -65,7 +67,7 @@ const NEAR_RIG_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughn
 
 let privateSeed = 0x2545f491;
 /** Runs `fn` with Math.random swapped for a private sequence (unique uuids, global sequence untouched) */
-function withPrivateRandom<T>(fn: () => T): T {
+export function withPrivateRandom<T>(fn: () => T): T {
   const orig = Math.random;
   Math.random = () => {
     privateSeed = (Math.imul(privateSeed, 1664525) + 1013904223) >>> 0;
@@ -176,28 +178,17 @@ export class PedestrianFactory {
     this.shoeGeo = new THREE.BoxGeometry(0.145, 0.08, 0.22);
     this.bagGeo = new THREE.BoxGeometry(0.18, 0.24, 0.09);
 
-    this.topMats = TOP_PALETTE.map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.82 })
-    );
-    this.bottomMats = BOTTOM_PALETTE.map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.86 })
-    );
-    this.hairMats = HAIR_PALETTE.map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 })
-    );
-    this.skinMats = SKIN_PALETTE.map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.72 })
-    );
-    this.shoeMats = SHOE_PALETTE.map(
-      (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.78 })
-    );
+    this.topMats = TOP_PALETTE.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.82 }));
+    this.bottomMats = BOTTOM_PALETTE.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.86 }));
+    this.hairMats = HAIR_PALETTE.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 }));
+    this.skinMats = SKIN_PALETTE.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.72 }));
+    this.shoeMats = SHOE_PALETTE.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.78 }));
     this.bagMat = new THREE.MeshStandardMaterial({ color: 0x262930, roughness: 0.75 });
   }
 
   /** Creates a lightweight articulated low-poly pedestrian mesh with shoulder & hip pivots */
   public createPedestrian(genderOverride?: PedestrianGender): PedestrianRig {
-    const gender: PedestrianGender =
-      genderOverride ?? (Math.random() < 0.5 ? 'male' : 'female');
+    const gender: PedestrianGender = genderOverride ?? (Math.random() < 0.5 ? 'male' : 'female');
     const isFemale = gender === 'female';
 
     const topIdx = Math.floor(Math.random() * this.topMats.length);
@@ -221,10 +212,7 @@ export class PedestrianFactory {
     const legOffsetX = isFemale ? 0.095 : 0.11;
 
     // --- Torso ---
-    const torso = new THREE.Mesh(
-      isFemale ? this.femaleTorsoGeo : this.maleTorsoGeo,
-      topMat
-    );
+    const torso = new THREE.Mesh(isFemale ? this.femaleTorsoGeo : this.maleTorsoGeo, topMat);
     torso.position.set(0, hipY + torsoH * 0.5, 0);
     torso.castShadow = true;
     bodyGroup.add(torso);
@@ -315,7 +303,10 @@ export class PedestrianFactory {
     // Built with a private random source: three.js draws Math.random for every new object's uuid, and the crowd's
     // walk is driven by Math.random too, so this keeps the pedestrians' behaviour exactly as before.
     withPrivateRandom(() => {
-      mergeRigParts(bodyGroup, (o) => o === leftArmPivot || o === rightArmPivot || o === leftLegPivot || o === rightLegPivot);
+      mergeRigParts(
+        bodyGroup,
+        (o) => o === leftArmPivot || o === rightArmPivot || o === leftLegPivot || o === rightLegPivot,
+      );
       for (const pivot of [leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot]) mergeRigParts(pivot);
     });
 
@@ -435,4 +426,38 @@ export class PedestrianFactory {
     rig.leftLegPivot.rotation.x += (0.28 - rig.leftLegPivot.rotation.x) * blend;
     rig.rightLegPivot.rotation.x += (-0.22 - rig.rightLegPivot.rotation.x) * blend;
   }
+}
+
+let angryMaterial: THREE.SpriteMaterial | null = null;
+
+/** Shared 💢 sprite material (canvas emoji texture, made on first use) */
+function angryBubbleMaterial(): THREE.SpriteMaterial | null {
+  if (angryMaterial) return angryMaterial;
+  if (typeof document === 'undefined') return null; // no canvas (headless tests)
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.font = '48px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('💢', 32, 36);
+  angryMaterial = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthWrite: false, transparent: true });
+  return angryMaterial;
+}
+
+/** Shows / hides the 💢 bubble over a pedestrian's head (`bob` 0..1 lifts it a little) */
+export function setAngryBubble(rig: PedestrianRig, visible: boolean, bob = 0): void {
+  if (!visible && !rig.angryBubble) return;
+  if (!rig.angryBubble) {
+    const mat = angryBubbleMaterial();
+    if (!mat) return;
+    // private random: the sprite's uuid must not shift the crowd's Math.random sequence
+    rig.angryBubble = withPrivateRandom(() => new THREE.Sprite(mat));
+    rig.angryBubble.scale.set(0.42, 0.42, 0.42);
+    rig.angryBubble.name = 'angry_bubble';
+    rig.root.add(rig.angryBubble);
+  }
+  rig.angryBubble.visible = visible;
+  rig.angryBubble.position.set(0, 2.05 + bob * 0.12, 0);
 }
