@@ -29,6 +29,7 @@ import {
 import { generateDeliverySpots, riversideSpots } from './delivery-spots.mjs';
 import { crossingPoints, snapCrossings } from './crossings.mjs';
 import { placeSigns } from './storeSigns.mjs';
+import { relaxOneWays, roadWidthOf } from './roadLanes.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -274,6 +275,17 @@ async function main() {
   // bridges / underpasses (지하차도) - kept on the graph edges so the game can rail bridges, roof tunnels etc.
   const structureOf = (t) =>
     t.bridge && t.bridge !== 'no' ? 'bridge' : t.tunnel && t.tunnel !== 'no' && t.tunnel !== 'building_passage' ? 'tunnel' : null;
+  // one-way streets: 1 = along the way, -1 = against it (edges are then stored a -> b in the driving direction)
+  const oneWayOf = (t) =>
+    t.oneway === 'yes' || t.oneway === '1' || t.oneway === 'true' || (t.junction === 'roundabout' && t.oneway !== 'no')
+      ? 1
+      : t.oneway === '-1' || t.oneway === 'reverse'
+        ? -1
+        : 0;
+  const lanesOf = (t) => {
+    const n = Number.parseInt(t.lanes ?? '', 10);
+    return Number.isFinite(n) && n >= 1 && n <= 10 ? n : 0;
+  };
   for (const w of roadWays) {
     const pts = geomToPts(w.geometry);
     // split at junction / endpoint / signal nodes, simplify the shape points in between
@@ -291,7 +303,15 @@ async function main() {
         const cur = isEnd
           ? nodeFor(`o${nid}`, sub[j], osmSignalIds.has(nid))
           : nodeFor(`s${w.id}_${segStart + j}`, sub[j], false);
-        gEdges.push({ a: prev, b: cur, highway: w.tags.highway, name: w.tags.name ?? '', structure: structureOf(w.tags) });
+        gEdges.push({
+          a: oneWayOf(w.tags) === -1 ? cur : prev,
+          b: oneWayOf(w.tags) === -1 ? prev : cur,
+          highway: w.tags.highway,
+          name: w.tags.name ?? '',
+          structure: structureOf(w.tags),
+          oneway: oneWayOf(w.tags) !== 0,
+          lanes: lanesOf(w.tags),
+        });
         prev = cur;
       }
       segStart = i;
@@ -320,8 +340,11 @@ async function main() {
     const k = a < b ? `${a}_${b}` : `${b}_${a}`;
     const prev = edgeMap.get(k);
     if (!prev || ROAD_CLASSES[e.highway].width > ROAD_CLASSES[prev.highway].width) edgeMap.set(k, { ...e, a, b });
+    // the same stretch mapped once each way (or as both one-way and two-way): drive it both ways
+    else if (prev.oneway && (!e.oneway || prev.a !== a)) prev.oneway = false;
   }
   let edges = [...edgeMap.values()];
+  stats.oneWay = { tagged: edges.filter((e) => e.oneway).length };
 
   // keep only the largest connected component so every road is reachable by AI & navigation
   const adj = new Map();
@@ -349,6 +372,11 @@ async function main() {
   edges = edges.filter((e) => comp.get(e.a) === mainComp);
   stats.components = { count: compSizes.length, mainNodes: compSizes[mainComp], droppedEdges };
 
+  // one-way streets must not trap anyone: every junction has to be reachable from every other driving the legal
+  // way. Edges whose one-way rule cuts a junction off (dead-end one-way, a carriageway mapped only half) go two-way.
+  stats.oneWay.relaxed = relaxOneWays(edges);
+  stats.oneWay.kept = edges.filter((e) => e.oneway).length;
+
   // reindex nodes compactly
   const remap = new Map();
   const nodes = [];
@@ -365,15 +393,18 @@ async function main() {
     const a = remap.get(e.a);
     const b = remap.get(e.b);
     const cls = ROAD_CLASSES[e.highway];
+    const lanes = e.lanes;
     return {
       a,
       b,
       dist: r1(Math.hypot(nodes[a].x - nodes[b].x, nodes[a].z - nodes[b].z)),
-      width: cls.width,
+      width: roadWidthOf(cls, e.oneway, lanes),
       highway: e.highway,
       name: e.name,
       isMajor: cls.major,
       ...(e.structure ? { [e.structure]: true } : {}),
+      ...(e.oneway ? { oneway: true } : {}),
+      ...(lanes ? { lanes } : {}),
     };
   });
   stats.structures = {

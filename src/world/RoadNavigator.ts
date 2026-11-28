@@ -77,9 +77,10 @@ export class RoadNavigator {
       // Slightly favor wider major boulevards (효원로/권광로/경수대로) over tiny alleys
       const weightMul = e.isMajor ? 0.92 : 1.05;
       const cost = Math.max(1, e.dist * weightMul);
-      this.baseEdges.push({ a: e.a, b: e.b, cost });
+      this.baseEdges.push({ a: e.a, b: e.b, cost, ...(e.oneway ? { oneway: true } : {}) });
       this.baseAdj[e.a].push({ to: e.b, cost });
-      this.baseAdj[e.b].push({ to: e.a, cost });
+      // one-way streets are only routed in their driving direction (a -> b)
+      if (!e.oneway) this.baseAdj[e.b].push({ to: e.a, cost });
     }
   }
 

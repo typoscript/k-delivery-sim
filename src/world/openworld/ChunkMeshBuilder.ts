@@ -404,6 +404,69 @@ export function addRooftop(roof: GeoBuffer, b: OsmBuildingData, structures = tru
   addBox(roof, b.cx + off(16, b.w), h, b.cz + off(17, b.d), units * 1.1, 0.7, 0.55);
 }
 
+/**
+ * Offsets (m, right of the centre line) of the dashed white lane dividers of a road: a two-way road splits each half
+ * into its lanes (OSM `lanes` / 2 a direction, or two a direction from 13 m wide when untagged) and keeps the yellow
+ * centre line; a one-way street splits its whole width into its lanes.
+ */
+export function laneDividerOffsets(width: number, lanes: number, oneway: boolean): number[] {
+  const hw = width / 2;
+  const out: number[] = [];
+  if (oneway) {
+    const n = lanes > 0 ? lanes : Math.max(1, Math.round((width - 1.4) / 3.2));
+    for (let k = 1; k < n; k++) out.push(-hw + (width * k) / n);
+    return out;
+  }
+  const perSide = lanes > 0 ? Math.max(1, Math.floor(lanes / 2)) : width >= 13 ? 2 : 1;
+  for (const side of [-1, 1]) for (let k = 1; k < perSide; k++) out.push((side * hw * k) / perSide);
+  return out;
+}
+
+/** One-way arrows: one per this many metres of road (at least one on a segment long enough) */
+const ONE_WAY_ARROW_SPACING_M = 40;
+
+/**
+ * White arrows painted on a one-way street (driven a -> b), trimmed back from both junctions: a 3 m shaft and a
+ * chevron head pointing toward b, in each lane.
+ */
+export function addOneWayArrows(
+  white: GeoBuffer,
+  a: { x: number; z: number },
+  b: { x: number; z: number },
+  width: number,
+  lanes: number,
+  y: number,
+  trimA: number,
+  trimB: number
+): void {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len = Math.hypot(dx, dz);
+  const usable = len - trimA - trimB;
+  if (usable < 12) return;
+  const fx = dx / len;
+  const fz = dz / len;
+  // right = forward x up = (-fz, 0, fx)
+  const rx = -fz;
+  const rz = fx;
+  const at = (t: number, off: number): [number, number] => [a.x + fx * t + rx * off, a.z + fz * t + rz * off];
+  const n = lanes > 0 ? lanes : Math.max(1, Math.round((width - 1.4) / 3.2));
+  const laneW = width / n;
+  const count = Math.max(1, Math.floor(usable / ONE_WAY_ARROW_SPACING_M));
+  if (white.col) white.color.copy(WHITE_LINE_COLOR);
+  const py = y + 0.013;
+  for (let i = 0; i < count; i++) {
+    const t = trimA + ((i + 0.5) * usable) / count;
+    for (let k = 0; k < n; k++) {
+      const off = -width / 2 + laneW * (k + 0.5);
+      addRibbon(white, [at(t - 1.8, off), at(t + 0.6, off)], 0.32, py, 0);
+      // head: two strokes from the tip back to either side
+      addRibbon(white, [at(t + 1.6, off), at(t + 0.4, off - 0.75)], 0.3, py, 0);
+      addRibbon(white, [at(t + 1.6, off), at(t + 0.4, off + 0.75)], 0.3, py, 0);
+    }
+  }
+}
+
 /** Curb: 0.25 m wide, 0.13 m above the sidewalk level */
 const CURB_W = 0.25;
 const CURB_TOP = 0.13;
@@ -423,7 +486,10 @@ export function addRoadEdges(
   width: number,
   y: number,
   trimA: number,
-  trimB: number
+  trimB: number,
+  /** OSM lane count (0 = untagged) and one-way: lane dividers follow them */
+  lanes = 0,
+  oneway = false
 ): void {
   const dx = bx - ax;
   const dz = bz - az;
@@ -446,8 +512,9 @@ export function addRoadEdges(
       const off = side * (hw - 0.45);
       addRibbon(white, [at(off, sx, sz), at(off, ex, ez)], 0.15, y + 0.012, 0);
     }
-    // bus-only lane: a blue line one lane in from each edge
-    if (width >= BUS_LANE_MIN_WIDTH) {
+    // bus-only lane: a blue line one lane in from each edge (two-way arterials)
+    const busLane = width >= BUS_LANE_MIN_WIDTH && !oneway;
+    if (busLane) {
       if (white.col) white.color.copy(BUS_LANE_COLOR);
       for (const side of [-1, 1]) {
         const off = side * (hw - 3.3);
@@ -455,12 +522,10 @@ export function addRoadEdges(
       }
       if (white.col) white.color.copy(WHITE_LINE_COLOR);
     }
-    // two lanes each way: dashed dividers half way between the centre and the edge (the blue line on bus roads)
-    if (width >= 13 && width < BUS_LANE_MIN_WIDTH) {
-      const usable = len - trimA - trimB;
-      const n = Math.floor(usable / 9);
-      for (const side of [-1, 1]) {
-        const off = side * (hw / 2);
+    // dashed white lane dividers (the blue line takes the place of the outer one on bus roads)
+    if (!busLane) {
+      const n = Math.floor((len - trimA - trimB) / 9);
+      for (const off of laneDividerOffsets(width, lanes, oneway)) {
         for (let i = 0; i < n; i++) {
           const t0 = trimA + i * 9 + 1.5;
           const t1 = t0 + 3;
@@ -571,7 +636,7 @@ export function addRoadWords(
   buf: GeoBuffer,
   a: { x: number; z: number },
   b: { x: number; z: number },
-  e: { width: number; isMajor: boolean },
+  e: { width: number; isMajor: boolean; oneway?: boolean },
   y: number,
   trimA: number,
   trimB: number,
@@ -589,7 +654,7 @@ export function addRoadWords(
   const hw = e.width / 2;
   const ty = y + 0.014;
   const at = (t: number, off: number): [number, number] => [a.x + fx * t + rx * off, a.z + fz * t + rz * off];
-  if (e.isMajor && e.width >= BUS_LANE_MIN_WIDTH) {
+  if (e.isMajor && e.width >= BUS_LANE_MIN_WIDTH && !e.oneway) {
     // one in the middle of every segment long enough, more every BUS_TEXT_SPACING_M on long ones
     const n = Math.max(1, Math.floor(usable / BUS_TEXT_SPACING_M));
     for (let i = 0; i < n; i++) {
@@ -609,12 +674,13 @@ export function addRoadWords(
   // 천천히 on narrow alleys and on some (stable) residential streets; not on every one of the map's ~5,000
   if (!nearSchool && e.width > 8 && hash01(midX, midZ, 21) >= 0.2) return;
   const word: RoadTextWord = nearSchool ? '어린이보호구역' : '천천히';
-  const lane = hw / 2;
+  // one-way street: only toward b, in the middle of the road
+  const lane = e.oneway ? 0 : hw / 2;
   const back = ROAD_TEXT_L / 2 + 2;
   // approaching b: heading +f, lane on the +right side
   const [px, pz] = at(len - trimB - back, lane);
   addRoadText(buf, word, px, pz, fx, fz, ty);
-  if (usable >= 2 * (ROAD_TEXT_L + 4)) {
+  if (!e.oneway && usable >= 2 * (ROAD_TEXT_L + 4)) {
     // approaching a: heading -f, lane on the -right side
     const [qx, qz] = at(trimA + back, -lane);
     addRoadText(buf, word, qx, qz, -fx, -fz, ty);
@@ -877,8 +943,10 @@ export function buildChunkMeshes(
     const b = roads.nodes[e.b];
     const y = e.isMajor ? ROAD_Y_MAJOR : ROAD_Y_MINOR;
     addRibbon(road, [[a.x, a.z], [b.x, b.z]], e.width, y, ROAD_UV_SCALE);
-    if (e.isMajor && e.width >= 8 && edges) addRoadEdges(edges, edges, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b));
+    if (e.isMajor && e.width >= 8 && edges)
+      addRoadEdges(edges, edges, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b), e.lanes ?? 0, !!e.oneway);
     if (text) addRoadWords(text, a, b, e, y, trimAt(e.a), trimAt(e.b), schools);
+    if (e.oneway && edges && !lowDetail) addOneWayArrows(edges, a, b, e.width, e.lanes ?? 0, y, trimAt(e.a), trimAt(e.b));
     if (e.bridge && edges && !lowDetail) {
       // no parapet where another road of the chunk runs through it (a road under the bridge, drawn at the same height)
       const blocked = (x: number, z: number) =>
@@ -894,7 +962,8 @@ export function buildChunkMeshes(
         });
       addBridgeRailings(edges, a.x, a.z, b.x, b.z, e.width, trimAt(e.a), trimAt(e.b), blocked);
     }
-    if (e.isMajor && e.dist >= 10) {
+    // one-way streets have no centre line (white lane dividers only)
+    if (e.isMajor && e.dist >= 10 && !e.oneway) {
       const dx = b.x - a.x;
       const dz = b.z - a.z;
       const count = Math.floor((e.dist - 4) / 9);

@@ -4,6 +4,7 @@ import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
 import { VehicleFleetRenderer } from '../VehicleFleetRenderer';
 import type { TrafficSystem } from '../TrafficSystem';
 import { ACTIVE_SPAWN_RADIUS, AiVehicle } from './trafficTypes';
+import { drivingLaneOffset, isOneWayAlong } from '../roadDirections';
 
 export function computeVehicleWorldPose(
   fromId: number,
@@ -22,7 +23,7 @@ export function computeVehicleWorldPose(
   // Right-hand lane offset per AGENTS.md: right = forward x up = (-fz, 0, fx)
   const rx = -fz;
   const rz = fx;
-  const laneOffset = clamp(edgeWidth * 0.25, 1.8, 3.3);
+  const laneOffset = drivingLaneOffset(edgeWidth, isOneWayAlong(fromId, toId));
 
   const t = clamp(progress / len, 0, 1);
   return {

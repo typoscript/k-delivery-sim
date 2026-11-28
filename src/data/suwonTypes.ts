@@ -21,6 +21,10 @@ export interface OsmGraphEdge {
   /** On a bridge / in an underpass (OSM bridge / tunnel tags; open world only) */
   bridge?: boolean;
   tunnel?: boolean;
+  /** One-way street, driven a -> b only (OSM oneway; open world only) */
+  oneway?: boolean;
+  /** OSM lane count (total, or of this carriageway on a one-way road) when tagged */
+  lanes?: number;
 }
 
 export interface OsmBuildingData {

@@ -16,6 +16,8 @@ export interface GraphEdge {
   a: number;
   b: number;
   cost: number;
+  /** One-way street: driven a -> b only */
+  oneway?: boolean;
 }
 
 export interface ProjectedPoint {
@@ -24,6 +26,8 @@ export interface ProjectedPoint {
   edgeIdx: number;
   a: number;
   b: number;
+  /** The road is one-way, driven a -> b */
+  oneway?: boolean;
   distFromSource: number;
 }
 
@@ -67,6 +71,7 @@ export function projectToRoad(host: RoadNavigator, px: number, pz: number): Proj
         edgeIdx: i,
         a: e.a,
         b: e.b,
+        oneway: e.oneway,
         distFromSource: d,
       };
     }
@@ -108,8 +113,14 @@ export function findShortestPath(
   const startProj = host.projectToRoad(fromX, fromZ);
   const goalProj = host.projectToRoad(toX, toZ);
 
-  // Same road segment -> direct along that road!
-  if (startProj.edgeIdx === goalProj.edgeIdx) {
+  // Same road segment -> direct along that road (on a one-way street only when the goal lies ahead)
+  const goalAhead = (() => {
+    if (!startProj.oneway) return true;
+    const na = host.baseNodes[startProj.a];
+    const nb = host.baseNodes[startProj.b];
+    return (goalProj.x - startProj.x) * (nb.x - na.x) + (goalProj.z - startProj.z) * (nb.z - na.z) >= 0;
+  })();
+  if (startProj.edgeIdx === goalProj.edgeIdx && goalAhead) {
     const direct = finalizePath([
       { x: fromX, z: fromZ },
       { x: startProj.x, z: startProj.z },
@@ -137,22 +148,21 @@ export function findShortestPath(
   ];
 
   const extraAdj = new Map<number, Array<{ to: number; cost: number }>>();
-  const addTempEdge = (a: number, b: number, cost: number) => {
-    if (!extraAdj.has(a)) extraAdj.set(a, []);
-    if (!extraAdj.has(b)) extraAdj.set(b, []);
-    extraAdj.get(a)!.push({ to: b, cost });
-    extraAdj.get(b)!.push({ to: a, cost });
+  const addTempEdge = (from: number, to: number, cost: number) => {
+    if (!extraAdj.has(from)) extraAdj.set(from, []);
+    extraAdj.get(from)!.push({ to, cost });
   };
 
-  const connectProjection = (nodeId: number, proj: ProjectedPoint) => {
-    const na = host.baseNodes[proj.a];
-    const nb = host.baseNodes[proj.b];
-    addTempEdge(nodeId, proj.a, Math.hypot(proj.x - na.x, proj.z - na.z));
-    addTempEdge(nodeId, proj.b, Math.hypot(proj.x - nb.x, proj.z - nb.z));
-  };
-
-  connectProjection(START_ID, startProj);
-  connectProjection(GOAL_ID, goalProj);
+  // the start joins the graph toward the ends it may legally drive to, the goal from the ends it may arrive from
+  // (a one-way street: leave toward b, arrive from a)
+  const na0 = host.baseNodes[startProj.a];
+  const nb0 = host.baseNodes[startProj.b];
+  if (!startProj.oneway) addTempEdge(START_ID, startProj.a, Math.hypot(startProj.x - na0.x, startProj.z - na0.z));
+  addTempEdge(START_ID, startProj.b, Math.hypot(startProj.x - nb0.x, startProj.z - nb0.z));
+  const na1 = host.baseNodes[goalProj.a];
+  const nb1 = host.baseNodes[goalProj.b];
+  addTempEdge(goalProj.a, GOAL_ID, Math.hypot(goalProj.x - na1.x, goalProj.z - na1.z));
+  if (!goalProj.oneway) addTempEdge(goalProj.b, GOAL_ID, Math.hypot(goalProj.x - nb1.x, goalProj.z - nb1.z));
 
   /** A* over the road graph; `penalty` adds the construction detour cost (off: what the route would be without it) */
   const search = (penalty: boolean) => {

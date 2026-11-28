@@ -8,7 +8,7 @@ import type { SignalStateSnapshot } from '../TrafficSystem';
 export interface SpeedCameraTriggerEvent {
   cameraId: string;
   label: string;
-  kind: 'speeding' | 'red_light' | 'patrol_speeding' | 'patrol_red_light' | 'patrol_sidewalk';
+  kind: 'speeding' | 'red_light' | 'patrol_speeding' | 'patrol_red_light' | 'patrol_sidewalk' | 'patrol_wrong_way';
   measuredKmh: number;
   limitKmh: number;
   fine: number;

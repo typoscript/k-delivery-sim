@@ -105,7 +105,8 @@ export class TrafficSystem {
         width: e.width,
         isMajor: e.isMajor,
       });
-      this.adj[e.b].push({
+      // one-way streets are driven a -> b only
+      if (!e.oneway) this.adj[e.b].push({
         to: e.a,
         dist: e.dist,
         width: e.width,

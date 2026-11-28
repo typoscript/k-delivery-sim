@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { drivingLaneOffset, isOneWayAlong } from './roadDirections';
 import {
   ConstructionZoneMarker,
   ObstacleBox,
@@ -22,7 +23,7 @@ import { buildPolicePatrols } from './hazards/policePatrols';
 import { buildConstructionZones } from './hazards/constructionZones';
 import { buildRivalRiders } from './hazards/rivalRiders';
 
-import { RED_LIGHT_TICKET_FINE, SIDEWALK_TICKET_FINE, findWitness } from '../game/trafficViolations';
+import { RED_LIGHT_TICKET_FINE, SIDEWALK_TICKET_FINE, WRONG_WAY_TICKET_FINE, findWitness } from '../game/trafficViolations';
 
 export * from './hazards/hazardTypes';
 import {
@@ -109,7 +110,7 @@ export class RoadHazardManager {
     this.adj = Array.from({ length: nodes.length }, () => []);
     for (const e of ACTIVE_MAP_DATA.edges) {
       this.adj[e.a].push({ to: e.b, dist: e.dist, width: e.width, isMajor: e.isMajor });
-      this.adj[e.b].push({ to: e.a, dist: e.dist, width: e.width, isMajor: e.isMajor });
+      if (!e.oneway) this.adj[e.b].push({ to: e.a, dist: e.dist, width: e.width, isMajor: e.isMajor });
     }
     const xs = new Float64Array(nodes.length);
     const zs = new Float64Array(nodes.length);
@@ -156,7 +157,7 @@ export class RoadHazardManager {
    * usual cooldown). Null when no free patrol is within PATROL_WITNESS_RADIUS_M.
    */
   public witnessTicket(
-    kind: 'patrol_red_light' | 'patrol_sidewalk',
+    kind: 'patrol_red_light' | 'patrol_sidewalk' | 'patrol_wrong_way',
     x: number,
     z: number,
     speedKmh: number
@@ -171,7 +172,12 @@ export class RoadHazardManager {
       kind,
       measuredKmh: Math.round(speedKmh),
       limitKmh: 0,
-      fine: kind === 'patrol_red_light' ? RED_LIGHT_TICKET_FINE : SIDEWALK_TICKET_FINE,
+      fine:
+        kind === 'patrol_red_light'
+          ? RED_LIGHT_TICKET_FINE
+          : kind === 'patrol_wrong_way'
+            ? WRONG_WAY_TICKET_FINE
+            : SIDEWALK_TICKET_FINE,
     };
   }
 
@@ -282,7 +288,7 @@ export class RoadHazardManager {
     const fz = dz / len;
     const rx = -fz;
     const rz = fx;
-    const off = clamp(edgeWidth * laneFrac, 1.6, 3.3);
+    const off = isOneWayAlong(fromId, toId) ? drivingLaneOffset(edgeWidth, true) : clamp(edgeWidth * laneFrac, 1.6, 3.3);
     const t = clamp(progress / len, 0, 1);
     return {
       x: a.x + dx * t + rx * off,

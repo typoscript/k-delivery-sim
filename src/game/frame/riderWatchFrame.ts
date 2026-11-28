@@ -4,14 +4,15 @@ import type { FrameState, LoopState } from '../gameLoop';
 import { ALERT_MAX_DIST_M } from '../riderAlerts';
 import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
 import { getSignalAxis, signalNodesNear } from '../../world/TrafficRules';
-import { SIDEWALK_MIN_KMH, SIDEWALK_TICKET_FINE, isSidewalkOffset } from '../trafficViolations';
+import { SIDEWALK_MIN_KMH, SIDEWALK_TICKET_FINE, WRONG_WAY_MIN_KMH, WRONG_WAY_TICKET_FINE, isSidewalkOffset } from '../trafficViolations';
+import { wrongWayEdgeAt } from '../../world/roadDirections';
 
 /** A stream walkway is judged like a sidewalk this far from the curb (inside the sidewalk band) */
 const WALKWAY_AS_SIDEWALK_OFFSET = 2;
 
 export function stepRiderWatch(ctx: GameContext, loop: LoopState, f: FrameState): void {
   const { world, traffic, pedestrians, roadHazards, delivery, scooterPhysics, audio, hud } = ctx;
-  const { roadProximity, sidewalkMonitor, riderAlerts, safeStops, nearSignalIds, issuePatrolTicket } = loop;
+  const { roadProximity, sidewalkMonitor, wrongWayMonitor, riderAlerts, safeStops, nearSignalIds, issuePatrolTicket } = loop;
   const { dt, isRiding } = f;
   // Sidewalk riding: warning, or a full ticket when a patrol car sees it
   const sx = scooterPhysics.state.x;
@@ -41,6 +42,21 @@ export function stepRiderWatch(ctx: GameContext, loop: LoopState, f: FrameState)
         onWalkway
           ? `🚶 하천 산책로 주행 중! 산책객 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`
           : `🚸 인도 주행 중! 보행자 위험 · 순찰차에 걸리면 과태료 ₩${SIDEWALK_TICKET_FINE.toLocaleString()}`,
+        3600,
+      );
+    }
+  }
+
+  // Against a one-way street (역주행): warning, or a ticket when a patrol car sees it
+  const wrongEdge =
+    isRiding && speedKmh >= WRONG_WAY_MIN_KMH ? wrongWayEdgeAt(sx, sz, scooterPhysics.state.heading) : -1;
+  if (wrongWayMonitor.step(dt, { isRiding, crashed: scooterPhysics.state.crashed, speedKmh, wrongEdge })) {
+    const ticket = roadHazards.witnessTicket('patrol_wrong_way', sx, sz, speedKmh);
+    if (ticket) issuePatrolTicket(ticket, '일방통행 역주행');
+    else {
+      audio.playKeypadBeep(false);
+      hud.showToast(
+        `⛔ 일방통행 역주행 중! 돌아가세요 · 순찰차에 걸리면 과태료 ₩${WRONG_WAY_TICKET_FINE.toLocaleString()}`,
         3600,
       );
     }

@@ -8,6 +8,7 @@ import { RiderAlertMonitor, SafeStopTracker } from './riderAlerts';
 import type { SpeedCameraTriggerEvent } from '../world/RoadHazardManager';
 import {
   SidewalkRidingMonitor,
+  WrongWayMonitor,
   TICKET_RATING_PENALTY,
 } from './trafficViolations';
 
@@ -38,6 +39,8 @@ export interface GameLoopHooks {
 export interface LoopState {
   roadProximity: RoadProximityGrid;
   sidewalkMonitor: SidewalkRidingMonitor;
+  /** Riding against a one-way street */
+  wrongWayMonitor: WrongWayMonitor;
   riderAlerts: RiderAlertMonitor;
   /** Follows each warning: stopping / slowing in time counts as a safe stop */
   safeStops: SafeStopTracker;
@@ -81,6 +84,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
 
   const roadProximity = activeRoadProximity();
   const sidewalkMonitor = new SidewalkRidingMonitor();
+  const wrongWayMonitor = new WrongWayMonitor();
   const riderAlerts = new RiderAlertMonitor();
   const safeStops = new SafeStopTracker();
   const nearSignalIds: number[] = [];
@@ -123,7 +127,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       : { ...gfx, 위치: `${Math.round(p.x)},${Math.round(p.z)}` };
   });
   (window as unknown as { __perf: PerfMonitor }).__perf = perf;
-  const loop: LoopState = { roadProximity, sidewalkMonitor, riderAlerts, safeStops, nearSignalIds, issuePatrolTicket, NEUTRAL_SCOOTER_INPUT, perf, wadingHintShown: false, windHintShown: false, iceTipShown: false };
+  const loop: LoopState = { roadProximity, sidewalkMonitor, wrongWayMonitor, riderAlerts, safeStops, nearSignalIds, issuePatrolTicket, NEUTRAL_SCOOTER_INPUT, perf, wadingHintShown: false, windHintShown: false, iceTipShown: false };
   // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
   // callbacks roughly halves GPU/CPU load (and laptop heat) with no visible difference.
   // 1.5ms of slack so a 60Hz display's slightly early callbacks are never dropped.

@@ -58,6 +58,8 @@ export function showFineTicketPopup(host: Hud, ev: SpeedCameraTriggerEvent, dura
         ? '🚓 순찰차 현장 단속 · 신호위반 (빨간불 교차로 진입)'
         : ev.kind === 'patrol_sidewalk'
           ? '🚓 순찰차 현장 단속 · 이륜차 보도 통행'
+          : ev.kind === 'patrol_wrong_way'
+            ? '🚓 순찰차 현장 단속 · 일방통행 역주행'
           : ev.kind === 'red_light'
             ? '📸 무인 신호위반 단속 카메라 적발'
             : `📸 무인 과속 단속 (제한 ${ev.limitKmh}km/h 초과)`;

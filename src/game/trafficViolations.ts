@@ -7,6 +7,14 @@
 /** 이륜차 신호위반 · 보도 통행 범칙금 */
 export const RED_LIGHT_TICKET_FINE = 40000;
 export const SIDEWALK_TICKET_FINE = 40000;
+/** 이륜차 일방통행 역주행 (통행 구분 위반) 범칙금 */
+export const WRONG_WAY_TICKET_FINE = 30000;
+/** Riding against a one-way street faster than this counts (walking the scooter does not) */
+export const WRONG_WAY_MIN_KMH = 8;
+/** Must keep riding the wrong way this long before it counts */
+export const WRONG_WAY_GRACE_SEC = 1;
+/** The same street warns again after this long (a new one-way street warns right away) */
+export const WRONG_WAY_COOLDOWN_SEC = 12;
 /** Rider trust rating lost per ticket written by a patrol */
 export const TICKET_RATING_PENALTY = 0.1;
 /** A patrol car within this distance witnesses the violation */
@@ -76,4 +84,33 @@ export function findWitness<T extends PatrolPosition>(patrols: readonly T[], x: 
     }
   }
   return best;
+}
+
+export interface WrongWayInput {
+  isRiding: boolean;
+  crashed: boolean;
+  speedKmh: number;
+  /** One-way street ridden against (edge index), -1 when none */
+  wrongEdge: number;
+}
+
+/** Riding against a one-way street (역주행): fires once it lasted WRONG_WAY_GRACE_SEC, once per street / cooldown */
+export class WrongWayMonitor {
+  private onFor = 0;
+  private lastEdge = -1;
+  private cooldown = 0;
+
+  step(dt: number, i: WrongWayInput): boolean {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    if (!i.isRiding || i.crashed || i.speedKmh < WRONG_WAY_MIN_KMH || i.wrongEdge < 0) {
+      this.onFor = 0;
+      return false;
+    }
+    this.onFor += dt;
+    if (this.onFor < WRONG_WAY_GRACE_SEC) return false;
+    if (i.wrongEdge === this.lastEdge && this.cooldown > 0) return false;
+    this.lastEdge = i.wrongEdge;
+    this.cooldown = WRONG_WAY_COOLDOWN_SEC;
+    return true;
+  }
 }
