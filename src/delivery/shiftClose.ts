@@ -92,6 +92,21 @@ export function clockOut(host: DeliveryManager): ClockOutResult | null {
     weeklyBonus,
   };
 
+  // an overdue repair debt grows at clock-out; the shop says so in the messenger
+  const lateFee = host.applyRepairLateFee(day);
+  if (lateFee > 0) {
+    recap.repairLateFee = lateFee;
+    host.messenger.post(
+      'notice',
+      { kind: 'notice', title: '민원 · 알림', icon: '📢' },
+      {
+        from: 'them',
+        text: `🔧 정비소: 외상 수리비 상환 기한이 지나 연체료 ₩${lateFee.toLocaleString()}이 붙었어요 (남은 외상 ₩${host.repairDebt.toLocaleString()})`,
+        time: host.clockLabel(),
+      },
+    );
+  }
+
   host.shiftDay = day + 1;
   host.shiftClockMinute = SHIFT_START_MINUTE;
   host.progress.reset();

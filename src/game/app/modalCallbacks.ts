@@ -1,3 +1,4 @@
+import { REPAIR_DEBT_DUE_DAYS } from '../../delivery/repairCredit';
 /** Modal results: POS / PIN success, cargo slots, fuel, repair & garage purchases, convenience store */
 import type { ModalCallbacks } from '../../ui/ModalUi';
 import { SCOOTER_MODELS, SCOOTER_PAINTS, saveBikeGarage } from '../../vehicle/ScooterModels';
@@ -70,21 +71,30 @@ export function modalCallbacks(r: AppRefs): ModalCallbacks {
     onRepairConfirm: (cost) => {
       if (r.delivery.totalEarnings < cost) {
         // 외상 수리: short of money, the shop fixes it now and the rest comes out of the next settlements
-        if (r.delivery.repairDebt > 0 || !r.delivery.repairOnCredit(cost)) {
+        const credit = r.delivery.repairDebt > 0 ? 'debt_open' : r.delivery.repairOnCredit(cost);
+        if (credit !== 'ok') {
           r.rejectIfInsufficientFunds(cost);
-          if (r.delivery.repairDebt > 0) {
+          if (credit === 'debt_open') {
             r.hud.showToast(`🧾 외상 수리비 ₩${r.delivery.repairDebt.toLocaleString()}이 남아 있어 추가 외상은 안 돼요`, 3400);
+          } else if (credit === 'over_limit') {
+            const lv = r.delivery.garageLevel;
+            r.hud.showToast(
+              `🧾 외상 한도 초과 (${lv.label} 한도 ₩${lv.limit.toLocaleString()}) · 정비소를 자주 이용하면 한도가 늘어요`,
+              3800,
+            );
           }
           return;
         }
+        r.delivery.recordGarageVisit();
         r.scooterPhysics.repairVehicle();
         r.audio.playRepairSound();
         r.hud.showToast(
-          `🔧 외상 수리 완료! 외상 ₩${r.delivery.repairDebt.toLocaleString()}은 다음 배달 정산에서 자동으로 갚아요`,
-          4200,
+          `🔧 외상 수리 완료! 외상 ₩${r.delivery.repairDebt.toLocaleString()}은 다음 배달 정산에서 자동으로 갚아요 (${REPAIR_DEBT_DUE_DAYS}근무일 안에 못 갚으면 연체료 10%)`,
+          4600,
         );
         return;
       }
+      r.delivery.recordGarageVisit();
       r.scooterPhysics.repairVehicle();
       r.delivery.recordRepairExpense(cost);
       r.audio.playRepairSound();

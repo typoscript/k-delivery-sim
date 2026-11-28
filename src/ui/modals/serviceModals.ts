@@ -1,3 +1,4 @@
+import { GARAGE_VISIT_COUNTER, garageLevel } from '../../delivery/repairCredit';
 /** Cargo box, repair shop, convenience store, daily report and mission bonus modals */
 import type { ModalUi } from '../ModalUi';
 import { CARGO_SLOT_COUNT, ClockOutResult, DailyFinanceLedger, DeliveryManager } from '../../delivery/DeliveryManager';
@@ -69,15 +70,20 @@ export function renderRepairGarageContent(
     host.repairConfirmBtn.disabled = false;
     // short of money: the shop fixes it on credit (paid back from the next settlements) unless a debt is still open
     const short = career.walletBalance < host.repairCost;
+    const level = garageLevel(career.lifetimeCounters?.[GARAGE_VISIT_COUNTER] ?? 0);
+    const owed = host.repairCost - Math.max(0, Math.floor(career.walletBalance / 100) * 100);
     host.repairConfirmBtn.textContent = !short
       ? '🔧 수리 및 결제 완료 (E / Enter)'
       : debt > 0
         ? `💳 잔액 부족 · 외상 ₩${debt.toLocaleString()}을 먼저 갚아야 해요`
-        : `🧾 외상으로 수리 (지갑 ₩${Math.max(0, career.walletBalance).toLocaleString()} + 외상, Enter)`;
+        : owed > level.limit
+          ? `💳 잔액 부족 · 외상 한도 ₩${level.limit.toLocaleString()} 초과 (${level.label})`
+          : `🧾 외상으로 수리 (지갑 ₩${Math.max(0, career.walletBalance).toLocaleString()} + 외상, Enter)`;
   }
   host.repairBikeList.innerHTML = garageBikeListHtml(garage);
   host.repairPaintGrid.innerHTML = garagePaintGridHtml(garage);
-  host.repairWalletChip.textContent = `지갑 ₩${career.walletBalance.toLocaleString()}${debt > 0 ? ` · 외상 ₩${debt.toLocaleString()}` : ''}`;
+  const lv = garageLevel(career.lifetimeCounters?.[GARAGE_VISIT_COUNTER] ?? 0);
+  host.repairWalletChip.textContent = `지갑 ₩${career.walletBalance.toLocaleString()}${debt > 0 ? ` · 외상 ₩${debt.toLocaleString()}` : ''} · ${lv.label} (외상 한도 ₩${lv.limit.toLocaleString()})`;
   host.repairUpgradeList.innerHTML = garageUpgradeListHtml(career);
 }
 

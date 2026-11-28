@@ -350,13 +350,13 @@ describe('fields added in the 외상 / 알림 updates', () => {
   it("today's repayment is kept in the shift ledger across a reload", () => {
     writeRaw({ walletBalance: 0, lifetimeCompleted: 0, riderRating: 5, upgrades: [], reviews: [] });
     const dm = new DeliveryManager(LOCATIONS);
-    dm.repairOnCredit(30_000);
+    dm.repairOnCredit(12_000);
     deliverOne(dm);
     const repaid = dm.getDailyLedger().debtRepayExpense;
     expect(repaid).toBeGreaterThan(0);
     const again = new DeliveryManager(LOCATIONS);
     expect(again.getDailyLedger().debtRepayExpense).toBe(repaid);
-    expect(again.repairDebt).toBe(30_000 - repaid);
+    expect(again.repairDebt).toBe(12_000 - repaid);
     expectAllFinite(again.getDailyLedger(), 'ledger');
   });
 });

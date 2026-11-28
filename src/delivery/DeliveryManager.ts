@@ -1,3 +1,4 @@
+import { GARAGE_VISIT_COUNTER, GarageLevel, garageLevel, repairDebtDueDay, repairLateFee } from './repairCredit';
 import { DeliveryLocation } from '../types';
 import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
@@ -196,6 +197,8 @@ export class DeliveryManager {
   public shiftDay = 1;
   /** Repair done on credit (외상 수리) not paid back yet */
   public repairDebt = 0;
+  /** Working day the open debt was taken (due REPAIR_DEBT_DUE_DAYS working days later) */
+  public repairDebtSince = 1;
   /** Game clock minute to resume at after a reload (kept up to date by the game loop) */
   public shiftClockMinute = SHIFT_START_MINUTE;
   /** Today's goal counters / claimed goals and the career progress (history, achievements) built on them */
@@ -240,6 +243,7 @@ export class DeliveryManager {
     this.records = new RiderRecords(this.career, this.shops);
     this.totalEarnings = this.career.walletBalance;
     this.repairDebt = this.career.repairDebt ?? 0;
+    this.repairDebtSince = this.career.repairDebtSince ?? this.shiftDay;
     this.lifetimeCompleted = this.career.lifetimeCompleted;
     this.riderRating = this.career.riderRating;
     const shift = this.career.shift ?? emptyShift(1, SHIFT_START_MINUTE);
@@ -278,8 +282,13 @@ export class DeliveryManager {
   public persistCareer(): void {
     if (this.savesFrozen) return;
     this.career.walletBalance = Math.round(this.totalEarnings);
-    if (this.repairDebt > 0) this.career.repairDebt = this.repairDebt;
-    else delete this.career.repairDebt;
+    if (this.repairDebt > 0) {
+      this.career.repairDebt = this.repairDebt;
+      this.career.repairDebtSince = this.repairDebtSince;
+    } else {
+      delete this.career.repairDebt;
+      delete this.career.repairDebtSince;
+    }
     this.career.lifetimeCompleted = this.lifetimeCompleted;
     this.career.riderRating = Math.round(this.riderRating * 10) / 10;
     this.career.shift = {
@@ -589,7 +598,7 @@ export class DeliveryManager {
   }
 
   /** Game clock "HH:MM" for messenger timestamps */
-  private clockLabel(): string {
+  public clockLabel(): string {
     const m = ((Math.floor(this.shiftClockMinute) % 1440) + 1440) % 1440;
     return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   }
@@ -774,17 +783,43 @@ export class DeliveryManager {
   /** Repair debt paid back from the last settlement (0 when none) */
   public lastDebtRepaid = 0;
 
+  /** The shop's trust in the rider: level and credit limit by repairs done there */
+  public get garageLevel(): GarageLevel {
+    return garageLevel(this.career.lifetimeCounters?.[GARAGE_VISIT_COUNTER] ?? 0);
+  }
+
+  /** A repair was done at the shop (paid or on credit): counts toward the garage level */
+  public recordGarageVisit(): void {
+    this.progress.bump(GARAGE_VISIT_COUNTER);
+    this.persistCareer();
+  }
+
   /**
-   * 외상 수리: fixes the scooter now and owes the cost. Only one credit repair at a time (none while a debt is open)
-   * and up to the wallet's shortfall: returns false when not allowed. The wallet pays what it can right away.
+   * 외상 수리: fixes the scooter now and owes the cost. One credit at a time (none while a debt is open) and the
+   * owed part within the garage level's limit; the wallet pays what it can right away.
    */
-  public repairOnCredit(cost: number): boolean {
-    if (this.repairDebt > 0 || cost <= 0) return false;
+  public repairOnCredit(cost: number): 'ok' | 'debt_open' | 'over_limit' | 'nothing' {
+    if (cost <= 0) return 'nothing';
+    if (this.repairDebt > 0) return 'debt_open';
     const paidNow = Math.max(0, Math.min(cost, Math.floor(this.totalEarnings / 100) * 100));
+    if (cost - paidNow > this.garageLevel.limit) return 'over_limit';
     if (paidNow > 0) this.recordRepairExpense(paidNow);
     this.repairDebt = cost - paidNow;
+    this.repairDebtSince = this.shiftDay;
     this.persistCareer();
-    return true;
+    return 'ok';
+  }
+
+  /** Working days left to pay the debt back without a late fee (0 = today is the last day) */
+  public get repairDebtDaysLeft(): number {
+    return Math.max(0, repairDebtDueDay(this.repairDebtSince) - this.shiftDay);
+  }
+
+  /** At clock-out: an overdue debt grows by the late fee (returned, 0 when none) */
+  public applyRepairLateFee(closingDay: number): number {
+    const fee = repairLateFee(this.repairDebt, this.repairDebtSince, closingDay);
+    if (fee > 0) this.repairDebt += fee;
+    return fee;
   }
 
   /** Pays the repair debt back from a settlement's earnings (today's 외상 상환 line) */

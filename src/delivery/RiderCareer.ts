@@ -32,6 +32,8 @@ export interface RiderCareerSave {
   weekGoals?: { week: number; ids: string[] };
   /** Unpaid repair done on credit (외상 수리), paid back from the next settlements */
   repairDebt?: number;
+  /** Working day the open repair debt was taken (its due day counts from here) */
+  repairDebtSince?: number;
 }
 
 /** Local calendar date key (YYYY-MM-DD) for daily mission persistence */
@@ -136,6 +138,9 @@ export function loadRiderCareer(): RiderCareerSave {
       ...(weekGoals && weekGoals.ids.length > 0 ? { weekGoals } : {}),
       ...(typeof parsed.repairDebt === 'number' && Number.isFinite(parsed.repairDebt) && parsed.repairDebt > 0
         ? { repairDebt: Math.min(1_000_000, Math.round(parsed.repairDebt)) }
+        : {}),
+      ...(typeof parsed.repairDebtSince === 'number' && Number.isFinite(parsed.repairDebtSince) && parsed.repairDebtSince >= 1
+        ? { repairDebtSince: Math.floor(parsed.repairDebtSince) }
         : {}),
     };
   } catch {

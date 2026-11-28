@@ -95,6 +95,17 @@ export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
         5200,
       );
       r.voiceNav.speak(`${res.day}일차 근무를 마쳤습니다. 수고하셨습니다.`);
+      if (res.recap.repairLateFee) {
+        const fee = res.recap.repairLateFee;
+        window.setTimeout(
+          () =>
+            r.hud.showToast(
+              `🧾 외상 상환 기한이 지나 연체료 ₩${fee.toLocaleString()}이 붙었어요 (남은 외상 ₩${r.delivery.repairDebt.toLocaleString()})`,
+              4200,
+            ),
+          2600,
+        );
+      }
       res.recap.newAtClockOut.forEach((a, i) =>
         window.setTimeout(
           () => r.hud.showToast(`🏆 업적 달성! ${a.icon} ${a.title} · ${a.desc}`, 4600),

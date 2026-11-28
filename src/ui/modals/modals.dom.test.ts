@@ -163,7 +163,7 @@ describe('purchases check the wallet (modal callbacks)', () => {
         },
         apply: () => {
           calls.push(name);
-          return name.endsWith('hasUpgrade') ? false : true;
+          return name.endsWith('hasUpgrade') ? false : name.endsWith('repairOnCredit') ? 'ok' : true;
         },
       });
     return new Proxy({} as AppRefs, {

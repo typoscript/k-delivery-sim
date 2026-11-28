@@ -5811,3 +5811,8 @@ body.phone-3d-hover canvas {
   font-size: 9.5px;
   color: #64748b;
 }
+
+.bc-debt-card .bc-debt-sub.due {
+  color: #dc2626;
+  font-weight: 800;
+}

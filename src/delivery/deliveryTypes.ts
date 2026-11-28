@@ -56,6 +56,8 @@ export interface ShiftRecap {
   week: WeekSummary | null;
   /** The week's goals checked at this clock-out (week end only) */
   weekGoals: WeekGoalStatus[] | null;
+  /** Late fee added to an overdue repair debt at this clock-out (0 when none) */
+  repairLateFee?: number;
   /** Weekly goal bonus paid at this clock-out */
   weeklyBonus: number;
 }

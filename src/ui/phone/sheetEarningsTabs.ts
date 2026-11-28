@@ -93,7 +93,11 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
   const dateStr = `${l.shiftDay}일차 · ${l.completedCount}건`;
 
   return `
-    ${repairDebtCardHtml(delivery.repairDebt, l.debtRepayExpense)}
+    ${repairDebtCardHtml(delivery.repairDebt, l.debtRepayExpense, {
+      daysLeft: delivery.repairDebtDaysLeft,
+      limit: delivery.garageLevel.limit,
+      level: delivery.garageLevel.label,
+    })}
     ${renderDailyMissionWidget(delivery)}
     ${renderWeeklyGoalWidget(delivery)}
     <div class="bc-receipt">
@@ -308,7 +312,11 @@ export function pastWeeksHtml(weeks: readonly WeekSummary[]): string {
  * 🧾 외상 카드: the repair debt still owed (paid back from each settlement) and what was paid back today; nothing
  * when there is no debt and nothing was repaid today
  */
-export function repairDebtCardHtml(debt: number, repaidToday: number): string {
+export function repairDebtCardHtml(
+  debt: number,
+  repaidToday: number,
+  terms?: { daysLeft: number; limit: number; level: string },
+): string {
   if (debt <= 0 && repaidToday <= 0) return '';
   const won = (n: number) => `₩${n.toLocaleString()}`;
   const total = debt + repaidToday;
@@ -318,5 +326,10 @@ export function repairDebtCardHtml(debt: number, repaidToday: number): string {
       <div class="bc-debt-top"><span>🧾 외상 수리비</span><b>${debt > 0 ? `남은 외상 ${won(debt)}` : '✓ 오늘 모두 갚았어요'}</b></div>
       <div class="bc-mission-track"><div class="bc-mission-fill" style="width:${pct}%"></div></div>
       <div class="bc-debt-sub">${repaidToday > 0 ? `오늘 상환 ${won(repaidToday)}` : '아직 오늘 상환 없음'} · 배달 정산 때마다 번 돈에서 자동으로 갚아요${debt > 0 ? ' (다 갚기 전엔 추가 외상 불가)' : ''}</div>
+      ${
+        terms && debt > 0
+          ? `<div class="bc-debt-sub ${terms.daysLeft === 0 ? 'due' : ''}">${terms.daysLeft === 0 ? '⚠️ 오늘 퇴근 전까지 못 갚으면 연체료 10%' : `상환 기한 D-${terms.daysLeft} (넘기면 퇴근 때마다 연체료 10%)`} · ${terms.level} 외상 한도 ${won(terms.limit)}</div>`
+          : ''
+      }
     </div>`;
 }
