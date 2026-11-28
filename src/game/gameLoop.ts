@@ -48,6 +48,8 @@ export interface LoopState {
   perf: PerfMonitor;
   /** The "wading is slow" hint was shown this session */
   wadingHintShown: boolean;
+  /** The bridge crosswind hint was shown this session */
+  windHintShown: boolean;
 }
 
 /** This frame's basics, computed once at the top of the frame */
@@ -119,7 +121,7 @@ export function startGameLoop(ctx: GameContext, hooks: GameLoopHooks): void {
       : { ...gfx, 위치: `${Math.round(p.x)},${Math.round(p.z)}` };
   });
   (window as unknown as { __perf: PerfMonitor }).__perf = perf;
-  const loop: LoopState = { roadProximity, sidewalkMonitor, riderAlerts, safeStops, nearSignalIds, issuePatrolTicket, NEUTRAL_SCOOTER_INPUT, perf, wadingHintShown: false };
+  const loop: LoopState = { roadProximity, sidewalkMonitor, riderAlerts, safeStops, nearSignalIds, issuePatrolTicket, NEUTRAL_SCOOTER_INPUT, perf, wadingHintShown: false, windHintShown: false };
   // 60fps cap: on 120Hz (ProMotion) / 144Hz displays rAF fires 2x+ as often; skipping the extra
   // callbacks roughly halves GPU/CPU load (and laptop heat) with no visible difference.
   // 1.5ms of slack so a 60Hz display's slightly early callbacks are never dropped.

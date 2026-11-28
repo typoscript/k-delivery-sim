@@ -1,3 +1,4 @@
+import { bridgeGust } from '../bridgeWind';
 /** Per-frame stage of the game loop (gameLoop.ts calls the stages in order each frame) */
 import type { GameContext } from '../GameContext';
 import type { FrameState, GameLoopHooks, LoopState } from '../gameLoop';
@@ -84,6 +85,23 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
           } else {
             hud.showToast('💦 첨벙! 물웅덩이 — 속도가 줄고 바이저에 물이 튀었어요 ([G]로 닦기)', 2400);
           }
+        }
+      }
+    }
+    // Crosswind on bridges: gusts push the scooter sideways (more in rain / snow); told once per session
+    if (isRiding) {
+      const sp = scooterPhysics.state;
+      const onBridge = world.roadStructures.structureAt(sp.x, sp.z, sp.heading) === 'bridge';
+      const gust = onBridge ? bridgeGust(elapsed, world.weatherMode, Math.abs(sp.speed) * 3.6) : 0;
+      if (gust !== 0) {
+        // rider's right = forward x up = (-fz, 0, fx) with forward (sin h, cos h)
+        const fx = Math.sin(sp.heading);
+        const fz = Math.cos(sp.heading);
+        sp.x += -fz * gust * dt;
+        sp.z += fx * gust * dt;
+        if (!loop.windHintShown) {
+          loop.windHintShown = true;
+          hud.showToast('🌬️ 다리 위 옆바람! 핸들이 살짝 밀려요 — 비·눈 오는 날엔 더 세요', 3000);
         }
       }
     }

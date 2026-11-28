@@ -66,12 +66,28 @@ export function blackIceActive(season: string, night: boolean, minuteOfDay: numb
   return season === 'winter' && (night || minuteOfDay < 9 * 60);
 }
 
+/** Bridges stay frozen this long after the shaded streets thaw in the morning (cold air under the deck) */
+export const BRIDGE_THAW_LAG_MIN = 60;
+
+export type BlackIceStage = 'none' | 'bridges' | 'all';
+
+/**
+ * How much is frozen on a winter day: bridges freeze first - from sunset (`duskStart`), before the shaded streets
+ * follow at night - and thaw last (until 10:00, an hour after the streets). 'all' = bridges + shaded streets.
+ */
+export function blackIceStage(season: string, night: boolean, minuteOfDay: number, duskStart: number): BlackIceStage {
+  if (season !== 'winter') return 'none';
+  if (blackIceActive(season, night, minuteOfDay)) return 'all';
+  if (minuteOfDay >= duskStart || minuteOfDay < 9 * 60 + BRIDGE_THAW_LAG_MIN) return 'bridges';
+  return 'none';
+}
+
 export class BlackIceField {
   /** Today's frozen spots (empty while not active) - the phone map draws these */
   public readonly patches: IcePatch[] = [];
   private readonly grid = new Map<string, IcePatch[]>();
   private day = -1;
-  private active = false;
+  private stage: BlackIceStage = 'none';
   /** The last patch the rider was warned about (warn once per patch) */
   public warnedId = -1;
   /** The patch the rider is crossing right now (-1: none) and whether they went down on it */
@@ -84,18 +100,28 @@ export class BlackIceField {
   ) {}
 
   public get isActive(): boolean {
-    return this.active;
+    return this.stage !== 'none';
   }
 
-  /** Ice for the working `day` when `active` (rebuilt only when either changes) */
-  public set(day: number, active: boolean): void {
-    if (day === this.day && active === this.active) return;
+  /** What is frozen right now: nothing, bridges only (dusk / late morning) or bridges + shaded streets */
+  public get currentStage(): BlackIceStage {
+    return this.stage;
+  }
+
+  /**
+   * Ice for the working `day` (rebuilt only when it or the stage changes). `true` / `false` = 'all' / 'none';
+   * 'bridges' keeps only the bridge-deck patches.
+   */
+  public set(day: number, stage: BlackIceStage | boolean): void {
+    const s: BlackIceStage = stage === true ? 'all' : stage === false ? 'none' : stage;
+    if (day === this.day && s === this.stage) return;
     this.day = day;
-    this.active = active;
+    this.stage = s;
     this.patches.length = 0;
     this.grid.clear();
-    if (!active) return;
+    if (s === 'none') return;
     for (const p of planBlackIce(this.nodes, this.edges, day)) {
+      if (s === 'bridges' && !p.onBridge) continue;
       this.patches.push(p);
       const key = `${Math.floor(p.x / CELL_M)},${Math.floor(p.z / CELL_M)}`;
       const list = this.grid.get(key);
@@ -113,7 +139,7 @@ export class BlackIceField {
   public nearest(x: number, z: number, range: number, inside = false, heading?: number): IcePatch | null {
     const hx = heading === undefined ? 0 : Math.sin(heading);
     const hz = heading === undefined ? 0 : Math.cos(heading);
-    if (!this.active) return null;
+    if (this.stage === 'none') return null;
     const cx = Math.floor(x / CELL_M);
     const cz = Math.floor(z / CELL_M);
     let best: IcePatch | null = null;

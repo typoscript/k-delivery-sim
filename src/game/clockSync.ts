@@ -2,7 +2,7 @@ import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
 import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/demandEvents';
 import { isMonsoonDay, seasonOfDay, weatherOddsOfDay } from './seasons';
-import { blackIceActive } from '../world/blackIce';
+import { blackIceStage } from '../world/blackIce';
 import { ION_DRINK_COST, heatwaveActive } from './heatwave';
 import { COLD_TEMP_C, buildWeatherReport, temperatureAt } from './weatherReport';
 import type { Hud } from '../ui/Hud';
@@ -109,16 +109,23 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   // Rain puddles: on rainy days (many more during 장마), fresh spots each working day
   world.puddles.set(delivery.shiftDay, world.weatherMode === 'rain', monsoon);
   // Winter nights / mornings: shaded side streets and ramps freeze into black ice
-  const icy = blackIceActive(season.id, world.isNight, clock.minute);
-  const wasIcy = world.blackIce.isActive;
-  world.blackIce.set(delivery.shiftDay, icy); // cheap when nothing changed; a new working day freezes other spots
-  if (announce && icy && !wasIcy) {
-    weatherPush(
-      hud,
-      '🧊 영하의 겨울 밤 · 그늘진 골목과 램프에 블랙아이스! 휴대폰 지도의 🧊 표시 구간에선 브레이크·급회전 금지',
-      5200
-    );
-    voiceNav.speak('노면 결빙 주의. 그늘진 골목에 블랙아이스가 있습니다.');
+  // bridges freeze first at sunset, the shaded streets follow at night; bridges thaw last in the morning
+  const iceStage = blackIceStage(season.id, world.isNight, clock.minute, season.sun.duskStart);
+  const icy = iceStage !== 'none';
+  const stageBefore = world.blackIce.currentStage;
+  world.blackIce.set(delivery.shiftDay, iceStage); // cheap when nothing changed; a new working day freezes other spots
+  if (announce && iceStage !== stageBefore) {
+    if (iceStage === 'bridges' && stageBefore === 'none') {
+      weatherPush(hud, '🧊 해가 졌어요 · 다리 위부터 얼기 시작해요! 휴대폰 지도의 🧊 다리 구간에선 브레이크·급회전 금지', 5200);
+      voiceNav.speak('노면 결빙 주의. 다리 위가 얼기 시작했습니다.');
+    } else if (iceStage === 'all') {
+      weatherPush(
+        hud,
+        '🧊 영하의 겨울 밤 · 다리에 이어 그늘진 골목과 램프까지 블랙아이스! 지도의 🧊 구간에선 브레이크·급회전 금지',
+        5200
+      );
+      voiceNav.speak('노면 결빙 주의. 그늘진 골목에도 블랙아이스가 있습니다.');
+    }
   }
   // Summer heatwave afternoons: stamina and chilled food suffer outdoors
   const hot = heatwaveActive(season.id, world.weatherMode, clock.minute);
@@ -166,6 +173,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       forecast: ctx.weatherSchedule.forecast(6),
       heatwave: hot,
       blackIce: icy,
+      blackIceBridgesOnly: iceStage === 'bridges',
       puddles: world.puddles.puddles.length,
       night: world.isNight,
       gear: { raincoat, winterGear },

@@ -53,6 +53,8 @@ export interface WeatherReportInput {
   forecast: readonly WeatherMode[];
   heatwave: boolean;
   blackIce: boolean;
+  /** Only the bridges are frozen (sunset / late morning), not the shaded streets */
+  blackIceBridgesOnly?: boolean;
   /** Puddles on the road right now */
   puddles: number;
   /** Is it night now (sunset passed) */
@@ -124,7 +126,17 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
       level: 'warn',
     });
   }
-  if (input.blackIce) {
+  if (input.blackIce && input.blackIceBridgesOnly) {
+    alerts.push({
+      icon: '🧊',
+      title: '다리 위 결빙',
+      detail:
+        input.minute < 12 * 60
+          ? '골목은 녹았지만 다리 위는 10시까지 얼어 있어요 · 지도 🧊 다리 구간 주의'
+          : `다리 위가 먼저 얼었어요 · ${hhmm(season.sun.duskStart + 30)}부터 그늘진 골목·램프도 얼어요`,
+      level: 'danger',
+    });
+  } else if (input.blackIce) {
     alerts.push({
       icon: '🧊',
       title: '도로 결빙 (블랙아이스)',
@@ -135,7 +147,7 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
     alerts.push({
       icon: '🧊',
       title: '밤사이 결빙 예상',
-      detail: `해가 지면(${hhmm(season.sun.duskStart + 60)}경) 다리부터 얼어요`,
+      detail: `해가 지면(${hhmm(season.sun.duskStart)}) 다리부터, ${hhmm(season.sun.duskStart + 30)}부터 그늘진 골목도 얼어요`,
       level: 'warn',
     });
   }
