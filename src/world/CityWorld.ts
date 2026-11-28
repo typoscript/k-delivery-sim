@@ -1,3 +1,4 @@
+import { BenchCustomers } from './benchCustomers';
 import { SIDEWALK_MIN_OFFSET_M } from '../game/trafficViolations';
 import { WALKWAY_M } from './streamPaths';
 import { EMBANKMENT_M } from './openworld/ChunkMeshBuilder';
@@ -624,6 +625,24 @@ export class CityWorld {
 
   public setLobbyDoorOpen(locationId: string | null): void {
     this.deliveryProps.setLobbyDoorOpen(locationId);
+  }
+
+  /** Customers waiting on the stream walkway benches (made on first use) */
+  private benchCustomers: BenchCustomers | null = null;
+
+  /** Seats / stands / waves the riverside customers of the orders on their way (see benchCustomers.ts) */
+  public syncBenchCustomers(
+    dt: number,
+    px: number,
+    pz: number,
+    waiting: readonly DeliveryLocation[],
+    carryingTo: string | null,
+  ): void {
+    if (!this.benchCustomers) {
+      if (waiting.length === 0) return;
+      this.benchCustomers = new BenchCustomers(this.root);
+    }
+    this.benchCustomers.update(dt, px, pz, waiting, carryingTo);
   }
 
   public syncShopPickupTrays(cookingShopIds: Set<string>, readyShopIds: Set<string>, elapsedTime: number): void {

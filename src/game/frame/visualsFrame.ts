@@ -45,6 +45,15 @@ export function stepVisualsFrame(
       else if (m.phase === 'pickup_ready') readyShopIds.add(m.order.shop.id);
     }
     world.syncShopPickupTrays(cookingShopIds, readyShopIds, elapsed);
+    // 산책로 쉼터: the customer of a riverside order waits on the bench, stands to take the food, waves goodbye
+    const benchWaiting = [];
+    let carryingTo: string | null = null;
+    for (const m of delivery.activeMissions) {
+      if (m.order.customer.residenceKind !== 'riverside' || m.phase === 'corridor_exit') continue;
+      benchWaiting.push(m.order.customer);
+      if (m.phase === 'carrying_to_lobby') carryingTo = m.order.customer.id;
+    }
+    world.syncBenchCustomers(dt, ctx.playerCtrl.state.x, ctx.playerCtrl.state.z, benchWaiting, carryingTo);
 
     scooterMesh.sync(scooterPhysics.state, elapsed, dt, world.isNight, weather.rainIntensity);
     scooterMesh.setCargoSlotsVisual(delivery.getCargoSlotOccupiedFlags());
