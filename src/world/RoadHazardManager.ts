@@ -16,17 +16,16 @@ import {
   ScooterProximityInfo,
 } from './PedestrianManager';
 import { PointGrid } from './PedestrianGraph';
-import { buildSpeedCameras, stepSpeedCameras } from './hazards/speedCameras';
-import { buildParkedHazards, stepParkedHazards } from './hazards/parkedHazards';
-import { buildPolicePatrols, stepPolicePatrols } from './hazards/policePatrols';
-import { buildConstructionZones, stepConstructionZones } from './hazards/constructionZones';
-import { buildRivalRiders, stepRivalRiders } from './hazards/rivalRiders';
+import { buildSpeedCameras } from './hazards/speedCameras';
+import { buildParkedHazards } from './hazards/parkedHazards';
+import { buildPolicePatrols } from './hazards/policePatrols';
+import { buildConstructionZones } from './hazards/constructionZones';
+import { buildRivalRiders } from './hazards/rivalRiders';
 
 import { RED_LIGHT_TICKET_FINE, SIDEWALK_TICKET_FINE, findWitness } from '../game/trafficViolations';
 
 export * from './hazards/hazardTypes';
 import {
-  HazardFrame,
   SpeedCameraTriggerEvent,
   PopOutWarningEvent,
   OsmAdjEdge,
@@ -36,17 +35,22 @@ import {
   SpeedCameraUnit,
   ParkedHazardUnit,
   LARGE_MAP_COVERAGE_KM2,
-  HAZARD_RECYCLE_DISTANCE,
-  HAZARD_RESPAWN_MIN_RADIUS,
   HAZARD_RESPAWN_MAX_RADIUS,
-  HAZARD_RECYCLE_INTERVAL_SEC,
-  STATIC_PROP_VISIBLE_DIST,
   STATIC_VISIBILITY_INTERVAL_SEC,
   PlacementRule,
 } from './hazards/hazardTypes';
 
-/** Max distance a respawned unit ends up from its picked start node (15m progress + lane offset) */
-const SPAWN_SLACK_M = 18;
+
+import {
+  pickSpawnEdge as pickSpawnEdgeFn,
+  respawnMovingUnit as respawnMovingUnitFn,
+  recycleMovingUnits as recycleMovingUnitsFn,
+  pickNextGraphEdge as pickNextGraphEdgeFn,
+  updateStaticPropVisibility as updateStaticPropVisibilityFn,
+} from './hazards/hazardSpawning';
+import {
+  step as stepFn,
+} from './hazards/hazardFrame';
 
 /**
  * Suwon Roadside Enforcement, Construction & Urban Delivery Hazards Manager:
@@ -80,14 +84,19 @@ export class RoadHazardManager {
   /** @internal hazards/* */
   globalPopOutCooldown = 3.0;
   /** Spatial index of OSM road nodes that have edges (all) and of nodes touching a major road */
-  private readonly nodeGrid: PointGrid;
-  private readonly majorNodeGrid: PointGrid;
+  /** @internal hazards/* */
+  readonly nodeGrid: PointGrid;
+  /** @internal hazards/* */
+  readonly majorNodeGrid: PointGrid;
   /** km^2 of 100m cells containing road nodes (legacy districts ~0.35-0.6, unified Suwon ~19) */
   public readonly roadCoverageKm2: number;
   public readonly isLargeMap: boolean;
-  private readonly staticProps: Array<{ group: THREE.Object3D; x: number; z: number }> = [];
-  private recycleTimer = 0;
-  private staticVisTimer = STATIC_VISIBILITY_INTERVAL_SEC;
+  /** @internal hazards/* */
+  readonly staticProps: Array<{ group: THREE.Object3D; x: number; z: number }> = [];
+  /** @internal hazards/* */
+  recycleTimer = 0;
+  /** @internal hazards/* */
+  staticVisTimer = STATIC_VISIBILITY_INTERVAL_SEC;
   /** Total police/rival respawns near the player (diagnostics / tests) */
   public recycledCount = 0;
   /** @internal hazards/* */
@@ -220,7 +229,8 @@ export class RoadHazardManager {
    * Picks a road edge whose start node lies minR~maxR from (x, z), away from the other moving units.
    * preferMajor: try nodes on major roads first and leave along a major edge when possible.
    */
-  private pickSpawnEdge(
+  /** @internal hazards/* */
+  pickSpawnEdge(
     x: number,
     z: number,
     minR: number,
@@ -228,28 +238,12 @@ export class RoadHazardManager {
     preferMajor: boolean,
     self: { x: number; z: number }
   ): { from: number; edge: OsmAdjEdge } | null {
-    const others = [...this.patrolCars, ...this.rivalRiders].filter((u) => u !== self);
-    const nodes = ACTIVE_MAP_DATA.nodes;
-    const clear = (id: number) => {
-      const n = nodes[id];
-      return !others.some((o) => Math.abs(o.x - n.x) < 14 && Math.abs(o.z - n.z) < 14);
-    };
-    const grids = preferMajor ? [this.majorNodeGrid, this.nodeGrid] : [this.nodeGrid];
-    for (const grid of grids) {
-      const id = grid.randomWithin(x, z, minR, maxR, (nid) => this.adj[nid].some((e) => e.dist >= 8) && clear(nid));
-      if (id < 0) continue;
-      let outs = this.adj[id].filter((e) => e.dist >= 8);
-      if (preferMajor) {
-        const maj = outs.filter((e) => e.isMajor);
-        if (maj.length > 0) outs = maj;
-      }
-      return { from: id, edge: outs[Math.floor(Math.random() * outs.length)] };
-    }
-    return null;
+    return pickSpawnEdgeFn(this, x, z, minR, maxR, preferMajor, self);
   }
 
   /** Moves a police car / rival rider onto a fresh edge near (x, z). Returns false when no road qualifies. */
-  private respawnMovingUnit(
+  /** @internal hazards/* */
+  respawnMovingUnit(
     u: PolicePatrolUnit | RivalRiderUnit,
     x: number,
     z: number,
@@ -258,65 +252,17 @@ export class RoadHazardManager {
     preferMajor: boolean,
     laneFrac: number
   ): boolean {
-    // The unit moves up to 15m along the edge plus its lane offset: keep that slack inside maxR
-    const pick = this.pickSpawnEdge(x, z, minR, Math.max(minR, maxR - SPAWN_SLACK_M), preferMajor, u);
-    if (!pick) return false;
-    const { from, edge } = pick;
-    u.fromNode = from;
-    u.toNode = edge.to;
-    u.edgeDist = edge.dist;
-    u.edgeWidth = edge.width;
-    // Stay close to the picked start node (<= 15m) so the unit really lands inside the requested ring
-    u.progress = Math.min(edge.dist * 0.25, 15, Math.max(0, edge.dist - 0.2));
-    u.blendX = 0;
-    u.blendZ = 0;
-    u.speed = u.cruiseSpeed * 0.7;
-    const pose = this.computeEdgePose(from, edge.to, u.progress, edge.dist, edge.width, laneFrac);
-    u.x = pose.x;
-    u.z = pose.z;
-    u.heading = pose.heading;
-    u.group.position.set(u.x, 0, u.z);
-    u.group.rotation.y = u.heading;
-    return true;
+    return respawnMovingUnitFn(this, u, x, z, minR, maxR, preferMajor, laneFrac);
   }
 
   /** Respawns police / rivals that drifted > HAZARD_RECYCLE_DISTANCE away to 120~250m from the player */
   public recycleMovingUnits(playerX: number, playerZ: number): number {
-    const farSq = HAZARD_RECYCLE_DISTANCE * HAZARD_RECYCLE_DISTANCE;
-    let moved = 0;
-    const isFar = (u: { x: number; z: number }) =>
-      (u.x - playerX) * (u.x - playerX) + (u.z - playerZ) * (u.z - playerZ) > farSq;
-    this.patrolCars.forEach((p, i) => {
-      if (!isFar(p)) return;
-      if (this.respawnMovingUnit(p, playerX, playerZ, HAZARD_RESPAWN_MIN_RADIUS, HAZARD_RESPAWN_MAX_RADIUS, true, 0.25)) {
-        p.sirenTimer = 0;
-        this.patrolMarkers[i].x = p.x;
-        this.patrolMarkers[i].z = p.z;
-        this.patrolMarkers[i].heading = p.heading;
-        this.patrolMarkers[i].sirenActive = false;
-        moved++;
-      }
-    });
-    this.rivalRiders.forEach((r, i) => {
-      if (!isFar(r)) return;
-      if (this.respawnMovingUnit(r, playerX, playerZ, HAZARD_RESPAWN_MIN_RADIUS, HAZARD_RESPAWN_MAX_RADIUS, false, 0.22)) {
-        this.rivalRiderMarkers[i].x = r.x;
-        this.rivalRiderMarkers[i].z = r.z;
-        this.rivalRiderMarkers[i].heading = r.heading;
-        moved++;
-      }
-    });
-    this.recycledCount += moved;
-    return moved;
+    return recycleMovingUnitsFn(this, playerX, playerZ);
   }
 
-  private updateStaticPropVisibility(playerX: number, playerZ: number): void {
-    const maxSq = STATIC_PROP_VISIBLE_DIST * STATIC_PROP_VISIBLE_DIST;
-    for (const p of this.staticProps) {
-      const dx = p.x - playerX;
-      const dz = p.z - playerZ;
-      p.group.visible = dx * dx + dz * dz <= maxSq;
-    }
+  /** @internal hazards/* */
+  updateStaticPropVisibility(playerX: number, playerZ: number): void {
+    updateStaticPropVisibilityFn(this, playerX, playerZ);
   }
 
   /** @internal hazards/* */ computeEdgePose(
@@ -347,34 +293,7 @@ export class RoadHazardManager {
 
   /** @internal hazards/* */
   pickNextGraphEdge(fromNode: number, toNode: number, preferMajor: boolean): OsmAdjEdge {
-    const outs = this.adj[toNode];
-    const nodes = ACTIVE_MAP_DATA.nodes;
-    const prev = nodes[fromNode];
-    const cur = nodes[toNode];
-    const inDx = cur.x - prev.x;
-    const inDz = cur.z - prev.z;
-    const inLen = Math.hypot(inDx, inDz) || 1;
-    const inUx = inDx / inLen;
-    const inUz = inDz / inLen;
-
-    let cands = outs.filter((e) => e.to !== fromNode);
-    if (preferMajor) {
-      const maj = cands.filter((e) => e.isMajor);
-      if (maj.length > 0) cands = maj;
-    }
-    if (cands.length === 0) cands = outs;
-
-    const straight = cands.filter((e) => {
-      const nb = nodes[e.to];
-      const dx = nb.x - cur.x;
-      const dz = nb.z - cur.z;
-      const l = Math.hypot(dx, dz) || 1;
-      return (dx / l) * inUx + (dz / l) * inUz > 0.4;
-    });
-    if (straight.length > 0 && Math.random() < 0.65) {
-      return straight[Math.floor(Math.random() * straight.length)];
-    }
-    return cands[Math.floor(Math.random() * cands.length)];
+    return pickNextGraphEdgeFn(this, fromNode, toNode, preferMajor);
   }
 
 
@@ -400,46 +319,7 @@ export class RoadHazardManager {
     /** On-foot player position (defaults to the scooter); moving units / prop culling follow it */
     playerPos?: { x: number; z: number }
   ): void {
-    if (inCorridor) {
-      this.upcomingCamera = null;
-      return;
-    }
-
-    const clampedDt = Math.min(dt, 0.05);
-    const playerX = playerPos?.x ?? scooter.x;
-    const playerZ = playerPos?.z ?? scooter.z;
-
-    // Open world: keep police / rivals around the player and hide far-away static props
-    this.recycleTimer += clampedDt;
-    if (this.recycleTimer >= HAZARD_RECYCLE_INTERVAL_SEC) {
-      this.recycleTimer = 0;
-      this.recycleMovingUnits(playerX, playerZ);
-    }
-    if (this.staticProps.length > 0) {
-      this.staticVisTimer += clampedDt;
-      if (this.staticVisTimer >= STATIC_VISIBILITY_INTERVAL_SEC) {
-        this.staticVisTimer = 0;
-        this.updateStaticPropVisibility(playerX, playerZ);
-      }
-    }
-    const speedKmh = Math.abs(scooter.speedMps) * 3.6;
-    const scFwdX = Math.sin(scooter.heading);
-    const scFwdZ = Math.cos(scooter.heading);
-    const blinkOn = Math.floor(elapsedTime * 3.2) % 2 === 0;
-    const frame: HazardFrame = {
-      dt: clampedDt,
-      elapsedTime,
-      scooter,
-      signalState,
-      speedKmh,
-      scFwdX,
-      scFwdZ,
-      blinkOn,
-    };
-    stepSpeedCameras(this, frame, onSpeedCameraTriggered, onCameraApproachBeep);
-    stepPolicePatrols(this, frame, onPolicePatrolCite);
-    stepConstructionZones(this, frame);
-    stepRivalRiders(this, frame);
-    stepParkedHazards(this, frame, onPopOutWarning, onPopOutPedestrianHit);
+    stepFn(this, dt, elapsedTime, inCorridor, scooter, signalState, onSpeedCameraTriggered, onPopOutWarning, onPopOutPedestrianHit, onCameraApproachBeep, onPolicePatrolCite, /** On-foot player position (defaults to the scooter); moving units / prop culling follow it */
+    playerPos);
   }
 }

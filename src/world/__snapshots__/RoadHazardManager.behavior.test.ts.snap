@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`RoadHazardManager behaviour fingerprint > builds and steps the same way every time 1`] = `
+{
+  "events": 3,
+  "hash": 483116323,
+  "obstacles": 73,
+  "placement": {
+    "cameras": 28,
+    "construction": 11,
+    "parked": 56,
+  },
+  "recycled": 26,
+}
+`;
