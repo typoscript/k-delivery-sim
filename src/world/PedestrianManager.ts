@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import type { WeatherMode } from '../types';
+
 import { excludeFromMirrors } from './renderLayers';
 import { SignalStateSnapshot } from './TrafficSystem';
-import { PedestrianFactory, setPedestrianDetail, PedestrianRig } from './PedestrianFactory';
+import { PedestrianFactory, setPedestrianDetail, setPedestrianWeather, PedestrianRig } from './PedestrianFactory';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { CrosswalkAxis, PedestrianEdge, PedestrianGraph } from './PedestrianGraph';
 import { VehicleBody } from './vehicleBodies';
@@ -14,6 +16,8 @@ import {
   DETAIL_DISTANCE_SQ,
   MAX_RECYCLES_PER_TICK,
   PEDESTRIAN_COLLISION_MIN_KMH,
+  PEDESTRIAN_RAIN_PACE,
+  PEDESTRIAN_SNOW_PACE,
   PEDESTRIAN_INITIAL_SPAWN_RADIUS,
   PEDESTRIAN_RECYCLE_DISTANCE,
   PEDESTRIAN_RESPAWN_MAX_RADIUS,
@@ -127,6 +131,9 @@ export class PedestrianManager {
   public readonly graph = new PedestrianGraph();
   public readonly factory = new PedestrianFactory();
   public readonly agents: PedestrianAgent[] = [];
+  /** Walking pace factor of the weather (rain: hurrying, snow: careful steps) */
+  public walkSpeedMul = 1;
+  private weather: WeatherMode = 'clear';
 
   private recycleTimer = 0;
   /** Total agents moved back near the player since construction (diagnostics / tests) */
@@ -150,6 +157,7 @@ export class PedestrianManager {
 
       const rig = this.factory.createPedestrian();
       excludeFromMirrors(rig.root);
+      setPedestrianWeather(rig, this.weather);
       this.root.add(rig.root);
 
       const agent: PedestrianAgent = {
@@ -281,6 +289,13 @@ export class PedestrianManager {
    * 3.5m sidewalk scooter proximity avoidance reactions, and >= 5 km/h pedestrian collision detection.
    * Completely pauses all tick updates while player is inside underground apartment corridors!
    */
+  /** Rain / snow: umbrellas come out and the pace changes */
+  public setWeather(mode: WeatherMode): void {
+    this.weather = mode;
+    this.walkSpeedMul = mode === 'rain' ? PEDESTRIAN_RAIN_PACE : mode === 'snow' ? PEDESTRIAN_SNOW_PACE : 1;
+    for (const a of this.agents) setPedestrianWeather(a.rig, mode);
+  }
+
   public update(
     dt: number,
     signal: SignalStateSnapshot,

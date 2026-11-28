@@ -21,6 +21,41 @@ export interface PedestrianRig {
   palette: PedestrianPalette;
   /** Far LOD: the whole body baked into one vertex-coloured mesh (1 draw call, no limb animation) */
   lowDetail: THREE.Mesh;
+  /** Umbrella over the head, made the first time it rains / snows (setPedestrianWeather) */
+  umbrella: THREE.Mesh | null;
+  /** Umbrella colour (from the outfit) */
+  umbrellaColor: number;
+  /** Stable 0..1 per pedestrian: who carries an umbrella in which weather */
+  umbrellaRoll: number;
+}
+
+const UMBRELLA_COLORS = [0x1e293b, 0x0ea5e9, 0xdc2626, 0xf8fafc, 0x7c3aed, 0x16a34a, 0xfacc15];
+/** Canopy + pole, one vertex-coloured geometry per colour (shared by every pedestrian) */
+const UMBRELLA_GEOS = UMBRELLA_COLORS.map((hex) => {
+  const canopy = new THREE.ConeGeometry(0.62, 0.3, 8, 1, true);
+  const pole = new THREE.CylinderGeometry(0.012, 0.012, 0.62, 4);
+  const at = (y: number) => new THREE.Matrix4().makeTranslation(0.08, y, 0.1);
+  return mergeColoredParts([
+    { geometry: canopy, matrix: at(2.02), color: new THREE.Color(hex) },
+    { geometry: pole, matrix: at(1.62), color: new THREE.Color(0x334155) },
+  ]);
+});
+const UMBRELLA_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide });
+
+/** Share of pedestrians under an umbrella: most of them in the rain, fewer in the snow */
+const UMBRELLA_SHARE = { rain: 0.8, snow: 0.45 } as const;
+
+/** Shows the umbrella of pedestrians who carry one in this weather */
+export function setPedestrianWeather(rig: PedestrianRig, weather: 'clear' | 'cloudy' | 'rain' | 'snow'): void {
+  const share = weather === 'rain' || weather === 'snow' ? UMBRELLA_SHARE[weather] : 0;
+  const show = rig.umbrellaRoll < share;
+  if (show && !rig.umbrella) {
+    // created lazily: a dry day builds the exact same scene (three.js draws Math.random for every object's uuid)
+    rig.umbrella = new THREE.Mesh(UMBRELLA_GEOS[rig.umbrellaColor], UMBRELLA_MAT);
+    rig.umbrella.name = 'pedestrian_umbrella';
+    rig.root.add(rig.umbrella);
+  }
+  if (rig.umbrella) rig.umbrella.visible = show;
 }
 
 /** Shared material of every far-LOD pedestrian */
@@ -245,6 +280,9 @@ export class PedestrianFactory {
     lowDetail.visible = false;
     root.add(lowDetail);
 
+    // Umbrella (colour from the outfit picks: no extra random draws, the crowd stays the same)
+    const umbrellaColor = (topIdx * 7 + botIdx * 3 + hairIdx) % UMBRELLA_COLORS.length;
+
     // Slight natural height variation across individuals
     const heightScale = isFemale ? 0.92 + Math.random() * 0.07 : 0.97 + Math.random() * 0.09;
     root.scale.set(heightScale, heightScale, heightScale);
@@ -258,6 +296,9 @@ export class PedestrianFactory {
       rightLegPivot,
       gender,
       lowDetail,
+      umbrella: null,
+      umbrellaColor,
+      umbrellaRoll: ((topIdx * 31 + botIdx * 17 + hairIdx * 13) % 100) / 100,
       walkPhase: Math.random() * Math.PI * 2,
       palette: {
         topHex: TOP_PALETTE[topIdx],

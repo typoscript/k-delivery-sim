@@ -39,3 +39,7 @@ export const PEDESTRIAN_RESPAWN_MAX_RADIUS = 180;
 export const RESPAWN_PREFERRED_MIN_RADIUS = CULL_DISTANCE + 6; // prefer popping in just outside the visible range
 export const RECYCLE_INTERVAL_SEC = 0.5;
 export const MAX_RECYCLES_PER_TICK = 8;
+
+/** Walking pace in the rain (hurrying) and on snow (careful steps) */
+export const PEDESTRIAN_RAIN_PACE = 1.18;
+export const PEDESTRIAN_SNOW_PACE = 0.82;

@@ -72,4 +72,15 @@ export const PASS_SPEED_CAP = 4.0; // m/s while squeezing past
 export const CYCLE_DURATION = 18.0;
 export const FRONT_RAY_RANGE = 12.5;
 export const SAFE_FOLLOW_GAP = 5.2;
+
+/** How drivers adapt to the weather: cruise speed factor and extra following distance (m) */
+export interface DrivingWeather {
+  speedMul: number;
+  gapExtra: number;
+}
+export const DRIVING_WEATHER: Record<'dry' | 'rain' | 'snow', DrivingWeather> = {
+  dry: { speedMul: 1, gapExtra: 0 },
+  rain: { speedMul: 0.85, gapExtra: 1.5 },
+  snow: { speedMul: 0.65, gapExtra: 3 },
+};
 export const ACTIVE_SPAWN_RADIUS = 165.0;

@@ -3,7 +3,8 @@ import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 import { BusStopPoint, ObstacleBox, clamp, wrapAngle } from '../types';
 import { VehicleBody, vehicleObstacle } from './vehicleBodies';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
-import { AiVehicle, OsmAdjEdge, PASS_SHIFT_SPEED } from './traffic/trafficTypes';
+import { AiVehicle, DRIVING_WEATHER, DrivingWeather, OsmAdjEdge, PASS_SHIFT_SPEED } from './traffic/trafficTypes';
+import type { WeatherMode } from '../types';
 import { applySignalLamps, buildTrafficSignals, checkPlayerRedLight, signalPhaseAt } from './traffic/trafficSignals';
 import { computeVehicleWorldPose, recycleVehicle, spawnTrafficVehicles } from './traffic/trafficSpawn';
 import { DriveFrame, driveVehicle } from './traffic/vehicleDriving';
@@ -165,6 +166,14 @@ export class TrafficSystem {
   /** Live vehicle bodies (position, heading, size, speed) for pedestrians and push-out (do not mutate) */
   public getCarBodies(): readonly VehicleBody[] {
     return this.vehicles;
+  }
+
+  /** Driving behaviour of the weather (see DRIVING_WEATHER) */
+  public drivingWeather: DrivingWeather = DRIVING_WEATHER.dry;
+
+  /** Rain / snow: cars cruise slower and keep more distance */
+  public setWeather(mode: WeatherMode): void {
+    this.drivingWeather = DRIVING_WEATHER[mode === 'rain' || mode === 'snow' ? mode : 'dry'];
   }
 
   public step(

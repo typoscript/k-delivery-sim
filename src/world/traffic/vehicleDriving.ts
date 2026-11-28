@@ -84,7 +84,10 @@ export function driveVehicle(host: TrafficSystem, v: AiVehicle, i: number, f: Dr
     const fz = Math.cos(v.heading);
     const distToNode = Math.max(0, v.edgeDist - v.progress);
 
-    let targetSpd = v.cruiseSpeed;
+    // weather: slower and farther apart on wet / snowy roads
+    const cruise = v.cruiseSpeed * host.drivingWeather.speedMul;
+    const followGap = SAFE_FOLLOW_GAP + host.drivingWeather.gapExtra;
+    let targetSpd = cruise;
     let emergency = false;
 
     // Pre-pick the next edge on approach so a short follow-on edge into a signal is braked for in time
@@ -187,7 +190,7 @@ export function driveVehicle(host: TrafficSystem, v: AiVehicle, i: number, f: Dr
 
     // Cross-traffic deadlock breaker: two cars nosed into each other at an unsignalized junction.
     // Queues (same direction) never trigger it; the player is never ignored.
-    v.blockedBy = aiGap < SAFE_FOLLOW_GAP ? blocker : -1;
+    v.blockedBy = aiGap < followGap ? blocker : -1;
     if (v.blockedBy >= 0 && v.speed < 0.3 && minGap === aiGap) {
       const o = host.vehicles[v.blockedBy];
       const sameDir = fx * Math.sin(o.heading) + fz * Math.cos(o.heading) > 0.85;
@@ -202,12 +205,12 @@ export function driveVehicle(host: TrafficSystem, v: AiVehicle, i: number, f: Dr
       v.stuckTimer = 0;
     }
 
-    if (minGap < SAFE_FOLLOW_GAP) {
+    if (minGap < followGap) {
       targetSpd = 0;
-    } else if (minGap < FRONT_RAY_RANGE) {
+    } else if (minGap < FRONT_RAY_RANGE + host.drivingWeather.gapExtra) {
       targetSpd = Math.min(
         targetSpd,
-        v.cruiseSpeed * ((minGap - SAFE_FOLLOW_GAP) / (FRONT_RAY_RANGE - SAFE_FOLLOW_GAP)),
+        cruise * ((minGap - followGap) / (FRONT_RAY_RANGE + host.drivingWeather.gapExtra - followGap)),
       );
     }
 

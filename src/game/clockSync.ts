@@ -87,6 +87,8 @@ export function setWeatherMode(ctx: GameContext, mode: WeatherMode, source: 'aut
   const { weather, world, delivery, scooterPhysics, hud, voiceNav, weatherSchedule } = ctx;
   weather.setMode(mode);
   world.setWeather(mode);
+  ctx.traffic.setWeather(mode);
+  ctx.pedestrians.setWeather(mode);
   delivery.setWeatherPrecipitation(mode === 'rain' || mode === 'snow' ? mode : null);
   if (mode === 'rain' || mode === 'snow') scooterPhysics.state.headlights = true;
   if (source === 'manual') weatherSchedule.override(mode);

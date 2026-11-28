@@ -161,6 +161,8 @@ export function stepNavigation(host: PedestrianManager, a: PedestrianAgent, f: P
   }
 
   // Smooth acceleration / deceleration for natural Idle <-> Walk <-> Run transitions
+  // weather: people hurry in the rain and step carefully on snow
+  desiredSpeed *= host.walkSpeedMul;
   a.currentSpeed += (desiredSpeed - a.currentSpeed) * Math.min(1, f.dt * 9);
   if (desiredSpeed === 0 && a.currentSpeed < 0.03) {
     a.currentSpeed = 0;
