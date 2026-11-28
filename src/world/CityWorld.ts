@@ -1,3 +1,4 @@
+import type { StoreSigns } from './openworld/storeSigns';
 import { StreamFlood } from '../game/streamFlood';
 import { FloodOverlay } from './floodOverlay';
 import { BenchCustomers } from './benchCustomers';
@@ -440,6 +441,9 @@ export class CityWorld {
     if (!this.iceSheen) this.iceSheen = new IceSheen(this.root);
     this.iceSheen.sync(this.blackIce);
   }
+
+  /** Real shop names on the storefronts around the player (open world only) */
+  storeSigns?: StoreSigns;
 
   /** Flowing stream water material (open world only) */
   streamWater?: StreamWater;

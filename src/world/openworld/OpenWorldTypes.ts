@@ -41,6 +41,16 @@ export interface ChunkData {
   waters: OsmParkData[];
   waterLines: WaterLineData[];
   pedestrianPlazas: OsmPlazaData[];
+  /** Storefront signs with real names (OSM shops / services): name, centre on the wall, facing heading, width */
+  signs?: StoreSignData[];
+}
+
+export interface StoreSignData {
+  n: string;
+  x: number;
+  z: number;
+  h: number;
+  w: number;
 }
 
 export interface LegacyDistrictData {

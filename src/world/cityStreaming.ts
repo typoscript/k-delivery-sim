@@ -1,3 +1,6 @@
+import { StoreSigns } from './openworld/storeSigns';
+import { chunkCoordOf } from './openworld/ChunkGrid';
+import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { steppingStoneRows } from './streamPaths';
 import { activeRoadProximity } from './roadProximity';
 import { StreamWater } from './streamWater';
@@ -100,6 +103,11 @@ export function updateStreaming(host: CityWorld, px: number, pz: number): void {
   host.streamer.update(px, pz);
   host.culler?.update(px, pz);
   host.placeSunStabilized(px, pz);
+  // real shop names on the storefronts of the chunks around the player
+  if (!host.storeSigns) host.storeSigns = new StoreSigns(host.root);
+  const pc = chunkCoordOf(gridSpecOf(SUWON_OPEN_WORLD), px, pz);
+  const streamer = host.streamer;
+  host.storeSigns.update(pc.ix, pc.iz, streamer.version, () => streamer.getBuiltChunkData());
   if (host.streamer.version !== host.streamerVersionSeen) {
     host.streamerVersionSeen = host.streamer.version;
     const chunks = host.streamer.getBuiltChunkData();

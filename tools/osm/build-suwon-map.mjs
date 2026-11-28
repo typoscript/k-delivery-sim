@@ -28,6 +28,7 @@ import {
 } from './suwon-config.mjs';
 import { generateDeliverySpots, riversideSpots } from './delivery-spots.mjs';
 import { crossingPoints, snapCrossings } from './crossings.mjs';
+import { placeSigns } from './storeSigns.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -417,7 +418,8 @@ async function main() {
     const ix = Math.max(0, Math.min(cols - 1, Math.floor((x - minX) / CHUNK_SIZE_M)));
     const iz = Math.max(0, Math.min(rows - 1, Math.floor((z - minZ) / CHUNK_SIZE_M)));
     const key = `${ix}_${iz}`;
-    if (!chunks.has(key)) chunks.set(key, { ix, iz, buildings: [], parks: [], waters: [], waterLines: [], pedestrianPlazas: [] });
+    if (!chunks.has(key))
+      chunks.set(key, { ix, iz, buildings: [], parks: [], waters: [], waterLines: [], pedestrianPlazas: [], signs: [] });
     return chunks.get(key);
   };
   const toPts = (ring) => ring.map((p) => [r1(p.x), r1(p.z)]);
@@ -616,6 +618,52 @@ async function main() {
   }
   stats.crossings = crossings.length;
 
+  // ---------- 4c. storefront signs with real names (raw food places + cache/suwon-shops.json from --shops)
+  {
+    const pois = [];
+    const seen = new Set();
+    const addPoi = (el) => {
+      if (el.type !== 'node' || !el.tags?.name || el.lat === undefined) return;
+      const p = project(el.lat, el.lon);
+      const k = `${el.tags.name}|${Math.round(p.x / 5)}|${Math.round(p.z / 5)}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      pois.push({ name: el.tags.name, x: p.x, z: p.z });
+    };
+    for (const el of els) if (el.tags?.amenity || el.tags?.shop) addPoi(el);
+    try {
+      const sh = JSON.parse(await readFile(join(HERE, 'cache', 'suwon-shops.json'), 'utf8'));
+      for (const el of sh.elements) addPoi(el);
+    } catch {
+      console.warn('no shops cache (node tools/osm/fetch-suwon.mjs --shops): signs only for the food places');
+    }
+    const nearestRoad = (x, z) => {
+      let best = null;
+      let bestD = 60;
+      for (const e of outEdges) {
+        const a = nodes[e.a];
+        const b = nodes[e.b];
+        if (Math.min(a.x, b.x) - bestD > x || Math.max(a.x, b.x) + bestD < x) continue;
+        if (Math.min(a.z, b.z) - bestD > z || Math.max(a.z, b.z) + bestD < z) continue;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const l2 = dx * dx + dz * dz || 1;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2));
+        const px = a.x + dx * t;
+        const pz = a.z + dz * t;
+        const d = Math.hypot(px - x, pz - z);
+        if (d < bestD) {
+          bestD = d;
+          best = { x: px, z: pz };
+        }
+      }
+      return best;
+    };
+    const signs = placeSigns(pois, allBuildings, nearestRoad);
+    for (const s of signs) chunkOf(s.x, s.z).signs.push(s);
+    stats.signs = { pois: pois.length, placed: signs.length };
+  }
+
   // ---------- 4b. riverside spots: customers on the stream walkways (walk in along the walkway)
   const riverside = riversideSpots(streamLinesAll, nodes, outEdges);
   stats.riverside = riverside.length;
@@ -653,6 +701,7 @@ async function main() {
       waters: c.waters,
       waterLines: c.waterLines,
       pedestrianPlazas: c.pedestrianPlazas,
+      ...(c.signs.length > 0 ? { signs: c.signs } : {}),
     });
     await writeFile(join(OUT_DIR, 'chunks', `c_${key}.json`), body);
     chunkBytes += body.length;

@@ -5,6 +5,8 @@
 // Usage:  node tools/osm/fetch-suwon.mjs [--force] [--crossings]   (OVERPASS_URL=... to use a single mirror)
 //         --crossings: only the pedestrian crossings (highway=crossing nodes, footway=crossing ways) into
 //         cache/suwon-crossings.json, so they can be added without re-downloading (and changing) the rest
+//         --shops: only named shops and services (shop=*, amenity=pharmacy / bank / clinic ..., food places) for the
+//         storefront signs, into cache/suwon-shops.json
 // Data:   © OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright)
 
 import { mkdir, writeFile, stat } from 'node:fs/promises';
@@ -14,7 +16,8 @@ import { SUWON_BBOX } from './suwon-config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CROSSINGS_ONLY = process.argv.includes('--crossings');
-const OUT = join(HERE, 'cache', CROSSINGS_ONLY ? 'suwon-crossings.json' : 'suwon-raw.json');
+const SHOPS_ONLY = process.argv.includes('--shops');
+const OUT = join(HERE, 'cache', CROSSINGS_ONLY ? 'suwon-crossings.json' : SHOPS_ONLY ? 'suwon-shops.json' : 'suwon-raw.json');
 /** OVERPASS_URL=<interpreter url> forces one mirror (useful when the others are down or timing out) */
 const ENDPOINTS = process.env.OVERPASS_URL ? [process.env.OVERPASS_URL] : [
   'https://overpass-api.de/api/interpreter',
@@ -65,6 +68,18 @@ const buildCrossingsQuery = (bb) => `
 out body geom qt;
 `;
 
+/** Named shops and services (storefront signs) */
+const buildShopsQuery = (bb) => `
+[out:json][timeout:180];
+(
+  node["shop"]["name"](${bb});
+  node["amenity"~"^(pharmacy|bank|clinic|dentist|doctors|hospital|cafe|restaurant|fast_food|bar|pub|ice_cream|post_office|veterinary|kindergarten|library|police|fire_station|community_centre|cinema)$"]["name"](${bb});
+  node["office"]["name"](${bb});
+  node["leisure"~"^(fitness_centre|sports_centre)$"]["name"](${bb});
+);
+out body qt;
+`;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchTile(bb, label) {
@@ -79,7 +94,7 @@ async function fetchTile(bb, label) {
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'k-delivery-sim-map-builder/1.0 (https://github.com/typoscript/k-delivery-sim)',
         },
-        body: 'data=' + encodeURIComponent((CROSSINGS_ONLY ? buildCrossingsQuery : buildQuery)(bb)),
+        body: 'data=' + encodeURIComponent((CROSSINGS_ONLY ? buildCrossingsQuery : SHOPS_ONLY ? buildShopsQuery : buildQuery)(bb)),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();

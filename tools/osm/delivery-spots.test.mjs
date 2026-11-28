@@ -252,3 +252,31 @@ describe('pedestrian crossings', () => {
     ]);
   });
 });
+
+describe('storefront signs', () => {
+  it('puts a named place on the street-facing wall of its building, facing the street', async () => {
+    const { placeSigns } = await import('./storeSigns.mjs');
+    // a 10 x 8 building south of a road running along z = 20 (its north wall faces the road)
+    const ring = [[0, 0], [10, 0], [10, 8], [0, 8]];
+    const b = { ring, minX: 0, maxX: 10, minZ: 0, maxZ: 8, height: 9 };
+    const road = (x, z) => ({ x, z: 20 });
+    const signs = placeSigns(
+      [
+        { name: 'GS25 매탄점', x: 3, z: 4 }, // inside
+        { name: '약국', x: 3.5, z: 9 }, // just outside, too close to the first sign on the same wall: dropped
+        { name: '멀리', x: 60, z: 4 }, // no building: dropped
+      ],
+      [b],
+      road,
+    );
+    expect(signs).toHaveLength(1);
+    const s = signs[0];
+    expect(s.n).toBe('GS25 매탄점');
+    expect(s.z).toBeCloseTo(8); // on the north wall
+    expect(s.x).toBeCloseTo(3);
+    expect(Math.cos(s.h)).toBeCloseTo(1); // facing +Z, toward the road
+    expect(s.w).toBe(5);
+    // a low shed gets no sign
+    expect(placeSigns([{ name: 'x', x: 3, z: 4 }], [{ ...b, height: 3 }], road)).toEqual([]);
+  });
+});

@@ -6,6 +6,7 @@
 ```bash
 npm run map:fetch   # Overpass API에서 원본 다운로드 → tools/osm/cache/suwon-raw.json (git 제외, --force로 재다운로드)
 node tools/osm/fetch-suwon.mjs --crossings   # 횡단보도만 따로 → cache/suwon-crossings.json (나머지 원본은 그대로)
+node tools/osm/fetch-suwon.mjs --shops       # 상호(가게·병원·은행·사무실 이름)만 따로 → cache/suwon-shops.json
 npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map/suwon/chunks/c_<ix>_<iz>.json
 ```
 
@@ -41,3 +42,10 @@ npm run map:build   # 원본 → src/data/openworld/suwonWorld.json + public/map
 (중심 · 도로 방향 · 도로 폭 · 자체 신호 여부)로 내보냅니다. 페인트가 없는(`unmarked`) 곳, 붙인 자리가 신호 교차로
 14m 안(교차로 횡단보도는 따로 그림)인 곳, 6m 안에 겹치는 중복(노드 + 같은 길)은 뺍니다. 캐시 파일이 없으면 신호 교차로
 횡단보도만 그립니다.
+
+## 상호 간판 (storeSigns.mjs)
+
+원본의 `shop`/`amenity` 노드와 `--shops` 캐시의 이름 있는 가게·병원·은행·사무실(이름 + 5m 칸으로 중복 제거)을
+`placeSigns`가 들어 있는(없으면 12m 안 가장 가까운) 5m 이상 건물의 가장 가까운 도로 쪽 벽에 붙여
+청크 JSON의 `signs`(`{n, x, z, h, w}` — 이름·간판 중심·바깥쪽 방향·폭)로 내보냅니다. 간판 사이는 4m 이상 띄우고
+이름은 14자까지 자릅니다. 게임은 `src/world/openworld/storeSigns.ts`가 주변 3×3 청크만 청크당 메시 1개(글자 아틀라스 1장)로 그립니다.
