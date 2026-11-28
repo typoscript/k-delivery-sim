@@ -27,10 +27,13 @@ import {
 import { ActiveMission } from './deliveryTypes';
 import { SettlementPay } from './settlementPay';
 
-/** Goal counters one delivery bumps (peak, villa, rain, night, perfect, urgentOnTime, regular, far, district:<id>) */
+/**
+ * Goal counters one delivery bumps (peak, villa, rain, night, perfect, urgentOnTime, regular, far, event /
+ * eventSoup / eventSnack, district:<id>)
+ */
 export function settlementGoalCounters(
   m: ActiveMission,
-  pay: Pick<SettlementPay, 'peakBonus' | 'rainBonus' | 'nightBonus' | 'specialBonus'>,
+  pay: Pick<SettlementPay, 'peakBonus' | 'rainBonus' | 'nightBonus' | 'specialBonus'> & Partial<Pick<SettlementPay, 'eventBonus'>>,
   districtOf: (x: number, z: number) => string = districtIdAt
 ): string[] {
   const keys: string[] = [];
@@ -42,6 +45,8 @@ export function settlementGoalCounters(
   if (m.order.special === 'urgent' && pay.specialBonus > 0) keys.push('urgentOnTime');
   if (m.order.regularCustomer) keys.push('regular');
   if (m.order.distanceMeters > 1000) keys.push('far');
+  // Event call surcharge earned (unspilled soup in the rain / warm late-night snack)
+  if ((pay.eventBonus ?? 0) > 0) keys.push('event', m.order.demandEvent === 'rain_soup' ? 'eventSoup' : 'eventSnack');
   keys.push(`district:${districtOf(m.order.customer.x, m.order.customer.z)}`);
   return keys;
 }

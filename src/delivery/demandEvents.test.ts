@@ -3,6 +3,9 @@ import { DEMAND_EVENTS, activeDemandEvents, eventBonusEarned, eventForMenu, pick
 import { buildDeliveryOrder, createActiveMission } from './orderFactory';
 import { computeSettlementPay } from './settlementPay';
 import { settlementLines } from '../ui/receiptLines';
+import { ShiftProgress, settlementGoalCounters } from './shiftProgress';
+import { ROTATING_GOALS } from './ShiftDay';
+import type { RiderCareerSave } from './RiderCareer';
 import { DeliveryLocation } from '../types';
 
 const { rain_soup: SOUP, late_snack: SNACK } = DEMAND_EVENTS;
@@ -157,5 +160,65 @@ describe('event orders and their pay', () => {
     const base = { order: { demandEvent: 'late_snack' as const, eventBonus: SNACK.bonus }, foodIntegrity: 100 };
     expect(eventBonusEarned({ ...base, foodTemp: 70 })).toBe(SNACK.bonus);
     expect(eventBonusEarned({ ...base, foodTemp: 40 })).toBe(0);
+  });
+});
+
+describe('event calls in goals and achievements', () => {
+  const shop: DeliveryLocation = {
+    id: 's',
+    name: '가게',
+    x: 0,
+    z: 0,
+    type: 'shop',
+    emoji: '🍲',
+    menus: ['진한 돼지국밥 특', '간장치킨 + 치즈볼'],
+  };
+  const home: DeliveryLocation = { id: 'r', name: '집', x: 200, z: 0, type: 'residential', emoji: '🏠' };
+  const zero = { peakBonus: 0, rainBonus: 0, nightBonus: 0, specialBonus: 0 };
+  const eventOrder = (menu: string) => {
+    const o = buildDeliveryOrder({
+      id: 'o',
+      orderNumber: 'A-01',
+      type: 'SINGLE',
+      shop: { ...shop, menus: [menu] },
+      customer: home,
+      surcharges: { ...zero, events: [SOUP, SNACK] },
+    });
+    return { ...createActiveMission(o, 0), foodIntegrity: 90, foodTemp: 90 };
+  };
+
+  it('a delivery that earned the event surcharge bumps the event counters', () => {
+    const soup = eventOrder('진한 돼지국밥 특');
+    expect(settlementGoalCounters(soup, { ...zero, eventBonus: 1000 }, () => 'x')).toEqual(
+      expect.arrayContaining(['event', 'eventSoup']),
+    );
+    const snack = eventOrder('간장치킨 + 치즈볼');
+    expect(settlementGoalCounters(snack, { ...zero, eventBonus: 800 }, () => 'x')).toEqual(
+      expect.arrayContaining(['event', 'eventSnack']),
+    );
+    // surcharge missed (spilled / cold): no event counters
+    expect(settlementGoalCounters(soup, { ...zero, eventBonus: 0 }, () => 'x')).not.toContain('event');
+  });
+
+  it('the daily event goal and the two achievements read those counters', () => {
+    const goal = ROTATING_GOALS.find((g) => g.id === 'event')!;
+    expect(goal).toMatchObject({ counter: 'event', target: 2, awardAt: 'delivery' });
+    const career = {
+      walletBalance: 0,
+      lifetimeCompleted: 0,
+      riderRating: 5,
+      upgrades: [],
+      reviews: [],
+      shopPickupCounts: {},
+      customerDeliveryCounts: {},
+      shopNames: {},
+    } as RiderCareerSave;
+    const p = new ShiftProgress(career);
+    for (let i = 0; i < 20; i++) p.bump('eventSoup');
+    for (let i = 0; i < 12; i++) p.bump('eventSnack');
+    const ach = Object.fromEntries(p.achievements(0).map((a) => [a.id, a]));
+    expect(ach.soup).toMatchObject({ current: 20, target: 20 });
+    expect(ach.snack).toMatchObject({ current: 12, target: 30 });
+    expect(p.collectNewAchievements(0, 1).map((a) => a.id)).toContain('soup');
   });
 });

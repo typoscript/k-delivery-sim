@@ -110,7 +110,8 @@ export const ACHIEVEMENTS: readonly AchievementSpec[] = [
     desc: '모든 구역에 배달 1건 이상',
     target: 1,
     progress: (s) => (s.districtIds.length > 0 && s.districtIds.every((id) => (s.counters[`district:${id}`] ?? 0) > 0) ? 1 : 0),
-  },
+  },  { id: 'soup', icon: '🍲', title: '국물 장인', desc: '비 오는 날 국물 콜을 안 쏟고 20건 (이벤트 할증)', target: 20, progress: counter('eventSoup') },
+  { id: 'snack', icon: '🍗', title: '야식 배달왕', desc: '야식 콜을 따뜻하게 30건 (이벤트 할증)', target: 30, progress: counter('eventSnack') },
 ];
 
 export function achievementStatuses(stats: CareerStats, unlocked: Readonly<Record<string, number>>): AchievementStatus[] {
