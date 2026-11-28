@@ -1,7 +1,7 @@
 import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
 import { DEMAND_EVENTS, DemandEventSpec, SEASON_EVENTS } from '../delivery/demandEvents';
-import { seasonOfDay } from './seasons';
+import { isMonsoonDay, seasonOfDay, weatherOddsOfDay } from './seasons';
 import { blackIceActive } from '../world/blackIce';
 import { ION_DRINK_COST, heatwaveActive } from './heatwave';
 
@@ -67,7 +67,6 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   if (delivery.season !== season.id) {
     const first = delivery.season === null;
     delivery.setSeason(season.id);
-    ctx.weatherSchedule.setSeason(season);
     world.setSeason(season.id);
     if (announce && !first) {
       const ev = SEASON_EVENTS[season.id];
@@ -77,6 +76,27 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       );
     }
   }
+  // 장마 (summer days 3~5): the weather odds of the day; announced when the rainy spell starts / ends
+  if (ctx.weatherSchedule.seasonDay !== delivery.shiftDay) {
+    ctx.weatherSchedule.setSeason(weatherOddsOfDay(delivery.shiftDay));
+    ctx.weatherSchedule.seasonDay = delivery.shiftDay;
+  }
+  const monsoon = isMonsoonDay(delivery.shiftDay);
+  if (monsoon !== world.monsoon) {
+    const first = world.monsoon === null;
+    world.monsoon = monsoon;
+    if (announce && !first) {
+      hud.showToast(
+        monsoon
+          ? '☔ 장마 시작! 며칠 동안 거의 매일 긴 비가 와요 · 우천 할증 콜이 이어지지만 도로 곳곳에 물웅덩이가 생겨요 (지나가면 속도가 줄고 물이 튐)'
+          : '🌤️ 장마가 끝났어요',
+        monsoon ? 5600 : 2800
+      );
+      if (monsoon) voiceNav.speak('장마가 시작되었습니다. 물웅덩이에 주의하세요.');
+    }
+  }
+  // Rain puddles: on rainy days (many more during 장마), fresh spots each working day
+  world.puddles.set(delivery.shiftDay, world.weatherMode === 'rain', monsoon);
   // Winter nights / mornings: shaded side streets and ramps freeze into black ice
   const icy = blackIceActive(season.id, world.isNight, clock.minute);
   const wasIcy = world.blackIce.isActive;

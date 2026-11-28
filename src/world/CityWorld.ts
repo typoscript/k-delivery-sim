@@ -41,6 +41,10 @@ import { setFoliageSeason } from './seasonFoliage';
 export const SEASON_SUN_ELEVATION_DEG: Record<SeasonId, number> = { summer: 68, spring: 52, autumn: 44, winter: 30 };
 import { BlackIceField, IcePatch } from './blackIce';
 import { RoadStructureIndex } from './roadStructures';
+import { PuddleField } from './puddles';
+
+/** Most puddles drawn at once (the nearest ones) */
+const PUDDLE_DRAW_MAX = 160;
 import type { SeasonId } from '../game/seasons';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
@@ -378,6 +382,7 @@ export class CityWorld {
    */
   public updateStreaming(px: number, pz: number): void {
     NEARBY_INSTANCES.update(px, pz);
+    this.updatePuddleMeshes(px, pz);
     updateStreamingFn(this, px, pz);
   }
 
@@ -570,8 +575,51 @@ export class CityWorld {
     setWeatherFn(this, mode);
   }
 
+  /** Draws the puddles within 160 m of the player (one instanced draw call; re-picked every 30 m or on change) */
+  private updatePuddleMeshes(px: number, pz: number): void {
+    const key = `${this.puddles.version}|${Math.round(px / 30)}|${Math.round(pz / 30)}`;
+    if (key === this.puddleDrawKey) return;
+    this.puddleDrawKey = key;
+    // built the first time it rains (a dry city builds exactly the same scene)
+    if (!this.puddleMesh && this.puddles.puddles.length === 0) return;
+    if (!this.puddleMesh) {
+      const geo = new THREE.CircleGeometry(1, 14).rotateX(-Math.PI / 2);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x1f2a37,
+        roughness: 0.04,
+        metalness: 0.55,
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      });
+      this.puddleMesh = new THREE.InstancedMesh(geo, mat, PUDDLE_DRAW_MAX);
+      this.puddleMesh.name = 'rain_puddles';
+      this.puddleMesh.frustumCulled = false;
+      this.puddleMesh.receiveShadow = true;
+      excludeFromMirrors(this.puddleMesh);
+      this.root.add(this.puddleMesh);
+    }
+    const near = this.puddles.near(px, pz, 160).slice(0, PUDDLE_DRAW_MAX);
+    const m = new THREE.Matrix4();
+    near.forEach((p, i) => {
+      m.makeScale(p.radius, 1, p.radius * 0.8).setPosition(p.x, 0.055, p.z);
+      this.puddleMesh!.setMatrixAt(i, m);
+    });
+    this.puddleMesh.count = near.length;
+    this.puddleMesh.instanceMatrix.needsUpdate = true;
+  }
+
   /** Winter black ice on shaded side streets and ramps (see blackIce.ts) */
   public readonly blackIce = new BlackIceField(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
+  /** Rain puddles by the curb (many more during 장마) - see puddles.ts */
+  public readonly puddles = new PuddleField(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
+  /** 장마 day (null until the game clock sets it) */
+  public monsoon: boolean | null = null;
+  private puddleMesh: THREE.InstancedMesh | null = null;
+  private puddleDrawKey = '';
+
   /** Bridges / underpasses of the road graph (dry underpasses, icy bridges, phone map) */
   public readonly roadStructures = new RoadStructureIndex(ACTIVE_MAP_DATA.nodes, ACTIVE_MAP_DATA.edges);
 

@@ -51,6 +51,21 @@ export class VisorRainOverlay {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  /** Puddle splash: a burst of big muddy drops on the lower visor (wipe them off with [G]) */
+  public splash(count = 22): void {
+    for (let i = 0; i < count && this.drops.length < 110; i++) {
+      this.drops.push({
+        x: 0.08 + Math.random() * 0.84,
+        y: 0.45 + Math.random() * 0.5,
+        r: 4.5 + Math.random() * 8,
+        vy: 0.02 + Math.random() * 0.05,
+        vx: (Math.random() - 0.5) * 0.02,
+        alpha: 0.55 + Math.random() * 0.35,
+        trailLen: 6 + Math.random() * 16,
+      });
+    }
+  }
+
   /** Triggers 1st-person gloved hand sweep across helmet visor ([G] key) */
   public triggerWipe(): boolean {
     if (this.wiping) return false;

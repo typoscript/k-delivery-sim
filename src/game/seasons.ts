@@ -77,3 +77,17 @@ export function seasonOfDay(day: number): SeasonSpec {
 export function dayInSeason(day: number): number {
   return ((Math.max(1, Math.floor(day)) - 1) % SEASON_DAYS) + 1;
 }
+
+/** 장마: summer days 3~5 of the season - clouds almost always bring rain, and it lasts */
+export const MONSOON_DAYS_IN_SUMMER = [3, 4, 5] as const;
+export const MONSOON_WEATHER = { rainChance: 0.9, snowChance: 0, rainDurationMul: 2.5 } as const;
+
+/** True on a 장마 day */
+export function isMonsoonDay(day: number): boolean {
+  return seasonOfDay(day).id === 'summer' && (MONSOON_DAYS_IN_SUMMER as readonly number[]).includes(dayInSeason(day));
+}
+
+/** Weather odds of a working day: the season's, or the monsoon's on 장마 days */
+export function weatherOddsOfDay(day: number): Pick<SeasonSpec, 'rainChance' | 'snowChance' | 'rainDurationMul'> {
+  return isMonsoonDay(day) ? MONSOON_WEATHER : seasonOfDay(day);
+}

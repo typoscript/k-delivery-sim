@@ -26,6 +26,8 @@ export class WeatherSchedule {
   public mode: WeatherMode;
   /** Game minutes until the next change */
   public remainingMin: number;
+  /** Working day the current odds were set for (the clock re-applies them on a new day) */
+  public seasonDay = -1;
   /** Season weights (rain / snow chance, shower length); none = the year-round defaults */
   private season: Pick<SeasonSpec, 'rainChance' | 'snowChance' | 'rainDurationMul'> | null = null;
 

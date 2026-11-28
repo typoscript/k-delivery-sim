@@ -12,6 +12,10 @@ import { pushOutOfBodies } from '../../world/vehicleBodies';
 import { getInstructionMeta } from '../../delivery/DeliveryManager';
 import { NO_GROUND_WALK_BONUS } from '../../delivery/apartmentRules';
 
+/** Puddles slow the scooter (speed decay per second) above this speed (m/s) */
+const PUDDLE_DRAG = 1.4;
+const PUDDLE_MIN_SPEED = 3;
+
 /** Outdoors: streaming, traffic, pedestrians, hazards, sidewalk / red-light / pedestrian warnings. Indoors: the corridor and elevator */
 export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: LoopState, f: FrameState): void {
   const {
@@ -45,6 +49,20 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       isRiding,
       (id) => delivery.activeMissions.some((m) => m.order.customer.id === id && m.pickedUp),
     );
+    // Rain puddles: riding through one at speed drags the scooter and splashes the visor (once per puddle)
+    if (isRiding && world.puddles.puddles.length > 0) {
+      const sp = scooterPhysics.state;
+      const puddle = world.puddles.puddleAt(sp.x, sp.z);
+      if (puddle && Math.abs(sp.speed) > PUDDLE_MIN_SPEED) {
+        sp.speed *= Math.exp(-PUDDLE_DRAG * dt);
+        if (puddle.id !== world.puddles.splashedId) {
+          world.puddles.splashedId = puddle.id;
+          ctx.visorRain.splash(Math.min(34, 10 + Math.abs(sp.speed) * 1.6));
+          audio.playCargoBoxSound();
+          hud.showToast('💦 첨벙! 물웅덩이 — 속도가 줄고 바이저에 물이 튀었어요 ([G]로 닦기)', 2400);
+        }
+      }
+    }
     // Black ice ahead (winter nights): warn once per patch while riding toward it
     if (isRiding && world.blackIce.isActive) {
       const ice = world.blackIce.nearest(scooterPhysics.state.x, scooterPhysics.state.z, 32);
