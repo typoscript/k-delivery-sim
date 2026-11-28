@@ -37,11 +37,12 @@ export function applySnowCover(mat: THREE.Material, strength = 1, upFrom = 0.55)
         '#include <common>',
         '#include <common>\nvarying float vSnowUp;\nuniform float uSnowCover;\nuniform float uSnowStrength;',
       )
+      // after every colour change (vertex colours, seasonal foliage), right before alpha
       .replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-        float snowAmt = uSnowCover * uSnowStrength * smoothstep(${upFrom.toFixed(2)}, ${(upFrom + 0.3).toFixed(2)}, vSnowUp);
-        diffuseColor.rgb = mix(diffuseColor.rgb, ${SNOW_WHITE}, snowAmt);`,
+        '#include <alphamap_fragment>',
+        `float snowAmt = uSnowCover * uSnowStrength * smoothstep(${upFrom.toFixed(2)}, ${(upFrom + 0.3).toFixed(2)}, vSnowUp);
+        diffuseColor.rgb = mix(diffuseColor.rgb, ${SNOW_WHITE}, snowAmt);
+        #include <alphamap_fragment>`,
       );
   };
   mat.customProgramCacheKey = () => `${prevKey}|snow${strength}|${upFrom}`;

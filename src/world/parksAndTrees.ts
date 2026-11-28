@@ -1,4 +1,5 @@
 /** Parks, street trees and park signs */
+import { applySeasonFoliage } from './seasonFoliage';
 import * as THREE from 'three';
 import { CITY_WORLD_LIMIT } from '../types';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
@@ -98,6 +99,7 @@ export function buildParksAndTrees(host: CityWorld): void {
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4f35, roughness: 0.9 });
     const crownGeo = new THREE.SphereGeometry(1.95, 8, 6);
     const crownMat = new THREE.MeshStandardMaterial({ color: 0x2f7a42, roughness: 0.85 });
+    applySeasonFoliage(crownMat); // blossoms / autumn leaves / bare winter crowns
 
     const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCoords.length);
     const crowns = new THREE.InstancedMesh(crownGeo, crownMat, treeCoords.length);

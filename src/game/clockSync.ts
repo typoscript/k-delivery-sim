@@ -64,6 +64,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     const first = delivery.season === null;
     delivery.setSeason(season.id);
     ctx.weatherSchedule.setSeason(season);
+    world.setSeason(season.id);
     if (announce && !first) {
       const ev = SEASON_EVENTS[season.id];
       hud.showToast(

@@ -26,7 +26,7 @@ describe('snow cover', () => {
     const shader = {
       uniforms: {} as Record<string, { value: unknown }>,
       vertexShader: '#include <common>\n#include <defaultnormal_vertex>',
-      fragmentShader: '#include <common>\n#include <color_fragment>',
+      fragmentShader: '#include <common>\n#include <color_fragment>\n#include <alphamap_fragment>',
     };
     mat.onBeforeCompile(shader as never, {} as never);
     expect(earlier).toBe(1);

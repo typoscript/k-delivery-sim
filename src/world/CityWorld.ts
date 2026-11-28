@@ -35,6 +35,8 @@ import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 import { ServiceStations, WorldPropHost } from './serviceStations';
 import { ApartmentGateEvent, DeliveryLocationProps, PropColliders } from './deliveryProps';
 import { SNOW_COVER, stepSnowCover } from './snowCover';
+import { setFoliageSeason } from './seasonFoliage';
+import type { SeasonId } from '../game/seasons';
 import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
 import { buildSpeedBumps } from './speedBumps';
@@ -556,6 +558,11 @@ export class CityWorld {
 
   public setWeather(mode: WeatherMode): void {
     setWeatherFn(this, mode);
+  }
+
+  /** Season of the working day: tree crowns take its colours */
+  public setSeason(season: SeasonId): void {
+    setFoliageSeason(season);
   }
 
   /** Snow settling on up-facing surfaces while it snows, melting after (see snowCover.ts) */
