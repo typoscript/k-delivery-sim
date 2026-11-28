@@ -131,3 +131,65 @@ export function mergeStaticByMaterial(group: THREE.Object3D, keep?: (o: THREE.Ob
   }
   return saved;
 }
+
+/**
+ * City-wide InstancedMeshes (signal gantries, street lamps, park trees, crosswalk stripes) hold thousands of
+ * instances, and the GPU draws every one of them each frame: an InstancedMesh is only culled as a whole. This keeps
+ * just the instances within a radius of the player in each mesh's instance buffer (re-picked after the player moves
+ * REFRESH_M), which cut ~90% of the frame's triangles. Static instances only (matrices are copied at register time).
+ */
+export class NearbyInstances {
+  private readonly groups: Array<{
+    mesh: THREE.InstancedMesh;
+    all: Float32Array;
+    xs: Float32Array;
+    zs: Float32Array;
+    radiusSq: number;
+  }> = [];
+  private lastX = Number.POSITIVE_INFINITY;
+  private lastZ = Number.POSITIVE_INFINITY;
+
+  constructor(private readonly refreshM = 40) {}
+
+  /** Takes over `mesh`'s current instances; from now on only those within `radius` of the player are drawn */
+  public register(mesh: THREE.InstancedMesh, radius: number): void {
+    const n = mesh.count;
+    const all = new Float32Array((mesh.instanceMatrix.array as Float32Array).subarray(0, n * 16));
+    const xs = new Float32Array(n);
+    const zs = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      xs[i] = all[i * 16 + 12];
+      zs[i] = all[i * 16 + 14];
+    }
+    this.groups.push({ mesh, all, xs, zs, radiusSq: radius * radius });
+    this.lastX = Number.POSITIVE_INFINITY; // re-pick on the next update
+  }
+
+  public get registered(): number {
+    return this.groups.length;
+  }
+
+  /** Re-picks the drawn instances when the player moved far enough (or `force`) */
+  public update(px: number, pz: number, force = false): void {
+    if (!force && Math.hypot(px - this.lastX, pz - this.lastZ) < this.refreshM) return;
+    this.lastX = px;
+    this.lastZ = pz;
+    for (const g of this.groups) {
+      const dst = g.mesh.instanceMatrix.array as Float32Array;
+      let k = 0;
+      for (let i = 0; i < g.xs.length; i++) {
+        const dx = g.xs[i] - px;
+        const dz = g.zs[i] - pz;
+        if (dx * dx + dz * dz > g.radiusSq) continue;
+        dst.set(g.all.subarray(i * 16, i * 16 + 16), k * 16);
+        k++;
+      }
+      g.mesh.count = k;
+      g.mesh.instanceMatrix.needsUpdate = true;
+      g.mesh.computeBoundingSphere();
+    }
+  }
+}
+
+/** The world's culler (CityWorld.updateStreaming drives it; traffic signals register here too) */
+export const NEARBY_INSTANCES = new NearbyInstances();

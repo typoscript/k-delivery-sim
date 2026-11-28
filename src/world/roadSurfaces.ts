@@ -1,7 +1,7 @@
 /** Road ribbons, junctions, crosswalks, manholes and the wet-asphalt shader (legacy maps; the open world streams roads per chunk) */
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
-import { buildInstanced, placeMatrix } from './instancing';
+import { buildInstanced, placeMatrix, NEARBY_INSTANCES } from './instancing';
 import { createAsphaltTexture, createManholeTexture, createPuddleRoughnessTexture } from './cityTextures';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import type { CityWorld } from './CityWorld';
@@ -205,6 +205,7 @@ export function buildSuwonOsmRoads(host: CityWorld): void {
   if (crosswalkMatrices.length > 0) {
     const stripes = buildInstanced(stripeGeo, host.crosswalkPaintMat, crosswalkMatrices);
     stripes.receiveShadow = true;
+    NEARBY_INSTANCES.register(stripes, 220); // 11k stripes city-wide: only the nearby ones
     excludeFromMirrors(stripes);
     host.root.add(stripes);
     freezeStatic(stripes);
@@ -220,6 +221,8 @@ export function buildSuwonOsmRoads(host: CityWorld): void {
       dummy.updateMatrix();
       mInst.setMatrixAt(i, dummy.matrix);
     });
+    mInst.instanceMatrix.needsUpdate = true;
+    NEARBY_INSTANCES.register(mInst, 160);
     host.root.add(mInst);
   }
 }

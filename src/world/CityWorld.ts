@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { planStreetProps, registerStreetProps } from './streetProps';
 import { activeRoadProximity } from './roadProximity';
 import { excludeFromMirrors, freezeStatic, makeStaticContainer } from './renderLayers';
-import { mergeStaticByMaterial } from './instancing';
+import { NEARBY_INSTANCES, mergeStaticByMaterial } from './instancing';
 import {
   createSidewalkTexture,
   createSignTexture,
@@ -368,6 +368,7 @@ export class CityWorld {
    * player, keeps the sun's shadow frustum centred on the player and refreshes the phone-map overlays.
    */
   public updateStreaming(px: number, pz: number): void {
+    NEARBY_INSTANCES.update(px, pz);
     updateStreamingFn(this, px, pz);
   }
 

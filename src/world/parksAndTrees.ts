@@ -1,4 +1,5 @@
 /** Parks, street trees and park signs */
+import { NEARBY_INSTANCES } from './instancing';
 import { applySeasonFoliage } from './seasonFoliage';
 import * as THREE from 'three';
 import { CITY_WORLD_LIMIT } from '../types';
@@ -115,6 +116,9 @@ export function buildParksAndTrees(host: CityWorld): void {
       dummy.updateMatrix();
       crowns.setMatrixAt(i, dummy.matrix);
     });
+    // park trees city-wide: draw only those around the player
+    NEARBY_INSTANCES.register(trunks, 300);
+    NEARBY_INSTANCES.register(crowns, 300);
     host.root.add(trunks, crowns);
   }
 }

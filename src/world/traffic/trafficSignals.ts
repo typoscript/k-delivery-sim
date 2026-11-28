@@ -1,7 +1,10 @@
 /** Traffic signals: the shared 18s phase cycle, the instanced signal gantries and the player's red-light check */
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic } from '../renderLayers';
-import { buildInstanced, placeMatrix } from '../instancing';
+import { buildInstanced, placeMatrix, NEARBY_INSTANCES } from '../instancing';
+
+/** Signal gantries farther than this are not drawn (fog hides them anyway) */
+const SIGNAL_DRAW_RADIUS_M = 320;
 import { ACTIVE_MAP_DATA } from '../../data/suwonDistricts';
 import { getSignalAxis, signalNodesNear } from '../TrafficRules';
 import type { SignalColor, SignalStateSnapshot, TrafficSystem } from '../TrafficSystem';
@@ -127,5 +130,7 @@ export function buildTrafficSignals(host: TrafficSystem): void {
     excludeFromMirrors(m);
     host.root.add(m);
     freezeStatic(m);
+    // 940 gantries city-wide: draw only those around the player
+    NEARBY_INSTANCES.register(m, SIGNAL_DRAW_RADIUS_M);
   }
 }

@@ -1,7 +1,7 @@
 /** Bus stops and street lamps (with their night light pools) */
 import * as THREE from 'three';
 import { excludeFromMirrors, freezeStatic } from './renderLayers';
-import { buildInstanced, mergeStaticByMaterial, placeMatrix } from './instancing';
+import { buildInstanced, mergeStaticByMaterial, placeMatrix, NEARBY_INSTANCES } from './instancing';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { createSignTexture, createLampPoolTexture } from './cityTextures';
 import type { CityWorld } from './CityWorld';
@@ -96,6 +96,8 @@ export function buildStreetLamps(host: CityWorld): void {
   // Warm golden streetlamp light pools projected onto asphalt at night (zero PointLight cost!)
   const pools = buildInstanced(poolGeo, poolMat, lampPositions.map(([lx, lz]) => placeMatrix(lx, 0.072, lz)));
   poles.castShadow = true;
+  // ~940 lamps city-wide: draw only those around the player
+  for (const m of [poles, heads, pools]) NEARBY_INSTANCES.register(m, 300);
   for (const m of [poles, heads]) {
     excludeFromMirrors(m);
     host.root.add(m);

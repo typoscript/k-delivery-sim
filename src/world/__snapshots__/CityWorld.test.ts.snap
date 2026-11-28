@@ -2,8 +2,8 @@
 
 exports[`CityWorld build (open world) > builds the same scene every time 1`] = `
 {
-  "hash": 416334092,
-  "instances": 16501,
+  "hash": -236679671,
+  "instances": 134,
   "meshes": 929,
   "vertices": 91416,
 }

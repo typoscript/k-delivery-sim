@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { mergeStaticByMaterial } from './instancing';
+import { NearbyInstances, buildInstanced, mergeStaticByMaterial } from './instancing';
 import { VehicleFleetRenderer } from './VehicleFleetRenderer';
 
 const meshes = (o: THREE.Object3D) => {
@@ -82,5 +82,31 @@ describe('VehicleFleetRenderer', () => {
     expect(new THREE.Vector3().setFromMatrixScale(m).x).toBe(0);
     cap.getMatrixAt(1, m);
     expect(new THREE.Vector3().setFromMatrixScale(m).x).toBeCloseTo(1);
+  });
+});
+
+describe('NearbyInstances', () => {
+  it('draws only the instances within the radius, re-picked after the player moves far enough', () => {
+    const mats = [0, 100, 500, 1000].map((x) => new THREE.Matrix4().makeTranslation(x, 0, 0));
+    const mesh = buildInstanced(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), mats);
+    const culler = new NearbyInstances(40);
+    culler.register(mesh, 150);
+    culler.update(0, 0);
+    expect(mesh.count).toBe(2); // x = 0 and 100
+    const m = new THREE.Matrix4();
+    mesh.getMatrixAt(1, m);
+    expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBe(100);
+    culler.update(20, 0); // moved < 40 m: unchanged
+    expect(mesh.count).toBe(2);
+    culler.update(900, 0);
+    expect(mesh.count).toBe(1);
+    mesh.getMatrixAt(0, m);
+    expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBe(1000);
+    culler.update(5000, 0);
+    expect(mesh.count).toBe(0);
+    culler.update(450, 0); // back: 500 within reach, the original matrices are kept
+    expect(mesh.count).toBe(1);
+    mesh.getMatrixAt(0, m);
+    expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBe(500);
   });
 });
