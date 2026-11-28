@@ -290,7 +290,7 @@ export class OrderDispatchManager {
           type,
           shop,
           customer,
-          surcharges: { rainBonus, nightBonus, peakBonus, events: activeDemandEvents(delivery.isWeatherRaining, delivery.isNightMode) },
+          surcharges: { rainBonus, nightBonus, peakBonus, events: activeDemandEvents(delivery.isWeatherRaining, delivery.isNightMode, delivery.demandPhase.id) },
           special:
             type === 'SINGLE'
               ? rollSpecialOrder(delivery.isNightMode, delivery.demandPhase.isPeak, Math.random, delivery.getReputation().specialChanceMul)

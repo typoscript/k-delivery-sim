@@ -36,7 +36,7 @@ export function ledgerIncomeLines(l: DailyFinanceLedger): ReceiptLine[] {
     { key: 'peak', label: '🔥 피크타임 할증', amount: l.peakBonusTotal, tone: 'income' },
     { key: 'special', label: '⏱️🍱 특별 주문 · ⭐단골 고객', amount: l.specialBonusTotal, tone: 'income' },
     ...(l.eventBonusTotal > 0
-      ? [{ key: 'event', label: '🍲🍗 이벤트 콜 (국물 · 야식)', amount: l.eventBonusTotal, tone: 'income' as const }]
+      ? [{ key: 'event', label: '🎉 이벤트 콜 할증 (국물 · 야식 · 점심 · 카페)', amount: l.eventBonusTotal, tone: 'income' as const }]
       : []),
     { key: 'tier', label: `${l.riderTier.icon} ${l.riderTier.name} 등급 보너스`, amount: l.tierBonusTotal, tone: 'income' },
     { key: 'tip', label: '안전 배달 팁', amount: l.tipTotal, tone: 'income' },
@@ -125,7 +125,7 @@ export function settlementLines(r: SettlementResult): ReceiptLine[] {
     else
       lines.push({
         key: 'event',
-        label: `${ev.icon} ${ev.label} · ${ev.id === 'rain_soup' ? '국물이 쏟아져' : '음식이 식어'} 할증 없음`,
+        label: `${ev.icon} ${ev.label} · ${ev.missedText} 할증 없음`,
         amount: 0,
         tone: 'warn',
       });

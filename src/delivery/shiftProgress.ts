@@ -46,7 +46,11 @@ export function settlementGoalCounters(
   if (m.order.regularCustomer) keys.push('regular');
   if (m.order.distanceMeters > 1000) keys.push('far');
   // Event call surcharge earned (unspilled soup in the rain / warm late-night snack)
-  if ((pay.eventBonus ?? 0) > 0) keys.push('event', m.order.demandEvent === 'rain_soup' ? 'eventSoup' : 'eventSnack');
+  if ((pay.eventBonus ?? 0) > 0) {
+    keys.push('event');
+    if (m.order.demandEvent === 'rain_soup') keys.push('eventSoup');
+    if (m.order.demandEvent === 'late_snack') keys.push('eventSnack');
+  }
   keys.push(`district:${districtOf(m.order.customer.x, m.order.customer.z)}`);
   return keys;
 }

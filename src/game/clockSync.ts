@@ -4,7 +4,7 @@ import { DEMAND_EVENTS, DemandEventSpec } from '../delivery/demandEvents';
 
 /** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */
 const eventNote = (e: DemandEventSpec) =>
-  `${e.icon} ${e.id === 'rain_soup' ? '국물 요리' : '야식'} 주문 증가 (${e.conditionText} +₩${e.bonus.toLocaleString()})`;
+  `${e.icon} ${e.menuNoun} 주문 증가 (${e.conditionText} +₩${e.bonus.toLocaleString()})`;
 
 /**
  * Applies the game clock to the world and the delivery economy (called every frame and right after `N`):
@@ -37,13 +37,18 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       ctx.audio.playPeakRushJingle();
       hud.flashClock();
       hud.showToast(
-        `${phase.emoji} ${phase.label} 시작! 콜이 2배 넘게 빨리 들어오고 건당 +₩${phase.peakBonus.toLocaleString()} 피크 할증 (매장 조리는 조금 더 걸려요)`,
+        `${phase.emoji} ${phase.label} 시작! 콜이 2배 넘게 빨리 들어오고 건당 +₩${phase.peakBonus.toLocaleString()} 피크 할증 (매장 조리는 조금 더 걸려요)${
+          phase.id === 'lunch_peak' ? ` · ${eventNote(DEMAND_EVENTS.lunch_meal)}` : ''
+        }`,
         4800
       );
       voiceNav.speak(`${phase.label} 시간입니다. 주문이 많아집니다.`);
     } else if (announce && wasPeak) {
       ctx.audio.playPeakEndChime();
-      hud.showToast(`${prevLabel} 종료 · ${phase.emoji} ${phase.label} 시간대`, 3200);
+      hud.showToast(
+        `${prevLabel} 종료 · ${phase.emoji} ${phase.label} 시간대${phase.id === 'afternoon' ? ` · ${eventNote(DEMAND_EVENTS.cafe_time)}` : ''}`,
+        phase.id === 'afternoon' ? 4200 : 3200
+      );
     } else if (announce && phase.id === 'dawn') {
       hud.showToast(
         `🌌 자정이 지났어요 · 콜이 뜸해져요. 휴대폰 [수익] 탭의 🏁 퇴근하기로 ${delivery.shiftDay}일차를 마감하고 다음 날 출근할 수 있어요`,

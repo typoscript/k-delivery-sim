@@ -4566,6 +4566,18 @@ body.phone-3d-hover canvas {
   border-color: rgba(168, 85, 247, 0.4);
 }
 
+.event-order-tag.lunch_meal {
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.event-order-tag.cafe_time {
+  background: rgba(180, 83, 9, 0.13);
+  color: #92400e;
+  border-color: rgba(180, 83, 9, 0.35);
+}
+
 .special-order-tag,
 .regular-customer-tag {
   display: inline-block;

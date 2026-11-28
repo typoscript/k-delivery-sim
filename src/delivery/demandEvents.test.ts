@@ -8,7 +8,7 @@ import { ROTATING_GOALS } from './ShiftDay';
 import type { RiderCareerSave } from './RiderCareer';
 import { DeliveryLocation } from '../types';
 
-const { rain_soup: SOUP, late_snack: SNACK } = DEMAND_EVENTS;
+const { rain_soup: SOUP, late_snack: SNACK, lunch_meal: LUNCH, cafe_time: CAFE } = DEMAND_EVENTS;
 
 /** Deterministic random numbers for sampling */
 function seeded(seed: number): () => number {
@@ -220,5 +220,85 @@ describe('event calls in goals and achievements', () => {
     expect(ach.soup).toMatchObject({ current: 20, target: 20 });
     expect(ach.snack).toMatchObject({ current: 12, target: 30 });
     expect(p.collectNewAchievements(0, 1).map((a) => a.id)).toContain('soup');
+  });
+});
+
+describe('lunch and afternoon cafe events', () => {
+  it('run during the lunch rush and the quiet afternoon (rain still comes first)', () => {
+    expect(activeDemandEvents(false, false, 'lunch_peak').map((e) => e.id)).toEqual(['lunch_meal']);
+    expect(activeDemandEvents(false, false, 'afternoon').map((e) => e.id)).toEqual(['cafe_time']);
+    expect(activeDemandEvents(true, false, 'lunch_peak').map((e) => e.id)).toEqual(['rain_soup', 'lunch_meal']);
+    expect(activeDemandEvents(false, true, 'evening').map((e) => e.id)).toEqual(['late_snack']);
+    expect(activeDemandEvents(false, false, 'morning')).toEqual([]);
+    expect(activeDemandEvents(false, false, 'dinner_peak')).toEqual([]);
+  });
+
+  it('menus', () => {
+    for (const m of [
+      '제육볶음 정식',
+      '등심 돈카츠 정식',
+      '스테이크 도시락 + 스프',
+      '새우 볶음밥 + 쇼마이',
+      '안심 카츠 + 카레',
+    ])
+      expect(LUNCH.menu.test(m), m).toBe(true);
+    for (const m of [
+      '아이스 아메리카노 2잔',
+      '바닐라 라떼 + 생크림 케이크',
+      '자몽 에이드 + 마카롱',
+      '콜드브루 라떼 2잔',
+    ])
+      expect(CAFE.menu.test(m), m).toBe(true);
+    for (const m of ['모둠 특선 초밥 18p', '페퍼로니 피자 + 파스타']) {
+      expect(LUNCH.menu.test(m), m).toBe(false);
+      expect(CAFE.menu.test(m), m).toBe(false);
+    }
+  });
+
+  it('lunch pays when on time, cafe when the drinks are not spilled', () => {
+    const lunch = {
+      order: { demandEvent: 'lunch_meal' as const, eventBonus: LUNCH.bonus },
+      foodIntegrity: 60,
+      foodTemp: 30,
+    };
+    expect(eventBonusEarned({ ...lunch, remainingTimeSec: 12 })).toBe(LUNCH.bonus);
+    expect(eventBonusEarned({ ...lunch, remainingTimeSec: 0 })).toBe(0);
+    const cafe = {
+      order: { demandEvent: 'cafe_time' as const, eventBonus: CAFE.bonus },
+      foodTemp: 100,
+      remainingTimeSec: 0,
+    };
+    expect(eventBonusEarned({ ...cafe, foodIntegrity: 85 })).toBe(CAFE.bonus);
+    expect(eventBonusEarned({ ...cafe, foodIntegrity: 70 })).toBe(0);
+  });
+
+  it('count toward the daily event goal but not the soup / snack achievements', () => {
+    const shop: DeliveryLocation = {
+      id: 's',
+      name: '카페',
+      x: 0,
+      z: 0,
+      type: 'shop',
+      emoji: '☕',
+      menus: ['아이스 아메리카노 2잔'],
+    };
+    const home: DeliveryLocation = { id: 'r', name: '집', x: 100, z: 0, type: 'residential', emoji: '🏠' };
+    const o = buildDeliveryOrder({
+      id: 'c',
+      orderNumber: 'A-01',
+      type: 'SINGLE',
+      shop,
+      customer: home,
+      surcharges: { rainBonus: 0, nightBonus: 0, peakBonus: 0, events: [CAFE] },
+    });
+    expect(o).toMatchObject({ demandEvent: 'cafe_time', eventBonus: CAFE.bonus });
+    const keys = settlementGoalCounters(
+      { ...createActiveMission(o, 0), foodIntegrity: 90 },
+      { peakBonus: 0, rainBonus: 0, nightBonus: 0, specialBonus: 0, eventBonus: CAFE.bonus },
+      () => 'x',
+    );
+    expect(keys).toContain('event');
+    expect(keys).not.toContain('eventSoup');
+    expect(keys).not.toContain('eventSnack');
   });
 });

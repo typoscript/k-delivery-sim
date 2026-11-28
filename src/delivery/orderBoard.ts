@@ -16,7 +16,7 @@ export function orderSurcharges(host: DeliveryManager): OrderSurcharges {
     rainBonus: host.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
     nightBonus: host.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
     peakBonus: host.demandPhase.peakBonus,
-    events: activeDemandEvents(host.isWeatherRaining, host.isNightMode),
+    events: activeDemandEvents(host.isWeatherRaining, host.isNightMode, host.demandPhase.id),
   };
 }
 
