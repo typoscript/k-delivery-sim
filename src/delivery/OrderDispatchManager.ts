@@ -1,4 +1,5 @@
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
+import { activeDemandEvents } from './demandEvents';
 import { buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { DeliveryLocation } from '../types';
 import { BOARD_CHECK_SEC, RivalContest, RivalPosition, contestingRival, pickBoardCallTaken, snatchDelaySec } from './rivalCompetition';
@@ -289,7 +290,7 @@ export class OrderDispatchManager {
           type,
           shop,
           customer,
-          surcharges: { rainBonus, nightBonus, peakBonus },
+          surcharges: { rainBonus, nightBonus, peakBonus, events: activeDemandEvents(delivery.isWeatherRaining, delivery.isNightMode) },
           special:
             type === 'SINGLE'
               ? rollSpecialOrder(delivery.isNightMode, delivery.demandPhase.isPeak, Math.random, delivery.getReputation().specialChanceMul)
@@ -301,7 +302,10 @@ export class OrderDispatchManager {
 
     if (orders.length < count) return null;
 
-    const totalFee = orders.reduce((acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0) + (o.specialBonus ?? 0), 0);
+    const totalFee = orders.reduce(
+      (acc, o) => acc + o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0) + (o.specialBonus ?? 0) + (o.eventBonus ?? 0),
+      0
+    );
     const totalRainBonus = orders.reduce((acc, o) => acc + o.rainBonus, 0);
     const totalNightBonus = orders.reduce((acc, o) => acc + o.nightBonus, 0);
     const totalPeakBonus = orders.reduce((acc, o) => acc + (o.peakBonus ?? 0), 0);

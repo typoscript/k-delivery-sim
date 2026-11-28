@@ -4540,6 +4540,32 @@ body.phone-3d-hover canvas {
 }
 
 
+.order-event-row {
+  margin-top: 3px;
+}
+
+.order-event-row .event-order-tag {
+  margin-left: 0;
+}
+
+.event-order-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  background: rgba(251, 146, 60, 0.18);
+  color: #ea580c;
+  border: 1px solid rgba(251, 146, 60, 0.45);
+}
+
+.event-order-tag.late_snack {
+  background: rgba(168, 85, 247, 0.16);
+  color: #7c3aed;
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
 .special-order-tag,
 .regular-customer-tag {
   display: inline-block;

@@ -1,5 +1,5 @@
 import { CityMapInfo } from '../../world/CityWorld';
-import { regularCustomerChip, specialOrderChip, specialOrderTag } from './orderTags';
+import { eventOrderChip, regularCustomerChip, specialOrderChip, specialOrderTag } from './orderTags';
 import { DeliveryManager, NavigationPlan, getInstructionMeta } from '../../delivery/DeliveryManager';
 import { DispatchOffer } from '../../delivery/OrderDispatchManager';
 import { clamp } from '../../types';
@@ -180,7 +180,7 @@ export function syncDispatchPopup(
       .map(
         (o, idx) => `
         <div class="dp-stop-item">
-          <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} ${delivery.isRegularShop(o.shop.id) ? '<span class="regular-shop-tag">⭐단골</span> ' : ''}<span class="ord-tag">#${o.orderNumber}</span> <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span>${specialOrderChip(o)}</div>
+          <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} ${delivery.isRegularShop(o.shop.id) ? '<span class="regular-shop-tag">⭐단골</span> ' : ''}<span class="ord-tag">#${o.orderNumber}</span> <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span>${specialOrderChip(o)}${eventOrderChip(o)}</div>
           <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}${regularCustomerChip(o)}${o.customer.residenceKind === 'walkup_villa' ? ' <span class="villa-tag">🪜계단+500</span>' : ''} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
         </div>`
       )

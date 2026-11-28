@@ -10,6 +10,7 @@ const INCOME_KEYS = [
   'nightBonusTotal',
   'peakBonusTotal',
   'specialBonusTotal',
+  'eventBonusTotal',
   'tierBonusTotal',
   'tipTotal',
   'missionBonusTotal',

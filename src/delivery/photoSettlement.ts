@@ -27,6 +27,7 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
     peakBonus,
     specialBonus,
     regularCustomerTip,
+    eventBonus,
     tierBonus,
     earned,
   } = pay;
@@ -38,6 +39,7 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
   host.nightBonusTotal += nightBonus;
   host.peakBonusTotal += peakBonus;
   host.specialBonusTotal += specialBonus + regularCustomerTip;
+  host.eventBonusTotal += eventBonus;
   host.tierBonusTotal += tierBonus;
   // 단골 고객: count completed deliveries per customer location
   host.records.recordCustomerDelivery(m.order.customer.id);
@@ -85,6 +87,7 @@ export function completePhotoSettlement(host: DeliveryManager): SettlementResult
     peakBonus,
     specialBonus,
     regularCustomerTip,
+    eventBonus,
     damageDeduction: pay.damageDed,
     tierBonus,
     tierPromotedTo,

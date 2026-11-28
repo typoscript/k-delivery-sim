@@ -1,3 +1,4 @@
+import { DEMAND_EVENTS } from '../../delivery/demandEvents';
 import { DeliveryOrder, REGULAR_CUSTOMER_TIP, SPECIAL_ORDERS } from '../../delivery/DeliveryManager';
 
 /** Plain-text tag for a special order, e.g. "⏱️급한 배달 +₩3,000 (150초 내)" */
@@ -13,6 +14,18 @@ export function specialOrderChip(o: DeliveryOrder): string {
   return o.special ? ` <span class="special-order-tag ${o.special}">${specialOrderTag(o)}</span>` : '';
 }
 
+/** Plain-text tag for a demand event order, e.g. "🍲비 오는 날 국물 +₩1,000 (안 쏟고 배달 시)" */
+export function eventOrderTag(o: DeliveryOrder): string {
+  if (!o.demandEvent) return '';
+  const e = DEMAND_EVENTS[o.demandEvent];
+  return `${e.icon}${e.label} +₩${(o.eventBonus ?? 0).toLocaleString()} (${e.conditionText})`;
+}
+
+/** HTML chip for a demand event order (call list / dispatch popup) */
+export function eventOrderChip(o: DeliveryOrder): string {
+  return o.demandEvent ? ` <span class="event-order-tag ${o.demandEvent}">${eventOrderTag(o)}</span>` : '';
+}
+
 /** HTML chip for a regular customer (단골 고객) */
 export function regularCustomerChip(o: DeliveryOrder): string {
   return o.regularCustomer
@@ -22,5 +35,5 @@ export function regularCustomerChip(o: DeliveryOrder): string {
 
 /** Total shown on call cards: fee + surcharges stamped on the order */
 export function orderDisplayFee(o: DeliveryOrder): number {
-  return o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0) + (o.specialBonus ?? 0);
+  return o.baseFee + o.rainBonus + o.nightBonus + (o.peakBonus ?? 0) + (o.specialBonus ?? 0) + (o.eventBonus ?? 0);
 }

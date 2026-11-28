@@ -1,5 +1,6 @@
 /** Open order board: surcharges, filling / refreshing the call list, accepting calls and rival steals */
 import type { DeliveryManager } from './DeliveryManager';
+import { activeDemandEvents } from './demandEvents';
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
 import { DeliveryOrder, MAX_CONCURRENT_ORDERS, NIGHT_SURCHARGE_BONUS, RAIN_SURCHARGE_BONUS } from './deliveryTypes';
 import {
@@ -15,6 +16,7 @@ export function orderSurcharges(host: DeliveryManager): OrderSurcharges {
     rainBonus: host.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
     nightBonus: host.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
     peakBonus: host.demandPhase.peakBonus,
+    events: activeDemandEvents(host.isWeatherRaining, host.isNightMode),
   };
 }
 

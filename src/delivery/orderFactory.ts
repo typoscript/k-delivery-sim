@@ -1,4 +1,5 @@
 import { DeliveryLocation } from '../types';
+import { DemandEventSpec, eventForMenu, pickMenu } from './demandEvents';
 import {
   ALTTLE_FLAT_FEE,
   ActiveMission,
@@ -20,6 +21,8 @@ export interface OrderSurcharges {
   rainBonus: number;
   nightBonus: number;
   peakBonus: number;
+  /** Demand events running now (menu choice + surcharge); none when omitted */
+  events?: readonly DemandEventSpec[];
 }
 
 /** 한집배달 distance surcharge: ₩12 per manhattan metre, rounded to ₩100 (알뜰배달 has none) */
@@ -48,7 +51,9 @@ export function buildDeliveryOrder(opts: {
   const rand = opts.rand ?? Math.random;
   const spec = opts.special && type === 'SINGLE' ? SPECIAL_ORDERS[opts.special] : null;
   const menus = shop.menus ?? ['배달 음식 세트'];
-  const shopMenu = menus[Math.floor(rand() * menus.length)];
+  const events = opts.surcharges.events ?? [];
+  const shopMenu = pickMenu(menus, events, rand);
+  const event = eventForMenu(shopMenu, events);
   const menuName = spec ? spec.menuFormat(shopMenu) : shopMenu;
   const distanceMeters = Math.round(Math.abs(shop.x - customer.x) + Math.abs(shop.z - customer.z));
   const isSingle = type === 'SINGLE';
@@ -76,6 +81,7 @@ export function buildDeliveryOrder(opts: {
     nightBonus: opts.surcharges.nightBonus,
     peakBonus: opts.surcharges.peakBonus,
     ...(spec ? { special: spec.kind, specialBonus: spec.bonus } : {}),
+    ...(event ? { demandEvent: event.id, eventBonus: event.bonus } : {}),
     ...(opts.regularCustomer ? { regularCustomer: true } : {}),
     distanceMeters,
   };

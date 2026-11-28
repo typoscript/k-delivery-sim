@@ -1,5 +1,5 @@
 import { PlayerState } from '../../player/PlayerController';
-import { orderDisplayFee, regularCustomerChip, specialOrderChip } from './orderTags';
+import { eventOrderChip, orderDisplayFee, regularCustomerChip, specialOrderChip } from './orderTags';
 import {
   ActiveMission,
   CARGO_SLOT_COUNT,
@@ -35,6 +35,7 @@ export function renderCallsTab(player: PlayerState, delivery: DeliveryManager): 
           ${(o.peakBonus ?? 0) > 0 ? `<span class="peak-bonus-tag">🔥 피크 +₩${(o.peakBonus ?? 0).toLocaleString()}</span>` : ''}
           ${specialOrderChip(o)}${regularCustomerChip(o)}
         </div>
+        ${o.demandEvent ? `<div class="order-event-row">${eventOrderChip(o)}</div>` : ''}
         <div class="order-bottom">
           <span class="order-dest">→ ${o.customer.name} ${o.unitNumber}${o.customer.residenceKind === 'walkup_villa' ? '<span class="villa-tag">🪜계단+500</span>' : ''} (${o.distanceMeters}m)</span>
           <button class="order-accept-btn" data-action="accept" data-id="${o.id}" ${canAccept ? '' : 'disabled'}>
@@ -134,7 +135,7 @@ export function renderAcceptedTab(
             <span class="order-fee">₩${orderDisplayFee(m.order).toLocaleString()}</span>
           </div>
           <div class="order-top">
-            <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}${(m.order.peakBonus ?? 0) > 0 ? ' <span class="peak-bonus-tag">🔥+1천</span>' : ''}${specialOrderChip(m.order)}${regularCustomerChip(m.order)}</span>
+            <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}${(m.order.peakBonus ?? 0) > 0 ? ' <span class="peak-bonus-tag">🔥+1천</span>' : ''}${specialOrderChip(m.order)}${eventOrderChip(m.order)}${regularCustomerChip(m.order)}</span>
           </div>
           <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b>${villaPill} <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
           <div class="order-menu" style="margin-top:2px">

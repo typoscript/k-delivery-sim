@@ -18,7 +18,7 @@ export function computeDeliverySheetFingerprint(
         `${m.order.id}:${m.phase}:${m.cargoSlot}:${Math.round(m.foodIntegrity)}:${Math.round(m.foodTemp)}:${m.order.unitNumber}:${m.order.deliveryInstruction}:${m.chatNote ?? ''}:${Math.ceil(m.cookingRemainingSec)}:${activeTab === 'accepted' ? Math.ceil(m.remainingTimeSec) : 0}`
     )
     .join(',');
-  const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}:${o.nightBonus}:${o.peakBonus ?? 0}:${o.special ?? ''}`).join(',');
+  const availFp = delivery.availableOrders.map((o) => `${o.id}:${o.rainBonus}:${o.nightBonus}:${o.peakBonus ?? 0}:${o.special ?? ''}:${o.eventBonus ?? 0}`).join(',');
   const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
   const finFp = `${delivery.totalEarnings}:${delivery.fuelExpense}:${delivery.repairExpense}:${delivery.fineExpense}`;
   const revFp = `${delivery.getRecentReviews().length}:${delivery.getRegularShops().length}:${delivery.getDayHistory().length}:${delivery.lifetimeCompleted}`;

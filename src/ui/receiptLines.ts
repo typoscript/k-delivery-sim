@@ -1,3 +1,4 @@
+import { DEMAND_EVENTS } from '../delivery/demandEvents';
 import { DailyFinanceLedger, FINE_KINDS, FineKind, SPECIAL_ORDERS, SettlementResult } from '../delivery/DeliveryManager';
 
 /**
@@ -34,6 +35,9 @@ export function ledgerIncomeLines(l: DailyFinanceLedger): ReceiptLine[] {
     { key: 'night', label: '🌙 심야 할증', amount: l.nightBonusTotal, tone: 'income' },
     { key: 'peak', label: '🔥 피크타임 할증', amount: l.peakBonusTotal, tone: 'income' },
     { key: 'special', label: '⏱️🍱 특별 주문 · ⭐단골 고객', amount: l.specialBonusTotal, tone: 'income' },
+    ...(l.eventBonusTotal > 0
+      ? [{ key: 'event', label: '🍲🍗 이벤트 콜 (국물 · 야식)', amount: l.eventBonusTotal, tone: 'income' as const }]
+      : []),
     { key: 'tier', label: `${l.riderTier.icon} ${l.riderTier.name} 등급 보너스`, amount: l.tierBonusTotal, tone: 'income' },
     { key: 'tip', label: '안전 배달 팁', amount: l.tipTotal, tone: 'income' },
     { key: 'mission', label: '🏆 오늘의 목표 보너스', amount: l.missionBonusTotal, tone: 'income' },
@@ -114,6 +118,17 @@ export function settlementLines(r: SettlementResult): ReceiptLine[] {
   if (sp) {
     if (r.specialBonus > 0) add('special', `${sp.icon} ${sp.label} 할증`, r.specialBonus);
     else lines.push({ key: 'special', label: `${sp.icon} ${sp.label} 제한시간 초과 · 급송 할증 없음`, amount: 0, tone: 'warn' });
+  }
+  const ev = r.order.demandEvent ? DEMAND_EVENTS[r.order.demandEvent] : null;
+  if (ev) {
+    if (r.eventBonus > 0) add('event', `${ev.icon} ${ev.label} 할증`, r.eventBonus);
+    else
+      lines.push({
+        key: 'event',
+        label: `${ev.icon} ${ev.label} · ${ev.id === 'rain_soup' ? '국물이 쏟아져' : '음식이 식어'} 할증 없음`,
+        amount: 0,
+        tone: 'warn',
+      });
   }
   add('regular', '⭐ 단골 고객 팁', r.regularCustomerTip);
   add('tier', '🏅 라이더 등급 보너스', r.tierBonus);

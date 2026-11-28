@@ -79,6 +79,7 @@ export const SHIFT_LEDGER_KEYS = [
   'nightBonusTotal',
   'peakBonusTotal',
   'specialBonusTotal',
+  'eventBonusTotal',
   'tierBonusTotal',
   'tipTotal',
   'missionBonusTotal',

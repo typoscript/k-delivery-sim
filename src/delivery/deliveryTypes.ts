@@ -7,6 +7,7 @@ import { CustomerReview, RiderTierSpec } from './RiderCareer';
 import type { AchievementSpec, AchievementStatus, DayRecord, WeekSummary } from './careerHistory';
 import type { WeekGoalStatus } from './weeklyGoals';
 import { ShiftGoalSpec, ShiftGoalStatus } from './ShiftDay';
+import type { DemandEventId } from './demandEvents';
 
 export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
@@ -259,6 +260,8 @@ export interface DailyFinanceLedger {
   missionBonusTotal: number;
   /** Weekly goal bonuses (paid on the 7th day's clock-out) */
   weeklyBonusTotal: number;
+  /** Demand event surcharges (비 오는 날 국물 · 야식 타임) */
+  eventBonusTotal: number;
   damageDeductionTotal: number;
   fuelExpense: number;
   repairExpense: number;
@@ -301,6 +304,9 @@ export interface DeliveryOrder {
   /** Special order (urgent delivery / group order) and its surcharge */
   special?: SpecialOrderKind;
   specialBonus?: number;
+  /** Demand event the menu belongs to (비 오는 날 국물 / 야식 타임) and its surcharge, paid if the condition holds */
+  demandEvent?: DemandEventId;
+  eventBonus?: number;
   /** Customer already received 2+ of your deliveries (단골 고객): tips when the food arrives in good shape */
   regularCustomer?: boolean;
   distanceMeters: number;
@@ -365,6 +371,8 @@ export interface SettlementResult {
   /** Special order surcharge actually paid (urgent: only if on time) + regular customer tip */
   specialBonus: number;
   regularCustomerTip: number;
+  /** Demand event surcharge actually paid (0 when the food missed its condition) */
+  eventBonus: number;
   /** Deducted from the base fee for damaged food */
   damageDeduction: number;
   tierBonus: number;

@@ -1,3 +1,4 @@
+import { eventBonusEarned } from './demandEvents';
 import { ActiveMission, BASE_FLAT_FEE, OPTIMAL_TEMP_BONUS, REGULAR_CUSTOMER_TIP, VILLA_STAIR_BONUS } from './deliveryTypes';
 
 /** Itemized pay for one delivered order (all parts already rounded; `earned` is their exact sum) */
@@ -20,6 +21,8 @@ export interface SettlementPay {
   specialBonus: number;
   /** 단골 고객 tip when the food arrives in good shape */
   regularCustomerTip: number;
+  /** Demand event surcharge (unspilled soup in the rain / warm late-night snack) */
+  eventBonus: number;
   tierBonus: number;
   earned: number;
 }
@@ -42,13 +45,14 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const onTime = m.remainingTimeSec > 0;
   const specialBonus = o.special === 'urgent' && !onTime ? 0 : (o.specialBonus ?? 0);
   const regularCustomerTip = o.regularCustomer && m.foodIntegrity >= 80 ? REGULAR_CUSTOMER_TIP : 0;
+  const eventBonus = eventBonusEarned(m);
   const damageDed = Math.max(0, Math.round((o.baseFee * (1 - m.foodIntegrity / 100)) / 100) * 100);
   // SINGLE ₩4,500 vs ALTTLE ₩2,800 base flat fee; anything above it is the distance surcharge
   const basePart = Math.min(o.baseFee, o.baseFlatFee || BASE_FLAT_FEE);
   const distPart = Math.max(0, o.baseFee - basePart);
   const earned =
     o.baseFee - damageDed + tip + o.rainBonus + o.nightBonus + peakBonus + specialBonus + regularCustomerTip +
-    tierBonus + tempBonus + villaStairBonus + promisedTipBonus;
+    eventBonus + tierBonus + tempBonus + villaStairBonus + promisedTipBonus;
   return {
     basePart,
     distPart,
@@ -63,6 +67,7 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
     peakBonus,
     specialBonus,
     regularCustomerTip,
+    eventBonus,
     tierBonus,
     earned,
   };

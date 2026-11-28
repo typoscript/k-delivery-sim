@@ -1,5 +1,10 @@
 import { GameContext } from './GameContext';
 import { WeatherMode } from '../types';
+import { DEMAND_EVENTS, DemandEventSpec } from '../delivery/demandEvents';
+
+/** "🍲 국물 주문 증가 (안 쏟고 배달 시 +₩1,000)" */
+const eventNote = (e: DemandEventSpec) =>
+  `${e.icon} ${e.id === 'rain_soup' ? '국물 요리' : '야식'} 주문 증가 (${e.conditionText} +₩${e.bonus.toLocaleString()})`;
 
 /**
  * Applies the game clock to the world and the delivery economy (called every frame and right after `N`):
@@ -16,7 +21,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
     if (announce) {
       hud.showToast(
         night
-          ? `🌙 ${clock.label} 해가 졌어요 · 신규 콜 심야 할증 +₩1,200 · 헤드라이트 자동 점등`
+          ? `🌙 ${clock.label} 해가 졌어요 · 신규 콜 심야 할증 +₩1,200 · 헤드라이트 자동 점등 · ${eventNote(DEMAND_EVENTS.late_snack)}`
           : `🌅 ${clock.label} 날이 밝았어요 · 주간 운행`,
         3600
       );
@@ -56,12 +61,12 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
 
 const WEATHER_MESSAGES: Record<'auto' | 'manual', Record<WeatherMode, string>> = {
   auto: {
-    rain: '🌧️ 비가 내리기 시작했어요! 신규 콜 우천 할증 +₩1,500 · 빗길 맨홀·횡단보도 미끄럼 주의',
+    rain: `🌧️ 비가 내리기 시작했어요! 신규 콜 우천 할증 +₩1,500 · ${eventNote(DEMAND_EVENTS.rain_soup)} · 빗길 미끄럼 주의`,
     cloudy: '☁️ 하늘이 흐려졌어요',
     clear: '☀️ 날이 갰어요 · 노면이 마르고 있어요',
   },
   manual: {
-    rain: '🌧️ 비(우천) 모드! 빗길 맨홀·횡단보도 슬립 주의 · 신규 콜 우천 할증 +₩1,500!',
+    rain: `🌧️ 비(우천) 모드! 빗길 맨홀·횡단보도 슬립 주의 · 신규 콜 우천 할증 +₩1,500 · ${eventNote(DEMAND_EVENTS.rain_soup)}`,
     cloudy: '☁️ 흐림 모드 (조명 톤 다운)',
     clear: '☀️ 맑음 모드 (건조 노면)',
   },

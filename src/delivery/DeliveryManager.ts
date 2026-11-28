@@ -155,6 +155,8 @@ export class DeliveryManager {
   public nightBonusTotal = 0;
   public peakBonusTotal = 0;
   public specialBonusTotal = 0;
+  /** @internal split modules */
+  public eventBonusTotal = 0;
   public tierBonusTotal = 0;
   public tipTotal = 0;
   public missionBonusTotal = 0;
