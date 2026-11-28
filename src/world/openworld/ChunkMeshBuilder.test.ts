@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { OsmBuildingData } from '../../data/suwonTypes';
-import { ChunkMaterials, ROAD_TEXT_ROWS, buildChunkMeshes, wallTintOf } from './ChunkMeshBuilder';
+import { ChunkMaterials, MapDetail, ROAD_TEXT_ROWS, buildChunkMeshes, wallTintOf } from './ChunkMeshBuilder';
 import { ChunkData, OpenWorldData } from './OpenWorldTypes';
 
 const mat = () => new THREE.MeshBasicMaterial();
@@ -263,8 +263,8 @@ describe('ground-floor storefronts', () => {
     expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'shop' }], MATS).found).toHaveLength(0);
   });
 
-  it('graphics "낮음" (lowDetail) skips shopfronts', () => {
-    const r = buildChunkMeshes(chunkOf([{ ...box(0, 14, 24, 12, 12), kind: 'shop' }]), roadsWith, STORE, true);
+  it('graphics "낮음" skips shopfronts', () => {
+    const r = buildChunkMeshes(chunkOf([{ ...box(0, 14, 24, 12, 12), kind: 'shop' }]), roadsWith, STORE, 'low');
     expect(meshesOf(r.group).some((m) => m.material === shopMat)).toBe(false);
     r.dispose();
   });
@@ -312,7 +312,7 @@ describe('facade tints and rooftops', () => {
   });
 
   it('low buildings get a parapet and roof structures, towers none', () => {
-    const roofVerts = (b: OsmBuildingData, lowDetail = false) => {
+    const roofVerts = (b: OsmBuildingData, detail: MapDetail = 'high') => {
       const chunk: ChunkData = {
         ix: 0,
         iz: 0,
@@ -322,7 +322,7 @@ describe('facade tints and rooftops', () => {
         waterLines: [],
         pedestrianPlazas: [],
       };
-      const r = buildChunkMeshes(chunk, NO_ROADS, MATS, lowDetail);
+      const r = buildChunkMeshes(chunk, NO_ROADS, MATS, detail);
       const v = meshesOf(r.group)
         .filter((m) => m.material === MATS.roof)
         .reduce((a, m) => a + m.geometry.attributes.position.count, 0);
@@ -334,7 +334,8 @@ describe('facade tints and rooftops', () => {
     const villa = { ...box(0, 0, 16, 12, 12), area: 192 };
     const tower = { ...box(0, 0, 20, 20, 80), area: 400 };
     expect(roofVerts(small)).toBe(flat + 4 * 6); // parapet only
-    expect(roofVerts(villa, true)).toBe(flat); // graphics "낮음": bare roofs
+    expect(roofVerts(villa, 'low')).toBe(flat); // graphics "낮음": bare roofs
+    expect(roofVerts(villa, 'medium')).toBe(flat + 4 * 6); // "보통": parapet only
     expect(roofVerts(villa)).toBeGreaterThan(flat + 4 * 6); // + stair housing, tank, AC units
     expect(roofVerts(tower)).toBe(flat);
   });
@@ -463,8 +464,8 @@ describe('bus lanes and road text', () => {
     return out;
   };
 
-  it('graphics "낮음" (lowDetail) paints no road words, but keeps the lines', () => {
-    const r = buildChunkMeshes(chunkWith(), roadsOf(14.5, true), mats, true);
+  it('graphics "낮음" paints no road words, but keeps the lines', () => {
+    const r = buildChunkMeshes(chunkWith(), roadsOf(14.5, true), mats, 'low');
     expect(meshesOf(r.group).some((m) => m.material === textMat)).toBe(false);
     expect(meshesOf(r.group).some((m) => m.material === markings)).toBe(true);
     r.dispose();

@@ -4,7 +4,7 @@ import { activeRoadProximity } from '../roadProximity';
 import { ObstacleBox } from '../../types';
 import { OsmGraphEdge } from '../../data/suwonTypes';
 import { chunkCoordOf, chunkDistance, chunkKey, parseChunkKey, planStreaming } from './ChunkGrid';
-import { ChunkBuildResult, ChunkMaterials, ChunkRoads, buildChunkMeshes } from './ChunkMeshBuilder';
+import { ChunkBuildResult, ChunkMaterials, ChunkRoads, MapDetail, buildChunkMeshes } from './ChunkMeshBuilder';
 import { ChunkData, ChunkGridSpec, OpenWorldData, gridSpecOf } from './OpenWorldTypes';
 
 /**
@@ -87,7 +87,7 @@ export class ChunkStreamer {
   private totalAborted = 0;
   private fetchErrors = 0;
   private disposed = false;
-  private lowDetail = false;
+  private detail: MapDetail = 'high';
   /** Increments whenever a chunk is built or released (lets consumers refresh derived data lazily) */
   public version = 0;
 
@@ -193,7 +193,7 @@ export class ChunkStreamer {
       const key = this.buildQueue.shift()!;
       const st = this.states.get(key);
       if (st?.kind !== 'ready') continue;
-      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials, this.lowDetail);
+      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials, this.detail);
       this.root.add(result.group);
       this.states.set(key, { kind: 'built', result, data: st.data });
       this.version++;
@@ -204,16 +204,16 @@ export class ChunkStreamer {
   }
 
   /**
-   * Graphics "낮음" drops rooftop structures, shopfronts and road words. Chunks already built are rebuilt in place
-   * right away (colliders stay the same, so physics never sees a gap)
+   * Map detail of the graphics quality (see MapDetail). Chunks already built are rebuilt in place right away
+   * (colliders stay the same, so physics never sees a gap)
    */
-  public setLowDetail(low: boolean): void {
-    if (low === this.lowDetail) return;
-    this.lowDetail = low;
+  public setDetail(detail: MapDetail): void {
+    if (detail === this.detail) return;
+    this.detail = detail;
     for (const [key, st] of this.states) {
       if (st.kind !== 'built') continue;
       st.result.dispose();
-      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials, low);
+      const result = buildChunkMeshes(st.data, this.roadsFor(key), this.materials, detail);
       this.root.add(result.group);
       this.states.set(key, { kind: 'built', result, data: st.data });
     }

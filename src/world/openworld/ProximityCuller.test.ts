@@ -69,4 +69,21 @@ describe('ProximityCuller', () => {
     c.update(850, 850);
     expect(waiting).toBe(before);
   });
+
+  it('rebuildLazy drops the live props of one parent so the next update builds them again', () => {
+    const c = new ProximityCuller(SPEC, 1);
+    const a = new THREE.Group();
+    const b = new THREE.Group();
+    let builtA = 0;
+    let disposedA = 0;
+    let builtB = 0;
+    c.registerLazy(a, 100, 100, () => (builtA++, { object: new THREE.Object3D(), dispose: () => disposedA++ }), 1, 3);
+    c.registerLazy(b, 100, 100, () => (builtB++, { object: new THREE.Object3D(), dispose: () => {} }), 1, 3);
+    c.update(0, 0);
+    expect([builtA, builtB, c.liveLazyCount]).toEqual([1, 1, 2]);
+    c.rebuildLazy(a);
+    expect([disposedA, a.children.length, c.liveLazyCount]).toEqual([1, 0, 1]);
+    c.update(0, 0); // same chunk: still rebuilt
+    expect([builtA, builtB, a.children.length, c.liveLazyCount]).toEqual([2, 1, 1, 2]);
+  });
 });

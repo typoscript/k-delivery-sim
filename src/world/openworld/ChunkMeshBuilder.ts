@@ -372,7 +372,7 @@ function addBox(buf: GeoBuffer, cx: number, y0: number, cz: number, sx: number, 
  * Rooftop detail of one building in the roof material: a low parapet along the roof edge and, on roofs big enough,
  * a water tank, air-conditioner units and the stair housing (stable per building).
  */
-export function addRooftop(roof: GeoBuffer, b: OsmBuildingData): void {
+export function addRooftop(roof: GeoBuffer, b: OsmBuildingData, structures = true): void {
   // roofs of towers are out of sight from the street: keep their budget for the streets
   if (b.pts.length < 3 || b.height > ROOFTOP_MAX_HEIGHT_M) return;
   const pts = signedArea(b.pts) > 0 ? b.pts : [...b.pts].reverse();
@@ -388,7 +388,7 @@ export function addRooftop(roof: GeoBuffer, b: OsmBuildingData): void {
     addWallQuad(roof, px, pz, qx, qz, dz / len, -dx / len, h, h + 0.9, 0);
   }
   // roof structures only where they fit well inside the footprint
-  if (b.area < 100 || Math.min(b.w, b.d) < 8) return;
+  if (!structures || b.area < 100 || Math.min(b.w, b.d) < 8) return;
   const r = (salt: number) => hash01(b.cx, b.cz, salt);
   const off = (salt: number, extent: number) => (r(salt) - 0.5) * extent * 0.35;
   // stair housing, and on low buildings a water tank
@@ -607,15 +607,18 @@ function addDisc(buf: GeoBuffer, cx: number, cz: number, r: number, y: number): 
 }
 
 /**
- * `lowDetail` (graphics "낮음"): no rooftop structures, shopfronts or painted road words - plain walls / roofs, lane
- * lines and curbs only
+ * Map detail per graphics quality. 'medium' (보통): rooftop parapets without the structures on them; 'low' (낮음): no
+ * rooftops, shopfronts or painted road words - plain walls / roofs, lane lines and curbs only
  */
+export type MapDetail = 'high' | 'medium' | 'low';
+
 export function buildChunkMeshes(
   chunk: ChunkData,
   roads: ChunkRoads,
   mats: ChunkMaterials,
-  lowDetail = false
+  detail: MapDetail = 'high'
 ): ChunkBuildResult {
+  const lowDetail = detail === 'low';
   const group = new THREE.Group();
   group.name = `chunk_${chunk.ix}_${chunk.iz}`;
   const geometries: THREE.BufferGeometry[] = [];
@@ -664,7 +667,7 @@ export function buildChunkMeshes(
     farBuf.color.copy(FAR_WALL_COLORS[cat]);
     wb.color.copy(wallTintOf(cat, b));
     addBuilding(wb, tall ? roofTall : roofLow, b, farBuf);
-    if (!lowDetail) addRooftop(tall ? roofTall : roofLow, b);
+    if (!lowDetail) addRooftop(tall ? roofTall : roofLow, b, detail === 'high');
     if (withStorefronts) addStorefronts(shopfronts, shopfronts, b, roads.curbOffset!);
     obstacles.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, pts: b.pts });
     minX = Math.min(minX, b.minX);

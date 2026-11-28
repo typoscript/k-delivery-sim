@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LAMP_ARM_M, lampHeadGeometry, lampPoolGeometry, planStreetProps, streetPropParts } from './streetProps';
+import {
+  LAMP_ARM_M,
+  lampHeadGeometry,
+  lampPoolGeometry,
+  planStreetProps,
+  streetPropParts,
+  streetPropsForDetail,
+} from './streetProps';
 import { mergeColoredParts } from './instancing';
 import type { OsmGraphEdge, OsmGraphNode } from '../data/suwonTypes';
 
@@ -91,5 +98,22 @@ describe('street prop placement', () => {
     const nodes = [node(0, 0, 0), node(1, 0, 150)];
     const props = planStreetProps(nodes, [edge(0, 1, 5, false, 150)], [5, 5], (x) => offRoad(5)(x));
     expect(props.some((p) => p.kind === 'lamp')).toBe(false);
+  });
+});
+
+describe('street props per graphics map detail', () => {
+  it('높음 builds everything, 보통 drops the alley poles / wires, 낮음 builds nothing', () => {
+    const nodes = [node(0, 0, 0), node(1, 0, 150), node(2, 60, 0), node(3, 60, 150)];
+    const props = planStreetProps(
+      nodes,
+      [edge(0, 1, 5, false, 150), edge(2, 3, 12, true, 150)],
+      [5, 5, 12, 12],
+      (x) => (x < 30 ? offRoad(5)(x) : offRoad(12)(x - 60))
+    );
+    const kinds = (d: 'high' | 'medium' | 'low') => new Set(streetPropsForDetail(props, d).map((p) => p.kind));
+    expect(kinds('high').has('pole')).toBe(true);
+    expect(kinds('medium').has('pole')).toBe(false);
+    expect(kinds('medium').has('tree') || kinds('medium').has('lamp')).toBe(true);
+    expect(streetPropsForDetail(props, 'low')).toHaveLength(0);
   });
 });

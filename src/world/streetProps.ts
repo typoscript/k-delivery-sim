@@ -13,6 +13,7 @@ import { ProximityCuller } from './openworld/ProximityCuller';
 import { ChunkGridSpec } from './openworld/OpenWorldTypes';
 import { chunkCoordOf, chunkKey } from './openworld/ChunkGrid';
 import type { OsmGraphEdge, OsmGraphNode } from '../data/suwonTypes';
+import type { MapDetail } from './openworld/ChunkMeshBuilder';
 
 export type StreetPropKind = 'tree' | 'pole' | 'lamp';
 
@@ -232,6 +233,19 @@ export function lampPoolGeometry(props: readonly StreetPropPlacement[]): THREE.B
   );
 }
 
+/**
+ * Which props a graphics map detail builds: 'high' everything, 'medium' (보통) trees and lamps without the alley
+ * poles / wires, 'low' (낮음) nothing at all
+ */
+export function streetPropsForDetail(
+  props: readonly StreetPropPlacement[],
+  detail: MapDetail,
+): readonly StreetPropPlacement[] {
+  if (detail === 'high') return props;
+  if (detail === 'low') return [];
+  return props.filter((p) => p.kind !== 'pole');
+}
+
 /** Shared night lighting materials the lamps use (owned by CityWorld) */
 export interface StreetLampLighting {
   headMaterial: THREE.Material;
@@ -241,8 +255,8 @@ export interface StreetLampLighting {
 }
 
 /**
- * Registers each chunk's props with the culler (built within 1 chunk of the player, disposed beyond 2).
- * Returns how many props were planned.
+ * Registers each chunk's props with the culler (built within 1 chunk of the player, disposed beyond 2), filtered by
+ * the current map detail when built (`culler.rebuildLazy(parent)` after a change). Returns how many props were planned.
  */
 export function registerStreetProps(
   culler: ProximityCuller,
@@ -250,6 +264,7 @@ export function registerStreetProps(
   parent: THREE.Object3D,
   props: readonly StreetPropPlacement[],
   lighting?: StreetLampLighting,
+  detail: () => MapDetail = () => 'high',
 ): number {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true });
   const byChunk = new Map<string, StreetPropPlacement[]>();
@@ -267,12 +282,14 @@ export function registerStreetProps(
       x,
       z,
       () => {
-        const geometry = mergeColoredParts(streetPropParts(list));
+        const shown = streetPropsForDetail(list, detail());
+        if (shown.length === 0) return { object: new THREE.Group(), dispose: () => {} };
+        const geometry = mergeColoredParts(streetPropParts(shown));
         const mesh = new THREE.Mesh(geometry, material);
         mesh.name = 'street_props';
         const group = new THREE.Group();
         group.add(mesh);
-        const heads = lighting ? lampHeadGeometry(list) : null;
+        const heads = lighting ? lampHeadGeometry(shown) : null;
         if (heads) group.add(new THREE.Mesh(heads, lighting!.headMaterial));
         excludeFromMirrors(group);
         freezeStatic(group);
@@ -294,7 +311,8 @@ export function registerStreetProps(
         x,
         z,
         () => {
-          const pools = lampPoolGeometry(list)!;
+          const pools = lampPoolGeometry(streetPropsForDetail(list, detail()));
+          if (!pools) return { object: new THREE.Group(), dispose: () => {} };
           const mesh = new THREE.Mesh(pools, lighting.poolMaterial);
           mesh.name = 'street_lamp_pools';
           excludeFromMirrors(mesh);

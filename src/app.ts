@@ -169,8 +169,8 @@ const applyGameSettings = (s: GameSettings) => {
 
   // Resolution range, shadow map size / refresh rate and dynamic resolution per quality level
   graphics.apply(s);
-  // "낮음" also trims map detail (rooftop structures, shopfronts, road words, roadside trees / poles / lamps)
-  world.setLowDetail(s.graphicsQuality === 'low');
+  // Map detail follows the quality too ("보통": no rooftop structures / alley poles, "낮음": bare streets)
+  world.setMapDetail(s.graphicsQuality);
   graphics.invalidateShadows();
 };
 

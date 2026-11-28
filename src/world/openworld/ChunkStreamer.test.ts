@@ -129,7 +129,7 @@ describe('ChunkStreamer', () => {
     expect(s.isReadyAt(100, 100)).toBe(true);
   });
 
-  it('setLowDetail rebuilds the built chunks in place: same chunks and colliders, nothing leaked', async () => {
+  it('setDetail rebuilds the built chunks in place: same chunks and colliders, nothing leaked', async () => {
     const f = controllableFetcher();
     const root = new THREE.Group();
     const s = new ChunkStreamer(root, makeWorld(), MATS, { chunkBaseUrl: '', fetcher: f.fetcher });
@@ -139,14 +139,14 @@ describe('ChunkStreamer', () => {
     }
     const before = { built: s.stats.built, colliders: s.collisionObstacles.length, groups: s.root.children.length };
     const v = s.version;
-    s.setLowDetail(true);
+    s.setDetail('low');
     expect(s.version).toBeGreaterThan(v);
     expect({ built: s.stats.built, colliders: s.collisionObstacles.length, groups: s.root.children.length }).toEqual(
       before,
     );
     // test chunks hold one 10 m building: its roof loses the parapet
     const lowTris = s.stats.triangles;
-    s.setLowDetail(false);
+    s.setDetail('high');
     expect(s.stats.triangles).toBeGreaterThan(lowTris);
     expect(s.root.children.length).toBe(before.groups);
   });

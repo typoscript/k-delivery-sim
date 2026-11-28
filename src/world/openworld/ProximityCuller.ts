@@ -96,6 +96,21 @@ export class ProximityCuller {
     }
   }
 
+  /**
+   * Drops the live lazy props under `parent` so the next update builds them again (e.g. after a detail setting
+   * change their build reads). Props out of range just stay unbuilt until approached.
+   */
+  public rebuildLazy(parent: THREE.Object3D): void {
+    for (const l of this.lazy) {
+      if (l.parent !== parent || !l.live) continue;
+      l.live.object.removeFromParent();
+      l.live.dispose();
+      l.live = null;
+      this.liveLazyCount--;
+    }
+    this.lastKey = '';
+  }
+
   private tryBuild(l: LazyEntry): void {
     const built = l.build();
     if (!built) {

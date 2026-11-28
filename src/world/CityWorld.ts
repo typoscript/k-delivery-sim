@@ -34,6 +34,7 @@ import { gridSpecOf } from './openworld/OpenWorldTypes';
 import { SuwonLandmarksBuilder } from './SuwonLandmarks';
 import { ServiceStations, WorldPropHost } from './serviceStations';
 import { DeliveryLocationProps, PropColliders } from './deliveryProps';
+import type { MapDetail } from './openworld/ChunkMeshBuilder';
 import { buildSuwonOsmRoads, SignalHazardZone } from './roadSurfaces';
 import { buildSpeedBumps } from './speedBumps';
 import { buildParksAndTrees } from './parksAndTrees';
@@ -154,9 +155,10 @@ export class CityWorld {
   readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
   /** @internal world builders */
   readonly streetLampPoolGroup = new THREE.Group();
-  /** Roadside trees / poles / lamps and their light pools (hidden on graphics "낮음") */
+  /** Roadside trees / poles / lamps and their light pools (rebuilt per map detail) */
   private readonly streetPropsGroup = new THREE.Group();
   private readonly streetPropPoolsGroup = new THREE.Group();
+  private mapDetail: MapDetail = 'high';
   /** Additive night light-pool material of the street lamps (set by buildStreetLamps) */
   lampPoolMat?: THREE.Material;
   /** Pickup counters & lobby portals with their animated doors / food trays (deliveryProps.ts) */
@@ -286,11 +288,18 @@ export class CityWorld {
       this.streetPropsGroup.name = 'street_props_root';
       this.root.add(this.streetPropsGroup);
       this.streetLampPoolGroup.add(this.streetPropPoolsGroup);
-      registerStreetProps(this.culler, gridSpecOf(SUWON_OPEN_WORLD), this.streetPropsGroup, props, {
-        headMaterial: this.lampGlowMat,
-        poolMaterial: this.lampPoolMat!,
-        poolParent: this.streetPropPoolsGroup,
-      });
+      registerStreetProps(
+        this.culler,
+        gridSpecOf(SUWON_OPEN_WORLD),
+        this.streetPropsGroup,
+        props,
+        {
+          headMaterial: this.lampGlowMat,
+          poolMaterial: this.lampPoolMat!,
+          poolParent: this.streetPropPoolsGroup,
+        },
+        () => this.mapDetail
+      );
     }
 
     this.sky = new WorldSky({
@@ -366,13 +375,17 @@ export class CityWorld {
   }
 
   /**
-   * Graphics "낮음": open-world chunks drop rooftop structures, shopfronts and road words, and roadside trees /
-   * poles / lamps are hidden (not drawn)
+   * Map detail of the graphics quality: "보통" drops rooftop structures and alley poles / wires, "낮음" also
+   * shopfronts, road words and every roadside tree / pole / lamp (not built at all). Rebuilds what is around now.
    */
-  public setLowDetail(low: boolean): void {
-    this.streamer?.setLowDetail(low);
-    this.streetPropsGroup.visible = !low;
-    this.streetPropPoolsGroup.visible = !low;
+  public setMapDetail(detail: MapDetail): void {
+    if (detail === this.mapDetail) return;
+    this.mapDetail = detail;
+    this.streamer?.setDetail(detail);
+    if (this.culler) {
+      this.culler.rebuildLazy(this.streetPropsGroup);
+      this.culler.rebuildLazy(this.streetPropPoolsGroup);
+    }
   }
 
   /**
