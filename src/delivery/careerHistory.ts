@@ -130,6 +130,8 @@ export const ACHIEVEMENTS: readonly AchievementSpec[] = [
   },  { id: 'safestop30', icon: '🚦', title: '안전 운전 습관', desc: '경고 후 안전 정지 · 보행자 양보 누적 30회', target: 30, progress: counter('safeStop') },
   { id: 'clean7', icon: '🏁', title: '무위반 7일', desc: '3건 이상 · 교통 위반 0회로 7일 연속 퇴근', target: 7, progress: (s) => cleanDayStreak(s.history) },
   { id: 'soup', icon: '🍲', title: '국물 장인', desc: '비 오는 날 국물 콜을 안 쏟고 20건 (이벤트 할증)', target: 20, progress: counter('eventSoup') },
+  { id: 'snowrider', icon: '❄️', title: '눈길 라이더', desc: '눈 오는 날 배달 10건', target: 10, progress: counter('snow') },
+  { id: 'walker', icon: '🚶', title: '정문 밖 주차의 정석', desc: '지상 차량 출입 금지 단지에 오토바이를 밖에 세우고 걸어서 20건', target: 20, progress: counter('walkIn') },
   { id: 'snack', icon: '🍗', title: '야식 배달왕', desc: '야식 콜을 따뜻하게 30건 (이벤트 할증)', target: 30, progress: counter('eventSnack') },
 ];
 

@@ -220,3 +220,23 @@ describe('split DeliveryManager helpers', () => {
     expect(createActiveMission(order, 0, () => 0.9).chatTriggerDelaySec).toBe(0);
   });
 });
+
+describe('snow and walk-in goals', () => {
+  const pay = { peakBonus: 0, rainBonus: 2000, nightBonus: 0, specialBonus: 0 };
+  it('a snow-day delivery counts for snow, not rain; a walked-in delivery counts for walkIn', () => {
+    const snowy = mission();
+    snowy.order.snowDay = true;
+    const keys = settlementGoalCounters(snowy, pay, () => 'x');
+    expect(keys).toContain('snow');
+    expect(keys).not.toContain('rain');
+    expect(settlementGoalCounters(mission(), { ...pay, rainBonus: 1500 }, () => 'x')).toContain('rain');
+    expect(settlementGoalCounters(mission(), { ...pay, rainBonus: 0, walkInBonus: 700 }, () => 'x')).toContain('walkIn');
+    expect(settlementGoalCounters(mission(), { ...pay, rainBonus: 0, walkInBonus: 0 }, () => 'x')).not.toContain('walkIn');
+  });
+  it('rotating goals and achievements exist for both', async () => {
+    const { ROTATING_GOALS } = await import('./ShiftDay');
+    const { ACHIEVEMENTS } = await import('./careerHistory');
+    expect(ROTATING_GOALS.map((g) => g.counter)).toEqual(expect.arrayContaining(['snow', 'walkIn']));
+    expect(ACHIEVEMENTS.map((a) => a.id)).toEqual(expect.arrayContaining(['snowrider', 'walker']));
+  });
+});

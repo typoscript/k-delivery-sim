@@ -35,13 +35,17 @@ import { SettlementPay } from './settlementPay';
  */
 export function settlementGoalCounters(
   m: ActiveMission,
-  pay: Pick<SettlementPay, 'peakBonus' | 'rainBonus' | 'nightBonus' | 'specialBonus'> & Partial<Pick<SettlementPay, 'eventBonus'>>,
+  pay: Pick<SettlementPay, 'peakBonus' | 'rainBonus' | 'nightBonus' | 'specialBonus'> &
+    Partial<Pick<SettlementPay, 'eventBonus' | 'walkInBonus'>>,
   districtOf: (x: number, z: number) => string = districtIdAt
 ): string[] {
   const keys: string[] = [];
   if (pay.peakBonus > 0) keys.push('peak');
   if (m.order.customer.residenceKind === 'walkup_villa') keys.push('villa');
-  if (pay.rainBonus > 0) keys.push('rain');
+  // weather surcharge: rain and snow count apart (a snow-day order carries the snow surcharge in rainBonus)
+  if (pay.rainBonus > 0) keys.push(m.order.snowDay ? 'snow' : 'rain');
+  // 지상 차량 출입 금지 단지: walked in with the scooter left outside
+  if ((pay.walkInBonus ?? 0) > 0) keys.push('walkIn');
   if (pay.nightBonus > 0) keys.push('night');
   if (m.foodIntegrity >= 95) keys.push('perfect');
   if (m.order.special === 'urgent' && pay.specialBonus > 0) keys.push('urgentOnTime');
@@ -52,6 +56,7 @@ export function settlementGoalCounters(
     keys.push('event');
     if (m.order.demandEvent === 'rain_soup') keys.push('eventSoup');
     if (m.order.demandEvent === 'late_snack') keys.push('eventSnack');
+    if (m.order.demandEvent === 'snow_warm') keys.push('eventSnow');
   }
   keys.push(`district:${districtOf(m.order.customer.x, m.order.customer.z)}`);
   return keys;
