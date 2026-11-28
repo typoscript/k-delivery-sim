@@ -17,5 +17,14 @@ export function createOpenWorldMaterials(): ChunkMaterials {
     water: new THREE.MeshStandardMaterial({ color: 0x3b82c4, roughness: 0.25, metalness: 0.1 }),
     plaza: new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
     farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
+    ...createStorefrontMaterials(),
+  };
+}
+
+/** Ground-floor shopfronts: dark glass with a warm lit interior; signboards unlit so they read at night too */
+export function createStorefrontMaterials(): { storefrontGlass: THREE.Material; storefrontSign: THREE.Material } {
+  return {
+    storefrontGlass: new THREE.MeshLambertMaterial({ color: 0x3b5068, emissive: 0x3d3322, emissiveIntensity: 0.5 }),
+    storefrontSign: new THREE.MeshBasicMaterial({ vertexColors: true }),
   };
 }

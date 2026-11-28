@@ -53,8 +53,14 @@ export class DeliveryLocationProps {
         opacity: 0.48,
       }),
       pinPadMat: new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0x22c55e, emissiveIntensity: 0.6 }),
+      shopGlassMat: new THREE.MeshLambertMaterial({ color: 0x3b5068, emissive: 0x3d3322, emissiveIntensity: 0.5 }),
+      canopyMats: [0xdc2626, 0x15803d, 0x1d4ed8, 0xea580c, 0x7c3aed, 0x0f766e].map(
+        (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 })
+      ),
     };
-    const sharedMats = new Set<THREE.Material>(Object.values(shared));
+    const sharedMats = new Set<THREE.Material>(
+      Object.values(shared).flatMap((m) => (Array.isArray(m) ? m : [m]))
+    );
 
     for (const loc of this.locations) {
       if (this.culler) {
@@ -89,6 +95,8 @@ export class DeliveryLocationProps {
       screenMat: THREE.Material;
       glassDoorMat: THREE.Material;
       pinPadMat: THREE.Material;
+      shopGlassMat: THREE.Material;
+      canopyMats: THREE.Material[];
     }
   ): { object: THREE.Group; keep: (o: THREE.Object3D) => boolean } {
     const heading = loc.facingHeading ?? 0;
@@ -102,13 +110,29 @@ export class DeliveryLocationProps {
     if (loc.type === 'shop') {
       const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.05, 0.72), m.counterMat);
       counter.position.set(0, 0.52, 0);
-      const awning = new THREE.Mesh(
-        new THREE.BoxGeometry(3.0, 0.65, 0.25),
-        new THREE.MeshBasicMaterial({
-          map: this.host.createSignTexture(`${loc.emoji} ${loc.name}`, '#c2410c', '#fff7ed'),
-        })
-      );
+      const signMat = new THREE.MeshBasicMaterial({
+        map: this.host.createSignTexture(`${loc.emoji} ${loc.name}`, '#c2410c', '#fff7ed'),
+      });
+      const awning = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.65, 0.25), signMat);
       awning.position.set(0, 2.35, 0.15);
+
+      // Shopfront behind the counter: lit glass front between pillars, a striped canopy and the big signboard
+      // (same sign texture as the counter: no extra texture per shop)
+      const front = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.9, 0.12), m.shopGlassMat);
+      front.position.set(0, 1.45, -1.35);
+      const pillarL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 4.4, 0.3), m.darkMat);
+      pillarL.position.set(-2.0, 2.2, -1.35);
+      const pillarR = pillarL.clone();
+      pillarR.position.x = 2.0;
+      const header = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.35, 0.3), m.darkMat);
+      header.position.set(0, 3.05, -1.35);
+      const canopyMat = m.canopyMats[Math.abs(hashString(loc.id)) % m.canopyMats.length];
+      const canopy = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.06, 1.15), canopyMat);
+      canopy.position.set(0, 2.95, -0.85);
+      canopy.rotation.x = 0.22;
+      const bigSign = new THREE.Mesh(new THREE.BoxGeometry(4.0, 1.0, 0.24), signMat);
+      bigSign.position.set(0, 3.75, -1.3);
+      g.add(front, pillarL, pillarR, header, canopy, bigSign);
 
       const posStand = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.24), m.darkMat);
       posStand.position.set(0.82, 1.18, 0.08);
@@ -229,4 +253,11 @@ export class DeliveryLocationProps {
       }
     }
   }
+}
+
+/** Small deterministic string hash (canopy colour per shop) */
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h;
 }

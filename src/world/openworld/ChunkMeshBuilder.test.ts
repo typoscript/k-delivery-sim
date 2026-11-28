@@ -77,9 +77,29 @@ describe('buildChunkMeshes', () => {
     ix: 0,
     iz: 0,
     buildings: [box(0, 0, 10, 8, 12), box(30, 0, 12, 12, 40, true)],
-    parks: [{ name: 'p', pts: [[50, 50], [70, 50], [70, 70], [50, 70]] }],
+    parks: [
+      {
+        name: 'p',
+        pts: [
+          [50, 50],
+          [70, 50],
+          [70, 70],
+          [50, 70],
+        ],
+      },
+    ],
     waters: [],
-    waterLines: [{ name: 'r', width: 6, pts: [[0, 80], [40, 90], [80, 80]] }],
+    waterLines: [
+      {
+        name: 'r',
+        width: 6,
+        pts: [
+          [0, 80],
+          [40, 90],
+          [80, 80],
+        ],
+      },
+    ],
     pedestrianPlazas: [],
   };
   const roads = {
@@ -185,8 +205,80 @@ describe('buildChunkMeshes', () => {
     // bounds that (deterministic) instead of wall-clock time, which flakes on a busy machine; the time is logged.
     let verts = 0;
     for (const m of meshesOf(r.group)) verts += m.geometry.attributes.position.count;
-    console.log(`[ChunkMeshBuilder] chunk ${heaviest.key}: ${heaviest.buildings} buildings -> ${r.drawCalls} draws, ${verts} verts in ${ms.toFixed(1)}ms`);
+    console.log(
+      `[ChunkMeshBuilder] chunk ${heaviest.key}: ${heaviest.buildings} buildings -> ${r.drawCalls} draws, ${verts} verts in ${ms.toFixed(1)}ms`,
+    );
     expect(verts).toBeLessThanOrEqual(16000); // 12,222 when written
     expect(verts / heaviest.buildings).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('ground-floor storefronts', () => {
+  // a road running along z = 0 (curb at |z| = 4); buildings stand north of it
+  const curbOffset = (_x: number, z: number) => Math.abs(z) - 4;
+  const glass = new THREE.MeshBasicMaterial();
+  const sign = new THREE.MeshBasicMaterial();
+  const chunkOf = (buildings: OsmBuildingData[]): ChunkData => ({
+    ix: 0,
+    iz: 0,
+    buildings,
+    parks: [],
+    waters: [],
+    waterLines: [],
+    pedestrianPlazas: [],
+  });
+  const roadsWith = { nodes: [], edges: [], discNodeIds: [], nodeMaxWidth: new Float32Array(0), curbOffset };
+  const meshesWith = (buildings: OsmBuildingData[], mats: ChunkMaterials) => {
+    const r = buildChunkMeshes(chunkOf(buildings), roadsWith, mats);
+    const found: THREE.Mesh[] = [];
+    r.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && (m.material === glass || m.material === sign)) found.push(m);
+    });
+    return { r, found };
+  };
+  const STORE = { ...MATS, storefrontGlass: glass, storefrontSign: sign };
+
+  it('a low building beside the road gets shopfront units with signboards only on its road side', () => {
+    // 24m wide, wall facing the road at z = 8 (4m from the curb)
+    const { found, r } = meshesWith([{ ...box(0, 14, 24, 12, 12), kind: 'shop' }], STORE);
+    expect(found.map((m) => m.material)).toEqual([glass, sign]);
+    const g = found[0].geometry;
+    const pos = g.getAttribute('position');
+    // every shopfront vertex is on the road-facing wall (z ~ 8)
+    for (let i = 0; i < pos.count; i++) expect(pos.getZ(i)).toBeLessThan(8.1);
+    expect(pos.count / 6).toBe(4); // 24m / ~6m units
+    // signboards carry colours
+    expect(found[1].geometry.getAttribute('color')).toBeDefined();
+    r.dispose();
+  });
+
+  it('no shopfronts away from roads, on big public buildings, on apartment towers, or without the materials', () => {
+    expect(meshesWith([box(0, 60, 20, 12, 12)], STORE).found).toHaveLength(0); // far from the road
+    expect(meshesWith([{ ...box(0, 14, 60, 40, 12), kind: 'public', area: 2400 }], STORE).found).toHaveLength(0); // school
+    expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'public', area: 240 }], STORE).found).toHaveLength(2); // small office
+    expect(meshesWith([box(0, 14, 20, 12, 60)], STORE).found).toHaveLength(0); // 60m apartment
+    expect(meshesWith([{ ...box(0, 14, 20, 12, 12), kind: 'shop' }], MATS).found).toHaveLength(0);
+  });
+});
+
+describe('storefronts anywhere on the map', () => {
+  it('builds at negative and large coordinates too (every unit gets a sign colour)', () => {
+    const glass = new THREE.MeshBasicMaterial();
+    const sign = new THREE.MeshBasicMaterial();
+    const mats = { ...MATS, storefrontGlass: glass, storefrontSign: sign };
+    for (const [ox, oz] of [
+      [-3417.3, -2211.8],
+      [5120.6, -987.2],
+      [-8.4, 4410.9],
+      [123.45, 678.9],
+    ]) {
+      // road along z = oz (curb 4m off), a long low building just north of it
+      const curbOffset = (_x: number, z: number) => Math.abs(z - oz) - 4;
+      const roads = { nodes: [], edges: [], discNodeIds: [], nodeMaxWidth: new Float32Array(0), curbOffset };
+      const b = { ...box(ox, oz + 14, 60, 12, 12), kind: 'shop' as const };
+      const chunk = { ix: 0, iz: 0, buildings: [b], parks: [], waters: [], waterLines: [], pedestrianPlazas: [] };
+      expect(() => buildChunkMeshes(chunk, roads, mats).dispose()).not.toThrow();
+    }
   });
 });

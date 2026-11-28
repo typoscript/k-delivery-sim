@@ -44,21 +44,22 @@ function recordingContext(): { ctx: CanvasRenderingContext2D; summary: () => { c
 }
 
 function drawScenarios() {
-  // Orders are rolled with Math.random: same seed -> same orders, route and markers
+  const world = new CityWorld(new THREE.Scene());
+  world.updateStreaming(ACTIVE_MAP_DATA.meta.playerSpawn.x, ACTIVE_MAP_DATA.meta.playerSpawn.z);
+  // Orders are rolled with Math.random: same seed -> same orders, route and markers. Seeded after the world is
+  // built and streamed (three.js draws Math.random for every object's uuid, so the world's object count must not matter)
   let seed = 4242;
   const origRandom = Math.random;
   Math.random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
   try {
-    return drawSeeded();
+    return drawSeeded(world);
   } finally {
     Math.random = origRandom;
   }
 }
 
-function drawSeeded() {
-  const world = new CityWorld(new THREE.Scene());
+function drawSeeded(world: InstanceType<typeof CityWorld>) {
   const s = ACTIVE_MAP_DATA.meta.playerSpawn;
-  world.updateStreaming(s.x, s.z);
   const dm = new DeliveryManager(world.locations);
   dm.setReferencePosition(s.x, s.z);
   dm.refreshAvailableOrders();

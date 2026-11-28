@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { activeRoadProximity } from '../roadProximity';
 import { ObstacleBox } from '../../types';
 import { OsmGraphEdge } from '../../data/suwonTypes';
 import { chunkCoordOf, chunkDistance, chunkKey, parseChunkKey, planStreaming } from './ChunkGrid';
@@ -87,6 +88,9 @@ export class ChunkStreamer {
   private disposed = false;
   /** Increments whenever a chunk is built or released (lets consumers refresh derived data lazily) */
   public version = 0;
+
+  /** Street-facing test for shopfronts (road edges of the whole map) */
+  private readonly curbOffset = (x: number, z: number) => activeRoadProximity().curbOffset(x, z);
 
   constructor(
     parent: THREE.Object3D,
@@ -191,6 +195,7 @@ export class ChunkStreamer {
       edges: this.edgesByChunk.get(key) ?? [],
       discNodeIds: this.discsByChunk.get(key) ?? [],
       nodeMaxWidth: this.nodeMaxWidth,
+      curbOffset: this.curbOffset,
     };
   }
 

@@ -23,6 +23,9 @@ export interface ChunkMaterials {
   plaza: THREE.Material;
   /** Far LOD: untextured vertex-coloured buildings (one mesh per chunk) */
   farBuildings: THREE.Material;
+  /** Ground-floor shopfronts (glass) and their signboards (vertex-coloured); none when omitted */
+  storefrontGlass?: THREE.Material;
+  storefrontSign?: THREE.Material;
 }
 
 /** Chunks whose centre is farther than this from the camera draw the single-mesh far LOD */
@@ -43,6 +46,8 @@ export interface ChunkRoads {
   edges: readonly OsmGraphEdge[];
   discNodeIds: readonly number[];
   nodeMaxWidth: Float32Array;
+  /** Metres from a point to the nearest road edge (street-facing walls get shopfronts); none when omitted */
+  curbOffset?: (x: number, z: number) => number;
 }
 
 export interface ChunkBuildResult {
@@ -168,6 +173,120 @@ export function addBuilding(walls: GeoBuffer, roof: GeoBuffer, b: OsmBuildingDat
   }
 }
 
+/** Korean street sign colours (signboards above the shopfronts) */
+const SIGN_COLORS = [0xdc2626, 0x1d4ed8, 0xfacc15, 0x16a34a, 0xf8fafc, 0x0f172a, 0xea580c, 0x7c3aed, 0x0891b2, 0xbe185d].map(
+  (c) => new THREE.Color(c)
+);
+const SHOPFRONT_UNIT_M = 6.2;
+const SHOPFRONT_TOP_M = 3.0;
+const SIGN_BOTTOM_M = 3.2;
+const SIGN_TOP_M = 4.15;
+const SIGN_DEPTH_M = 0.22;
+
+/** Deterministic 0..1 from a position (same signs every time the chunk is built) */
+function hash01(x: number, z: number, salt: number): number {
+  let h = (Math.imul(Math.round(x * 10), 73856093) ^ Math.imul(Math.round(z * 10), 19349663) ^ Math.imul(salt, 83492791)) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 1274126177) >>> 0;
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296; // ^ yields a signed int: back to 0..1
+}
+
+/** Quad facing (nx, nz) from p to q between heights y0..y1, pushed `out` metres off the wall */
+function addWallQuad(
+  buf: GeoBuffer,
+  px: number,
+  pz: number,
+  qx: number,
+  qz: number,
+  nx: number,
+  nz: number,
+  y0: number,
+  y1: number,
+  out: number
+): void {
+  const ax = px + nx * out;
+  const az = pz + nz * out;
+  const bx = qx + nx * out;
+  const bz = qz + nz * out;
+  buf.vertex(ax, y0, az, nx, 0, nz, 0, 0);
+  buf.vertex(ax, y1, az, nx, 0, nz, 0, 1);
+  buf.vertex(bx, y0, bz, nx, 0, nz, 1, 0);
+  buf.vertex(bx, y0, bz, nx, 0, nz, 1, 0);
+  buf.vertex(ax, y1, az, nx, 0, nz, 0, 1);
+  buf.vertex(bx, y1, bz, nx, 0, nz, 1, 1);
+}
+
+/**
+ * Ground-floor shops of Korean street buildings: on walls facing a road (every wall of OSM shop buildings that
+ * face one), ~6m units of glass shopfront with a coloured signboard above each, separated by small pillars.
+ */
+export function addStorefronts(
+  glass: GeoBuffer,
+  sign: GeoBuffer,
+  b: OsmBuildingData,
+  curbOffset: (x: number, z: number) => number
+): number {
+  if (b.pts.length < 3 || b.height < SIGN_TOP_M + 1.5) return 0;
+  // apartment towers rarely have street shops; big public buildings (schools, stations, halls) never do, small ones
+  // (OSM amenity / office: restaurants, clinics, offices) usually do
+  if (b.kind === 'residential' && b.height > 26) return 0;
+  if (b.kind === 'public' && (b.height > 20 || b.area > 1200)) return 0;
+  const pts = signedArea(b.pts) > 0 ? b.pts : [...b.pts].reverse();
+  let units = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [px, pz] = pts[i];
+    const [qx, qz] = pts[(i + 1) % pts.length];
+    const dx = qx - px;
+    const dz = qz - pz;
+    const len = Math.hypot(dx, dz);
+    if (len < 3.5) continue;
+    const nx = dz / len;
+    const nz = -dx / len;
+    // street-facing: the sidewalk in front of the wall reaches a road within a few metres
+    const mx = (px + qx) / 2;
+    const mz = (pz + qz) / 2;
+    const near = curbOffset(mx + nx * 1.5, mz + nz * 1.5);
+    if (!(near < 7) || !(curbOffset(mx + nx * 4, mz + nz * 4) < near + 0.5)) continue;
+    const n = Math.max(1, Math.round(len / SHOPFRONT_UNIT_M));
+    const ux = dx / len;
+    const uz = dz / len;
+    const step = len / n;
+    for (let k = 0; k < n; k++) {
+      const s0 = k * step + 0.35;
+      const s1 = (k + 1) * step - 0.35;
+      if (s1 - s0 < 2) continue;
+      const ax = px + ux * s0;
+      const az = pz + uz * s0;
+      const bx = px + ux * s1;
+      const bz = pz + uz * s1;
+      addWallQuad(glass, ax, az, bx, bz, nx, nz, 0.25, SHOPFRONT_TOP_M, 0.05);
+      sign.color.copy(SIGN_COLORS[Math.floor(hash01(ax, az, 7) * SIGN_COLORS.length)]);
+      // signboard: front face + top and bottom edges
+      addWallQuad(sign, ax, az, bx, bz, nx, nz, SIGN_BOTTOM_M, SIGN_TOP_M, SIGN_DEPTH_M);
+      const ox = nx * SIGN_DEPTH_M;
+      const oz = nz * SIGN_DEPTH_M;
+      for (const [y, ny] of [
+        [SIGN_TOP_M, 1],
+        [SIGN_BOTTOM_M, -1],
+      ] as const) {
+        const tri = [
+          [ax, az],
+          [ax + ox, az + oz],
+          [bx, bz],
+          [bx, bz],
+          [ax + ox, az + oz],
+          [bx + ox, bz + oz],
+        ];
+        if (ny < 0) tri.reverse();
+        for (const [x, z] of tri) sign.vertex(x, y, z, 0, ny, 0, 0, 0);
+      }
+      units++;
+    }
+  }
+  return units;
+}
+
 /** Flat ribbon along a polyline (roads, rivers, pedestrian streets) */
 function addRibbon(
   buf: GeoBuffer,
@@ -255,6 +374,9 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
   const roofTall = new GeoBuffer();
   const roofLow = new GeoBuffer();
   const farBuf = new GeoBuffer(true);
+  const shopGlass = new GeoBuffer();
+  const shopSign = new GeoBuffer(true);
+  const withStorefronts = !!(roads.curbOffset && mats.storefrontGlass && mats.storefrontSign);
   const obstacles: ObstacleBox[] = [];
   let minX = Infinity;
   let maxX = -Infinity;
@@ -268,6 +390,7 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     if (!wb) wallBufs.set(key, (wb = new GeoBuffer()));
     farBuf.color.copy(FAR_WALL_COLORS[cat]);
     addBuilding(wb, tall ? roofTall : roofLow, b, farBuf);
+    if (withStorefronts) addStorefronts(shopGlass, shopSign, b, roads.curbOffset!);
     obstacles.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ, pts: b.pts });
     minX = Math.min(minX, b.minX);
     maxX = Math.max(maxX, b.maxX);
@@ -292,6 +415,10 @@ export function buildChunkMeshes(chunk: ChunkData, roads: ChunkRoads, mats: Chun
     }
     addMesh(roofTall, mats.roof, { cast: true, parent: near });
     addMesh(roofLow, mats.roof, { parent: near });
+    if (withStorefronts) {
+      addMesh(shopGlass, mats.storefrontGlass!, { parent: near });
+      addMesh(shopSign, mats.storefrontSign!, { parent: near });
+    }
     addMesh(farBuf, mats.farBuildings, { parent: far, countDraw: false });
     lod.addLevel(near, 0);
     lod.addLevel(far, BUILDING_LOD_DISTANCE);
