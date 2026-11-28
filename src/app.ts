@@ -1,3 +1,4 @@
+import { SubtitleBar } from './ui/subtitles';
 import { motionScale, setColorSafe } from './game/accessibility';
 import { baselineFromRuns, checkAgainstBaseline, formatDelta } from './game/perf/benchBaseline';
 import * as THREE from 'three';
@@ -163,6 +164,11 @@ const audio = new GameAudio();
 
 const graphics = new GraphicsRuntime(renderer, world.sunLight);
 
+// 💬 자막: voice guidance and important sounds as captions
+const subtitles = new SubtitleBar();
+voiceNav.onSpeak = (text) => subtitles.show(`🗣️ ${text}`);
+audio.onCue = (caption) => subtitles.show(caption, true);
+
 const applyGameSettings = (s: GameSettings) => {
   audio.setMasterVolume(s.masterVolume);
   audio.ambienceVolume = s.ambienceVolume;
@@ -171,6 +177,7 @@ const applyGameSettings = (s: GameSettings) => {
   document.body.classList.toggle('a11y-large-text', s.accessibility.largeText);
   setColorSafe(s.accessibility.colorSafe);
   traffic.setSignalColorSafe(s.accessibility.colorSafe);
+  subtitles.enabled = s.accessibility.subtitles;
   if (roadNavigator.avoidIce !== s.avoidIceRoutes) {
     roadNavigator.avoidIce = s.avoidIceRoutes;
     delivery.invalidateNavCache();

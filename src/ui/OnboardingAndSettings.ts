@@ -1,9 +1,10 @@
+import { BINDABLE_ACTIONS, BindableAction, bindKey, codeFor, keyLabel, parseKeyBindings } from '../game/keyBindings';
 import { AccessibilityPrefs, DEFAULT_ACCESSIBILITY, parseAccessibility } from '../game/accessibility';
 import { DEFAULT_NOTIFICATION_PREFS, NotificationPrefs, parseNotificationPrefs } from './phone/notificationPrefs';
 
 /** Settings toggles #set-notif-<key> */
 /** Settings toggles #set-a11y-<key> */
-const A11Y_KEYS: ReadonlyArray<keyof AccessibilityPrefs> = ['reduceMotion', 'largeText', 'colorSafe'];
+const A11Y_KEYS: ReadonlyArray<keyof AccessibilityPrefs> = ['reduceMotion', 'largeText', 'colorSafe', 'subtitles'];
 const NOTIF_KEYS: ReadonlyArray<keyof NotificationPrefs> = ['weather', 'messenger', 'goals', 'quietRiding'];
 import { GameSettings, GraphicsQuality } from '../types';
 import { DeliveryManager } from '../delivery/DeliveryManager';
@@ -38,6 +39,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   autoResolution: true,
   powerSaving: true,
   avoidIceRoutes: true,
+  keyBindings: {},
   accessibility: { ...DEFAULT_ACCESSIBILITY },
   notifications: { ...DEFAULT_NOTIFICATION_PREFS },
 };
@@ -179,6 +181,7 @@ export class OnboardingAndSettings {
       this.persistAndApply();
     });
 
+    this.wireKeyBindings();
     for (const key of A11Y_KEYS) {
       document.getElementById(`set-a11y-${key}`)?.addEventListener('change', (e) => {
         this.settings.accessibility = { ...this.settings.accessibility, [key]: (e.target as HTMLInputElement).checked };
@@ -250,6 +253,7 @@ export class OnboardingAndSettings {
           ...DEFAULT_GAME_SETTINGS,
           notifications: { ...DEFAULT_NOTIFICATION_PREFS },
           accessibility: { ...DEFAULT_ACCESSIBILITY },
+          keyBindings: {},
         };
       const parsed = JSON.parse(raw) as Partial<GameSettings>;
       return {
@@ -282,6 +286,7 @@ export class OnboardingAndSettings {
           typeof parsed.avoidIceRoutes === 'boolean' ? parsed.avoidIceRoutes : DEFAULT_GAME_SETTINGS.avoidIceRoutes,
         notifications: parseNotificationPrefs(parsed.notifications),
         accessibility: parseAccessibility(parsed.accessibility),
+        keyBindings: parseKeyBindings(parsed.keyBindings),
       };
     } catch {
       return { ...DEFAULT_GAME_SETTINGS };
@@ -304,6 +309,65 @@ export class OnboardingAndSettings {
     }
   }
 
+  /** The action waiting for its new key (설정 ⌨️ 키 설정), or null */
+  private bindingAction: BindableAction | null = null;
+
+  /** ⌨️ 키 설정 list: click an action, press the new key (Esc cancels); a key used elsewhere swaps */
+  private wireKeyBindings(): void {
+    const list = document.getElementById('set-keys');
+    if (!list) return;
+    list.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
+      if (!btn) return;
+      if (btn.dataset.keysReset) {
+        this.settings.keyBindings = {};
+        this.bindingAction = null;
+        this.persistAndApply();
+        this.renderKeyBindings();
+        return;
+      }
+      if (btn.dataset.bind) {
+        this.bindingAction = btn.dataset.bind as BindableAction;
+        this.renderKeyBindings();
+      }
+    });
+    // capture phase: the key goes to the binding, not to the game
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (!this.bindingAction) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const action = this.bindingAction;
+        this.bindingAction = null;
+        const status = document.getElementById('set-keys-status');
+        if (e.code !== 'Escape') {
+          const next = bindKey(this.settings.keyBindings, action, e.code);
+          if (next) {
+            this.settings.keyBindings = next;
+            this.persistAndApply();
+            if (status) status.textContent = '';
+          } else if (status) {
+            status.textContent = `${keyLabel(e.code)} 키는 쓸 수 없어요 (메뉴·방향키·Space·Enter·숫자 1~4는 고정)`;
+          }
+        }
+        this.renderKeyBindings();
+      },
+      true,
+    );
+    this.renderKeyBindings();
+  }
+
+  private renderKeyBindings(): void {
+    const rows = document.getElementById('set-keys-rows');
+    if (!rows) return;
+    rows.innerHTML = BINDABLE_ACTIONS.map((a) => {
+      const waiting = this.bindingAction === a.id;
+      const code = codeFor(this.settings.keyBindings, a.id);
+      return `<div class="set-key-row"><span>${a.label}</span><button class="set-key-btn ${waiting ? 'waiting' : ''} ${code !== a.code ? 'changed' : ''}" data-bind="${a.id}">${waiting ? '키를 누르세요… (Esc 취소)' : keyLabel(code)}</button></div>`;
+    }).join('');
+  }
+
   private syncControlsFromState(): void {
     this.volInput.value = String(Math.round(this.settings.masterVolume * 100));
     this.volValEl.textContent = `${Math.round(this.settings.masterVolume * 100)}%`;
@@ -323,6 +387,7 @@ export class OnboardingAndSettings {
       const el = document.getElementById(`set-a11y-${key}`) as HTMLInputElement | null;
       if (el) el.checked = this.settings.accessibility[key];
     }
+    this.renderKeyBindings();
     for (const key of NOTIF_KEYS) {
       const el = document.getElementById(`set-notif-${key}`) as HTMLInputElement | null;
       if (el) el.checked = this.settings.notifications[key];

@@ -98,6 +98,8 @@ export class GameAudio {
   elevHumGain: GainNode | null = null;
 
   public muted = false;
+  /** Called with a caption for important sounds (자막: siren, horn, alerts ...) */
+  public onCue: ((caption: string) => void) | null = null;
   /** Background loops level (설정 환경음), multiplies rain / wind / water / elevator hum */
   public ambienceVolume = 1;
   public masterVolume = 0.8;
@@ -164,6 +166,7 @@ export class GameAudio {
   }
 
   public playCrashSound(): void {
+    this.onCue?.('💥 쾅! 넘어지는 소리');
     playCrashSound(this.sfx);
   }
 
@@ -180,6 +183,7 @@ export class GameAudio {
   }
 
   public playElevatorDing(): void {
+    this.onCue?.('🔔 띵동 (엘리베이터)');
     playElevatorDing(this.sfx);
   }
 
@@ -210,6 +214,7 @@ export class GameAudio {
 
   /** Dual-tone realistic car klaxon honk when player cuts in front of an AI sedan/taxi */
   public playAiCarHorn(): void {
+    this.onCue?.('📯 빵빵 (차 경적)');
     playAiCarHorn(this.sfx);
   }
 
@@ -220,11 +225,13 @@ export class GameAudio {
 
   /** Korean police patrol car wail siren ("우~웅 우~웅!") on live patrol enforcement */
   public playPoliceSiren(): void {
+    this.onCue?.('🚨 사이렌');
     playPoliceSiren(this.sfx);
   }
 
   /** Sharp roadside speed/red-light enforcement camera strobe click + penalty warning beep */
   public playSpeedCameraFlash(): void {
+    this.onCue?.('📸 찰칵 (단속 카메라)');
     playSpeedCameraFlash(this.sfx);
   }
 
@@ -235,6 +242,7 @@ export class GameAudio {
 
   /** Short startled pedestrian gasp when scooter passes within 3.5m on the sidewalk */
   public playPedestrianStartle(): void {
+    this.onCue?.('😱 행인이 놀라는 소리');
     playPedestrianStartle(this.sfx);
   }
 
@@ -267,6 +275,7 @@ export class GameAudio {
 
   /** Rain starts: distant low thunder roll (filtered noise) */
   public playThunderRumble(): void {
+    this.onCue?.('⛈️ 천둥');
     playThunderRumble(this.sfx);
   }
 
@@ -307,6 +316,7 @@ export class GameAudio {
 
   /** Baemin Connect style crisp double-arpeggio dispatch notification + haptic vibrate pulse */
   public playDispatchCallAlert(): void {
+    this.onCue?.('📲 콜 알림음');
     playDispatchCallAlert(this.sfx);
   }
 
@@ -347,6 +357,7 @@ export class GameAudio {
 
   /** Crisp Korean messenger-style two-tone ping ("카톡/띠링!") for live customer chat messages */
   public playCustomerChatPing(): void {
+    this.onCue?.('💬 메시지 알림음');
     playCustomerChatPing(this.sfx);
   }
 

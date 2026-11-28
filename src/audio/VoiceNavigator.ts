@@ -77,7 +77,11 @@ export class VoiceNavigator {
     this.volume = Math.max(0, Math.min(1, vol));
   }
 
+  /** Called with every line the guidance wants to say, spoken or not (자막) */
+  public onSpeak: ((text: string) => void) | null = null;
+
   public speak(text: string, priority: 'normal' | 'high' = 'normal'): void {
+    this.onSpeak?.(text);
     if (!this.supported || !this.enabled || this.muted || this.volume <= 0.02) return;
     const now = performance.now();
     // Deduplicate identical messages within 5.5s, and throttle normal cues to >= 2.8s apart

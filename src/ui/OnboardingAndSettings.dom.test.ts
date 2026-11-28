@@ -155,13 +155,34 @@ describe('accessibility settings (DOM)', () => {
     window.localStorage.setItem('k_delivery_settings_v1', JSON.stringify({ masterVolume: 0.5 }));
     const applied: unknown[] = [];
     const ob = new OnboardingAndSettings({ ...callbacks, onApplySettings: (s) => applied.push(s.accessibility) });
-    expect(ob.settings.accessibility).toEqual({ reduceMotion: false, largeText: false, colorSafe: false });
+    expect(ob.settings.accessibility).toEqual({ reduceMotion: false, largeText: false, colorSafe: false, subtitles: false });
     for (const key of ['reduceMotion', 'colorSafe']) {
       const el = document.getElementById(`set-a11y-${key}`) as HTMLInputElement;
       el.checked = true;
       el.dispatchEvent(new Event('change'));
     }
-    expect(applied.at(-1)).toEqual({ reduceMotion: true, largeText: false, colorSafe: true });
+    expect(applied.at(-1)).toEqual({ reduceMotion: true, largeText: false, colorSafe: true, subtitles: false });
     expect(new OnboardingAndSettings(callbacks).settings.accessibility.colorSafe).toBe(true);
+  });
+});
+
+describe('key settings (DOM)', () => {
+  beforeEach(() => loadGamePageDom());
+
+  it('click an action, press a key: bound (swapping), saved; reserved keys refused; reset', () => {
+    const ob = new OnboardingAndSettings(callbacks);
+    const btn = (id: string) => document.querySelector<HTMLButtonElement>(`[data-bind="${id}"]`)!;
+    expect(btn('interact').textContent).toBe('E');
+    btn('interact').click();
+    expect(btn('interact').textContent).toContain('키를 누르세요');
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    expect(ob.settings.keyBindings).toEqual({ forward: 'KeyE', interact: 'KeyW' });
+    expect(btn('forward').textContent).toBe('E');
+    btn('mount').click();
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyO' }));
+    expect(document.getElementById('set-keys-status')!.textContent).toContain('쓸 수 없어요');
+    expect(new OnboardingAndSettings(callbacks).settings.keyBindings).toEqual({ forward: 'KeyE', interact: 'KeyW' });
+    document.querySelector<HTMLButtonElement>('[data-keys-reset]')!.click();
+    expect(ob.settings.keyBindings).toEqual({});
   });
 });

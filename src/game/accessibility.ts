@@ -8,9 +8,16 @@ export interface AccessibilityPrefs {
   reduceMotion: boolean;
   largeText: boolean;
   colorSafe: boolean;
+  /** 자막: voice guidance and important sounds as captions at the bottom of the screen */
+  subtitles: boolean;
 }
 
-export const DEFAULT_ACCESSIBILITY: AccessibilityPrefs = { reduceMotion: false, largeText: false, colorSafe: false };
+export const DEFAULT_ACCESSIBILITY: AccessibilityPrefs = {
+  reduceMotion: false,
+  largeText: false,
+  colorSafe: false,
+  subtitles: false,
+};
 
 /** Share of the camera motion kept with 화면 흔들림 줄이기 (walk bob, bump bounce, horizon roll) */
 export const REDUCED_MOTION_SCALE = 0.25;
@@ -47,5 +54,10 @@ export function signalHex(c: SignalColor, colorSafe = colorSafeNow): string {
 export function parseAccessibility(raw: unknown): AccessibilityPrefs {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const pick = (k: keyof AccessibilityPrefs) => (typeof r[k] === 'boolean' ? (r[k] as boolean) : DEFAULT_ACCESSIBILITY[k]);
-  return { reduceMotion: pick('reduceMotion'), largeText: pick('largeText'), colorSafe: pick('colorSafe') };
+  return {
+    reduceMotion: pick('reduceMotion'),
+    largeText: pick('largeText'),
+    colorSafe: pick('colorSafe'),
+    subtitles: pick('subtitles'),
+  };
 }

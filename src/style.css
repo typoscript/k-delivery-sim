@@ -5836,3 +5836,62 @@ body.a11y-large-text .onboarding-card,
 body.a11y-large-text .modal-backdrop > * {
   zoom: 1.18;
 }
+
+/* ⌨️ 키 설정 list */
+.set-keys-rows {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+.set-key-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.set-key-btn {
+  min-width: 92px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.8);
+  color: #e2e8f0;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.set-key-btn.changed {
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
+.set-key-btn.waiting {
+  border-color: #facc15;
+  color: #fde68a;
+}
+/* 💬 자막 bar at the bottom of the screen */
+.subtitle-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 60;
+}
+.subtitle-line {
+  max-width: min(760px, 86vw);
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.78);
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+.subtitle-line.cue {
+  color: #fde68a;
+  font-style: italic;
+}

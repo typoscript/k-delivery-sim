@@ -1,5 +1,6 @@
 import type { NotificationPrefs } from './ui/phone/notificationPrefs';
 import type { AccessibilityPrefs } from './game/accessibility';
+import type { KeyBindings } from './game/keyBindings';
 import { ACTIVE_MAP_DATA } from './data/suwonDistricts';
 export const CITY_ROAD_LINES = [-200, -120, -40, 40, 120, 200] as const;
 export const CITY_BLOCK_CENTERS = [-160, -80, 0, 80, 160] as const;
@@ -130,6 +131,8 @@ export interface GameSettings {
   powerSaving: boolean;
   /** Navigation detours around frozen (black ice) segments when a reasonable way around exists */
   avoidIceRoutes: boolean;
+  /** Keys moved to other keys (설정 ⌨️ 키 설정); only the changed actions are stored */
+  keyBindings: KeyBindings;
   /** 화면 흔들림 줄이기 · 글씨 크게 · 색약 친화 신호 색 */
   accessibility: AccessibilityPrefs;
   /** Phone notifications: categories on / off and 방해 금지 while riding */

@@ -40,6 +40,6 @@ describe('accessibility', () => {
 
   it('saved settings fall back to the defaults', () => {
     expect(parseAccessibility(undefined)).toEqual(DEFAULT_ACCESSIBILITY);
-    expect(parseAccessibility({ largeText: true, colorSafe: 'yes' })).toEqual({ ...DEFAULT_ACCESSIBILITY, largeText: true });
+    expect(parseAccessibility({ largeText: true, colorSafe: 'yes', subtitles: true })).toEqual({ ...DEFAULT_ACCESSIBILITY, largeText: true, subtitles: true });
   });
 });

@@ -1,3 +1,4 @@
+import { buildRemap, remapCode } from './keyBindings';
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
 import { PHONE_APPS } from '../ui/phone/weatherApp';
 import { applyGameClock } from './clockSync';
@@ -19,6 +20,17 @@ export function installKeyboardInput(ctx: GameContext, actions: KeyboardActions)
   const { world, corridorRoom, visorRain, voiceNav, delivery, scooterPhysics, scooterMesh, playerCtrl, camController, audio, hud, modalUi, districtUi, onboardingSettings } = ctx;
   const { handleContextInteract, handleCycleWeather, handleTogglePhone, handleTogglePhoneZoom } = actions;
   const pressed = new Set<string>();
+  // ⌨️ 키 설정: physical key -> the default code the game reads (rebuilt when the bindings change)
+  let remapKey = '';
+  let remap = new Map<string, string | null>();
+  const logicalCode = (physical: string): string | null => {
+    const key = JSON.stringify(onboardingSettings.settings.keyBindings ?? {});
+    if (key !== remapKey) {
+      remapKey = key;
+      remap = buildRemap(onboardingSettings.settings.keyBindings ?? {});
+    }
+    return remapCode(remap, physical);
+  };
 
 
   window.addEventListener('pointerdown', () => audio.ensureStarted(), { once: true });
@@ -31,7 +43,9 @@ export function installKeyboardInput(ctx: GameContext, actions: KeyboardActions)
       return;
     }
 
-    const code = e.code;
+    const mapped = logicalCode(e.code);
+    if (mapped === null) return; // a default key given to another action
+    const code = mapped;
     if (
       code === 'Space' ||
       code === 'Tab' ||
@@ -228,8 +242,10 @@ export function installKeyboardInput(ctx: GameContext, actions: KeyboardActions)
   });
 
   window.addEventListener('keyup', (e) => {
-    pressed.delete(e.code);
-    if (e.code === 'KeyH') {
+    const code = logicalCode(e.code);
+    if (code === null) return;
+    pressed.delete(code);
+    if (code === 'KeyH') {
       audio.setHorn(false);
     }
   });
