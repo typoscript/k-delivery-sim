@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planStreetProps, streetPropParts } from './streetProps';
+import { LAMP_ARM_M, lampHeadGeometry, lampPoolGeometry, planStreetProps, streetPropParts } from './streetProps';
 import { mergeColoredParts } from './instancing';
 import type { OsmGraphEdge, OsmGraphNode } from '../data/suwonTypes';
 
@@ -58,5 +58,38 @@ describe('street prop placement', () => {
     expect(g.getAttribute('color')).toBeDefined();
     expect(g.getAttribute('position').count).toBeGreaterThan(0);
     g.dispose();
+  });
+
+  it('major roads get street lamps every 30 m, sides alternating, arms reaching over the road', () => {
+    const nodes = [node(0, 0, 0), node(1, 0, 300)];
+    const props = planStreetProps(nodes, [edge(0, 1, 12, true, 300)], [12, 12], (x) => offRoad(12)(x));
+    const lamps = props.filter((p) => p.kind === 'lamp');
+    expect(lamps.length).toBeGreaterThanOrEqual(8);
+    lamps.forEach((l, i) => {
+      expect(Math.abs(l.x)).toBeCloseTo(6.45, 5);
+      if (i > 0) {
+        expect(Math.sign(l.x)).toBe(-Math.sign(lamps[i - 1].x)); // alternating
+        expect(l.z - lamps[i - 1].z).toBeCloseTo(30, 5);
+      }
+      // the arm points toward the road centre
+      expect(Math.sign(l.toRoad!.x)).toBe(-Math.sign(l.x));
+    });
+    // heads hang over the road, pools are on the road under them
+    const heads = lampHeadGeometry(props)!;
+    heads.computeBoundingBox();
+    expect(Math.max(Math.abs(heads.boundingBox!.min.x), Math.abs(heads.boundingBox!.max.x))).toBeLessThanOrEqual(
+      6.45 - LAMP_ARM_M + 0.4,
+    );
+    const pools = lampPoolGeometry(props)!;
+    expect(pools.getAttribute('uv')).toBeDefined(); // textured light pool
+    expect(lampHeadGeometry(props.filter((p) => p.kind !== 'lamp'))).toBeNull();
+    heads.dispose();
+    pools.dispose();
+  });
+
+  it('alleys get no lamps (they have their utility poles)', () => {
+    const nodes = [node(0, 0, 0), node(1, 0, 150)];
+    const props = planStreetProps(nodes, [edge(0, 1, 5, false, 150)], [5, 5], (x) => offRoad(5)(x));
+    expect(props.some((p) => p.kind === 'lamp')).toBe(false);
   });
 });

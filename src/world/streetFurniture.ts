@@ -86,6 +86,7 @@ export function buildStreetLamps(host: CityWorld): void {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
+  host.lampPoolMat = poolMat;
   const poolGeo = new THREE.PlaneGeometry(14, 14);
   poolGeo.rotateX(-Math.PI / 2);
 

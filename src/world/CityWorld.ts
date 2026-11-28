@@ -150,6 +150,8 @@ export class CityWorld {
   readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
   /** @internal world builders */
   readonly streetLampPoolGroup = new THREE.Group();
+  /** Additive night light-pool material of the street lamps (set by buildStreetLamps) */
+  lampPoolMat?: THREE.Material;
   /** Pickup counters & lobby portals with their animated doors / food trays (deliveryProps.ts) */
   private deliveryProps!: DeliveryLocationProps;
 
@@ -267,7 +269,11 @@ export class CityWorld {
       }
       const roads = activeRoadProximity();
       const props = planStreetProps(nodes, edges, nodeMaxWidth, (x, z) => roads.curbOffset(x, z));
-      registerStreetProps(this.culler, gridSpecOf(SUWON_OPEN_WORLD), this.root, props);
+      registerStreetProps(this.culler, gridSpecOf(SUWON_OPEN_WORLD), this.root, props, {
+        headMaterial: this.lampGlowMat,
+        poolMaterial: this.lampPoolMat!,
+        poolParent: this.streetLampPoolGroup,
+      });
     }
 
     this.sky = new WorldSky({
