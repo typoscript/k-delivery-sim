@@ -91,7 +91,7 @@ describe('PedestrianGraph on the active (unified) map', () => {
 });
 
 describe('PedestrianGraph road crossings', () => {
-  it('flags every road crossing and only crosses at junctions, dead ends or signals', () => {
+  it('flags every road crossing and only crosses at junctions, dead ends, signals or painted crosswalks', () => {
     const deg = new Array<number>(ACTIVE_MAP_DATA.nodes.length).fill(0);
     for (const e of ACTIVE_MAP_DATA.edges) deg[e.a]++, deg[e.b]++;
     const crossNodes = ACTIVE_MAP_DATA.nodes.filter((n) => deg[n.id] !== 2 || n.isSignal);
@@ -108,9 +108,30 @@ describe('PedestrianGraph road crossings', () => {
         const mx = (n.x + b.x) / 2;
         const mz = (n.z + b.z) / 2;
         const near = crossNodes.some((c) => Math.hypot(c.x - mx, c.z - mz) < 16);
-        expect(near).toBe(true);
+        // a mid-block crossing is a painted crosswalk from OSM, right on it
+        const painted = (ACTIVE_MAP_DATA.crossings ?? []).some((c) => Math.hypot(c.x - mx, c.z - mz) < 3);
+        expect(near || (e.marked === true && painted)).toBe(true);
       }
     }
     expect(unsignalized).toBeGreaterThan(100);
+  });
+
+  it('crosses at the real (OSM) crosswalks: marked edges right across them, sidewalks split there', () => {
+    let marked = 0;
+    for (const n of graph.nodes) {
+      for (const e of graph.getEdges(n.id)) {
+        if (!e.marked || e.to < n.id) continue;
+        marked++;
+        expect(e.crossesRoad).toBe(true);
+        const b = graph.getNode(e.to);
+        const mx = (n.x + b.x) / 2;
+        const mz = (n.z + b.z) / 2;
+        expect((ACTIVE_MAP_DATA.crossings ?? []).some((c) => Math.hypot(c.x - mx, c.z - mz) < 3)).toBe(true);
+        // both curb pads stay on the sidewalk network
+        expect(graph.getEdges(n.id).some((x) => !x.crossesRoad)).toBe(true);
+        expect(graph.getEdges(b.id).some((x) => !x.crossesRoad)).toBe(true);
+      }
+    }
+    expect(marked).toBeGreaterThan(150);
   });
 });

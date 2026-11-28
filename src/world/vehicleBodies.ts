@@ -180,3 +180,35 @@ export function isRoadCrossingClear(
   }
   return true;
 }
+
+/** Car braking (m/s²) a pedestrian expects at a painted crosswalk */
+export const CROSSWALK_STOP_DECEL = 4;
+
+/**
+ * Painted crosswalk (pedestrians have the right of way): safe to step out unless a car is on the crossing now or
+ * is too close to stop before it (braking at CROSSWALK_STOP_DECEL from its speed)
+ */
+export function isMarkedCrossingSafe(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  bodies: readonly VehicleBody[],
+): boolean {
+  for (const b of bodies) {
+    const speed = Math.abs(b.speed);
+    const stopDist = (speed * speed) / (2 * CROSSWALK_STOP_DECEL) + 2;
+    if (distToSegment(b.x, b.z, ax, az, bx, bz) > stopDist + b.halfLength + 8) continue;
+    const fx = Math.sin(b.heading) * Math.sign(b.speed || 1);
+    const fz = Math.cos(b.heading) * Math.sign(b.speed || 1);
+    // where the car would come to a stop, sampled from its nose: does that path cross the crosswalk?
+    for (let s = 0; s <= stopDist; s += 0.5) {
+      for (const off of [b.halfLength, 0, -b.halfLength]) {
+        const d = distToSegment(b.x + fx * (s + off), b.z + fz * (s + off), ax, az, bx, bz);
+        if (d < b.halfWidth + CROSSING_CLEARANCE_M) return false;
+      }
+      if (speed < 0.3) break; // standing: only its own footprint matters
+    }
+  }
+  return true;
+}

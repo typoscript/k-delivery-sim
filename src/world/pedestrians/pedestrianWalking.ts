@@ -1,5 +1,5 @@
 /** Pedestrian navigation: sidewalk walking (yield + detour), waiting at / crossing roads, path following */
-import { isRoadCrossingClear, overlapsBody, pushOutOfBodies, type VehicleBody } from '../vehicleBodies';
+import { isMarkedCrossingSafe, isRoadCrossingClear, overlapsBody, pushOutOfBodies, type VehicleBody } from '../vehicleBodies';
 import type { SignalStateSnapshot } from '../TrafficSystem';
 import type {
   PedestrianAgent,
@@ -80,7 +80,14 @@ export function stepNavigation(host: PedestrianManager, a: PedestrianAgent, f: P
       const look =
         prevWait === 0 ||
         Math.floor(prevWait / CROSS_LOOK_INTERVAL_SEC) !== Math.floor(a.crossWaitTimer / CROSS_LOOK_INTERVAL_SEC);
-      if (look && isRoadCrossingClear(a.x, a.z, g.targetNode.x, g.targetNode.z, f.cars, a.walkSpeed)) {
+      // a painted crosswalk: cars must stop (they see where it leads), so only a car too close to stop matters
+      a.markedCrossTo = a.activeEdge.marked ? { x: g.targetNode.x, z: g.targetNode.z } : null;
+      const clear =
+        look &&
+        (a.activeEdge.marked
+          ? isMarkedCrossingSafe(a.x, a.z, g.targetNode.x, g.targetNode.z, f.cars)
+          : isRoadCrossingClear(a.x, a.z, g.targetNode.x, g.targetNode.z, f.cars, a.walkSpeed));
+      if (clear) {
         a.fsm = 'CROSSING';
         a.crossWaitTimer = 0;
         desiredSpeed = a.walkSpeed;

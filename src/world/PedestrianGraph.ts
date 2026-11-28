@@ -28,6 +28,11 @@ export interface PedestrianEdge {
    * but pedestrians still wait for a gap in traffic (isRoadCrossingClear) and cross as CROSSING.
    */
   crossesRoad?: boolean;
+  /**
+   * A painted crosswalk away from the junctions (OSM): pedestrians have the right of way, so they wait only for a
+   * car that could no longer stop, and cars stop for them
+   */
+  marked?: boolean;
   distance: number;
 }
 
@@ -140,8 +145,10 @@ export class PedestrianGraph {
 
     // Track sidewalk endpoint nodes created near each OSM junction so sidewalks connect smoothly!
     const junctionSidewalkNodes: number[][] = Array.from({ length: osmNodes.length }, () => []);
+    const crossingsByEdge = crossingStations(osmNodes, osmEdges, ACTIVE_MAP_DATA.crossings ?? []);
 
-    for (const e of osmEdges) {
+    for (let ei = 0; ei < osmEdges.length; ei++) {
+      const e = osmEdges[ei];
       if (e.dist < 8) continue;
       const na = osmNodes[e.a];
       const nb = osmNodes[e.b];
@@ -163,6 +170,9 @@ export class PedestrianGraph {
       const pairA: number[] = [];
       const pairB: number[] = [];
 
+      // real crosswalks on this block (distance along the road), clear of the trimmed ends
+      const stations = (crossingsByEdge.get(ei) ?? []).filter((s) => s > trim + 1 && s < len - trim - 1);
+      const crossNodes: number[][] = [];
       for (const side of [-1, 1]) {
         const ax = na.x + ux * trim + rx * side * offset;
         const az = na.z + uz * trim + rz * side * offset;
@@ -171,12 +181,33 @@ export class PedestrianGraph {
 
         const idA = this.addNode(ax, az, na.isSignal ? 'corner_tactile' : 'sidewalk_mid');
         const idB = this.addNode(bx, bz, nb.isSignal ? 'corner_tactile' : 'sidewalk_mid');
-        this.addBidirectionalEdge(idA, idB, 'sidewalk');
+        if (stations.length === 0) {
+          this.addBidirectionalEdge(idA, idB, 'sidewalk');
+        } else {
+          // the rail is split at each crosswalk, where a curb pad node is added
+          let prev = idA;
+          const pads: number[] = [];
+          for (const s of stations) {
+            const pad = this.addNode(na.x + ux * s + rx * side * offset, na.z + uz * s + rz * side * offset, 'corner_tactile');
+            this.addBidirectionalEdge(prev, pad, 'sidewalk');
+            pads.push(pad);
+            prev = pad;
+          }
+          this.addBidirectionalEdge(prev, idB, 'sidewalk');
+          crossNodes.push(pads);
+        }
 
         pairA.push(idA);
         pairB.push(idB);
         junctionSidewalkNodes[e.a].push(idA);
         junctionSidewalkNodes[e.b].push(idB);
+      }
+
+      // Mid-block crosswalks: across the road between the two curb pads
+      if (crossNodes.length === 2) {
+        for (let k = 0; k < stations.length; k++) {
+          this.addBidirectionalEdge(crossNodes[0][k], crossNodes[1][k], 'sidewalk', undefined, true, true);
+        }
       }
 
       // Crosswalk across road at ends (signalized if junction has traffic signals).
@@ -274,13 +305,14 @@ export class PedestrianGraph {
     b: number,
     kind: PedestrianEdgeKind,
     crossingAxis?: CrosswalkAxis,
-    crossesRoad = false
+    crossesRoad = false,
+    marked = false
   ): void {
     const na = this.nodes[a];
     const nb = this.nodes[b];
     const dist = Math.hypot(nb.x - na.x, nb.z - na.z);
     if (dist < 0.2) return;
-    const extra = crossesRoad ? { crossesRoad: true } : {};
+    const extra = { ...(crossesRoad ? { crossesRoad: true } : {}), ...(marked ? { marked: true } : {}) };
     this.adjacency[a].push({ to: b, kind, crossingAxis, distance: dist, ...extra });
     this.adjacency[b].push({ to: a, kind, crossingAxis, distance: dist, ...extra });
   }
@@ -300,4 +332,43 @@ export class PedestrianGraph {
     const pool = forward.length > 0 ? forward : edges;
     return pool[Math.floor(Math.random() * pool.length)];
   }
+}
+
+/**
+ * Real crosswalks per road edge: edge index -> distances along the edge (from node a) of the crossings lying on it
+ * (the build snapped each crossing onto a road centre line)
+ */
+export function crossingStations(
+  nodes: ReadonlyArray<{ x: number; z: number }>,
+  edges: ReadonlyArray<{ a: number; b: number; width: number }>,
+  crossings: ReadonlyArray<{ x: number; z: number }>,
+): Map<number, number[]> {
+  const out = new Map<number, number[]>();
+  if (crossings.length === 0) return out;
+  for (const c of crossings) {
+    let best = -1;
+    let bestD = 1.5;
+    let bestS = 0;
+    for (let i = 0; i < edges.length; i++) {
+      const a = nodes[edges[i].a];
+      const b = nodes[edges[i].b];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const l2 = dx * dx + dz * dz;
+      if (l2 < 1e-6) continue;
+      const t = ((c.x - a.x) * dx + (c.z - a.z) * dz) / l2;
+      if (t < 0 || t > 1) continue;
+      const d = Math.hypot(c.x - (a.x + dx * t), c.z - (a.z + dz * t));
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+        bestS = t * Math.sqrt(l2);
+      }
+    }
+    if (best < 0) continue;
+    const list = out.get(best) ?? [];
+    list.push(bestS);
+    out.set(best, list.sort((p, q) => p - q));
+  }
+  return out;
 }

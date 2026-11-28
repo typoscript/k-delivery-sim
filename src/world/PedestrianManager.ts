@@ -79,6 +79,8 @@ export interface PedestrianAgent {
   resumeFsm: 'WALKING' | 'WAITING_CROSSWALK' | 'CROSSING';
   fromNodeId: number;
   toNodeId: number;
+  /** Waiting at a painted crosswalk: where it leads (cars stop before it), else null */
+  markedCrossTo?: { x: number; z: number } | null;
   prevNodeId: number;
   activeEdge: PedestrianEdge;
   x: number;

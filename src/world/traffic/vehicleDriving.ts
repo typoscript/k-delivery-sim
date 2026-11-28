@@ -41,9 +41,14 @@ export interface DriveFrame {
     z: number;
     fsm: string;
     resumeFsm?: string;
+    /** Waiting at a painted crosswalk: the far curb (the crossing runs from the pedestrian to it) */
+    markedCrossTo?: { x: number; z: number } | null;
   }>;
   parkedScooter?: { x: number; z: number } | null;
 }
+
+/** Cars stop this far back from a painted crosswalk someone waits at (a crossing point's radius) */
+const CROSSWALK_STOP_RADIUS = 1.6;
 
 /** Drives vehicle `v` (index `i`) for one frame, up to (not including) its final pose */
 export function driveVehicle(host: TrafficSystem, v: AiVehicle, i: number, f: DriveFrame): void {
@@ -177,6 +182,25 @@ export function driveVehicle(host: TrafficSystem, v: AiVehicle, i: number, f: Dr
     // Yield to pedestrians crossing the road (or lying fallen / startled in it) inside our lane ahead
     if (pedestrians) {
       for (const pd of pedestrians) {
+        // someone waiting at a painted crosswalk: stop before the crossing (they have the right of way)
+        if (pd.fsm === 'WAITING_CROSSWALK' && pd.markedCrossTo) {
+          const ex = pd.markedCrossTo.x - pd.x;
+          const ez = pd.markedCrossTo.z - pd.z;
+          if ((pd.x - v.x) ** 2 + (pd.z - v.z) ** 2 < 900) {
+            const len = Math.hypot(ex, ez);
+            for (let s = 0; s <= len; s += 1.5) {
+              const gap = gapAheadOfBody(
+                v,
+                pd.x + (ex / (len || 1)) * s,
+                pd.z + (ez / (len || 1)) * s,
+                CROSSWALK_STOP_RADIUS,
+                FRONT_RAY_RANGE + 6,
+              );
+              if (gap < minGap) minGap = gap;
+            }
+          }
+          continue;
+        }
         const onRoad =
           pd.fsm === 'CROSSING' || pd.fsm === 'FALLEN' || (pd.fsm === 'STARTLED' && pd.resumeFsm === 'CROSSING');
         if (!onRoad) continue;
