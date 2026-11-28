@@ -82,7 +82,7 @@ export function stepGuidanceFrame(
 
   // Update 1-Minute First-Shift Interactive Onboarding Guide progress
   onboardingSettings.updateOnboarding(playerCtrl.state, delivery, {
-    financeTabOpen: hud.phoneMap.isZoomed && hud.phoneMap.activeTab === 'finance',
+    financeTabOpen: hud.phoneMap.app === 'bank',
     isPeakTime: delivery.demandPhase.isPeak,
   });
 

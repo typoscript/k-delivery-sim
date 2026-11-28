@@ -3,7 +3,7 @@ import { bestDay, safeDayStreak } from '../../delivery/careerHistory';
 import { weekGoalProgressPct, weekGoalProgressText } from '../../delivery/weeklyGoals';
 import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, lineValue } from '../receiptLines';
 
-/** [수익] top-nav tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
+/** 💳 뱅크 app tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
 export function renderDailyMissionWidget(delivery: DeliveryManager): string {
   const goals = delivery.getShiftGoals();
   const done = goals.filter((g) => g.claimed).length;
@@ -170,7 +170,7 @@ export function renderReviewsTab(delivery: DeliveryManager): string {
   `;
 }
 
-/** [수익] → 🏆 커리어: day-by-day history (last 7 days chart + list) and achievements */
+/** 💳 뱅크 → 🏆 커리어: day-by-day history (last 7 days chart + list) and achievements */
 export function renderCareerTab(delivery: DeliveryManager): string {
   const history = delivery.getDayHistory();
   const achievements = delivery.getAchievements();

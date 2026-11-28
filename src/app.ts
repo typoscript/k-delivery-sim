@@ -311,7 +311,7 @@ window.setTimeout(() => {
   hud.showToast(
     `📆 ${w.week}주차 ${delivery.shiftDay}일차 · 주간 목표 ${weekGoalsSummaryText(delivery.getWeekGoalsLive())} · ${
       left === 0 ? '오늘 퇴근 때 정산' : `${left}일 남음`
-    } (휴대폰 [수익])`,
+    } (휴대폰 💳 뱅크 앱)`,
     5600
   );
 }, 6000);

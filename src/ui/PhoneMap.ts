@@ -464,6 +464,10 @@ export class PhoneMap {
     this.app = app;
     this.phoneScreenEl.classList.toggle('app-weather', app === 'weather');
     this.phoneScreenEl.classList.toggle('app-messenger', app === 'messenger');
+    this.phoneScreenEl.classList.toggle('app-bank', app === 'bank');
+    // the bank shows the earnings sheet (정산 · 리뷰 · 커리어); the delivery app keeps calls and navigation
+    if (app === 'bank') this.setTopNav('earnings');
+    else if (this.topNav === 'earnings') this.setTopNav('calls');
     this.weatherAppEl.classList.toggle('hidden', app !== 'weather');
     this.messengerAppEl.classList.toggle('hidden', app !== 'messenger');
     this.messengerHtmlKey = '';

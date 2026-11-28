@@ -15,6 +15,7 @@ import { PhoneApp, renderDock3D, renderWeatherApp3D } from './weatherApp';
 import type { WeatherReport } from '../../game/weatherReport';
 import type { Messenger } from '../../delivery/messenger';
 import { renderMessenger3D } from './messengerApp';
+import { renderBank3D } from './bankApp';
 
 /** Phone status snapshot needed to draw the 3D screen */
 export interface Phone3DScreenStatus {
@@ -86,9 +87,10 @@ export function render3DPhoneScreen(
 
   const isRidingNavMode = player.mode === 'riding' && phone.placement === 'mounted';
 
-  // Weather / messenger app open: its own screen (the status bar and an incoming call still show)
-  if (phone.weatherReport || phone.messenger) {
-    if (phone.messenger) renderMessenger3D(ctx, w, h, phone.messenger);
+  // Weather / messenger / bank app open: its own screen (the status bar and an incoming call still show)
+  if (phone.weatherReport || phone.messenger || phone.app === 'bank') {
+    if (phone.app === 'bank') renderBank3D(ctx, w, h, delivery);
+    else if (phone.messenger) renderMessenger3D(ctx, w, h, phone.messenger);
     else renderWeatherApp3D(ctx, w, h, phone.weatherReport!);
     ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
     ctx.fillRect(0, 0, w, 34);

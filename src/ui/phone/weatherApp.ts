@@ -4,13 +4,14 @@
  */
 import type { WeatherReport } from '../../game/weatherReport';
 
-export type PhoneApp = 'delivery' | 'weather' | 'messenger';
+export type PhoneApp = 'delivery' | 'weather' | 'messenger' | 'bank';
 
 /** Apps on the dock, in order ([Y] cycles through them) */
 export const PHONE_APPS: ReadonlyArray<{ id: PhoneApp; label: string }> = [
   { id: 'delivery', label: '🛵 배달' },
   { id: 'weather', label: '🌤️ 날씨' },
   { id: 'messenger', label: '💬 메신저' },
+  { id: 'bank', label: '💳 뱅크' },
 ];
 
 /** Height of the 3D phone's dock strip at the bottom of the screen (clear of the camera notch at the top) */

@@ -3,7 +3,7 @@ import { DailyFinanceLedger, FINE_KINDS, FineKind, SPECIAL_ORDERS, SettlementRes
 
 /**
  * Line items shared by every receipt: the per-delivery settlement popup, the full-screen daily report and the
- * phone [수익] receipt. Adding a new surcharge here shows it everywhere; amounts always add up to the payout
+ * phone 💳 뱅크 app receipt. Adding a new surcharge here shows it everywhere; amounts always add up to the payout
  * (settlement) and the net profit (daily ledger) - see receiptLines.test.ts.
  */
 

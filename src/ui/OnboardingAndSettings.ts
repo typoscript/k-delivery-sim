@@ -10,7 +10,7 @@ const SHIFT_GUIDE_STORAGE_KEY = 'k_delivery_shift_guide_done_v1';
 
 /** Extra live state the guide watches (from the game loop) */
 export interface OnboardingWatch {
-  /** The zoomed phone shows the [수익] (finance) tab */
+  /** The phone shows the 💳 뱅크 app (정산 · 목표) */
   financeTabOpen: boolean;
   /** The game clock is in a lunch / dinner rush */
   isPeakTime: boolean;
@@ -328,7 +328,7 @@ export class OnboardingAndSettings {
     this.renderOnboarding();
   }
 
-  /** Working-day guide: peak time, today's goals in the [수익] tab, goal bonuses, clocking out */
+  /** Working-day guide: peak time, today's goals in the 💳 뱅크 app, goal bonuses, clocking out */
   private updateShiftGuide(delivery: DeliveryManager, watch: OnboardingWatch): void {
     if (this.shiftGuideStartDay < 0) this.shiftGuideStartDay = delivery.shiftDay;
     if (watch.isPeakTime || delivery.peakDeliveries > 0) this.shiftStepPeakDone = true;
@@ -366,7 +366,7 @@ export class OnboardingAndSettings {
           },
           {
             done: this.shiftStepGoalsDone,
-            label: '② 휴대폰 [수익] 탭에서 오늘의 목표 3가지 확인',
+            label: '② 휴대폰 💳 뱅크 앱([Y] 또는 앱 독)에서 오늘의 목표 확인',
           },
           {
             done: this.shiftStepBonusDone,
@@ -374,7 +374,7 @@ export class OnboardingAndSettings {
           },
           {
             done: this.shiftStepClockOutDone,
-            label: '④ 하루를 마치면 [수익] 탭 🏁 퇴근하기 → 무사고 보너스 · 다음 날 출근',
+            label: '④ 하루를 마치면 💳 뱅크 앱 🏁 퇴근하기 → 무사고 보너스 · 다음 날 출근',
           },
         ]
       : [

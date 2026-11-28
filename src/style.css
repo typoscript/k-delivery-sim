@@ -2902,7 +2902,7 @@ kbd {
 .bc-top-nav {
   margin-top: 6px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 4px;
   padding: 3px;
   border-radius: 10px;
@@ -5347,7 +5347,20 @@ body.phone-3d-hover canvas {
 .phone-screen.app-messenger .app-topbar,
 .phone-screen.app-messenger .map-controls,
 .phone-screen.app-messenger .app-bottom-sheet,
-.phone-screen.app-messenger #phone-map-canvas {
+.phone-screen.app-messenger #phone-map-canvas,
+.phone-screen.app-bank .app-topbar,
+.phone-screen.app-bank .map-controls,
+.phone-screen.app-bank #phone-map-canvas {
+  display: none;
+}
+/* 라이더 뱅크: the earnings sheet (정산 · 리뷰 · 커리어) fills the screen below the dock */
+.phone-screen.app-bank .app-bottom-sheet {
+  top: 62px !important;
+  height: auto !important;
+  max-height: none !important;
+  bottom: 0 !important;
+}
+.phone-screen.app-bank .sheet-handle {
   display: none;
 }
 .phone-weather-app {

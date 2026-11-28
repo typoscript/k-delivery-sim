@@ -66,7 +66,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
       );
     } else if (announce && phase.id === 'dawn') {
       hud.showToast(
-        `🌌 자정이 지났어요 · 콜이 뜸해져요. 휴대폰 [수익] 탭의 🏁 퇴근하기로 ${delivery.shiftDay}일차를 마감하고 다음 날 출근할 수 있어요`,
+        `🌌 자정이 지났어요 · 콜이 뜸해져요. 휴대폰 💳 뱅크 앱의 🏁 퇴근하기로 ${delivery.shiftDay}일차를 마감하고 다음 날 출근할 수 있어요`,
         5600
       );
     }

@@ -97,6 +97,11 @@ export function update(
 
     host.syncDockBadge();
     // Weather / messenger app open: its screen covers the delivery app (incoming calls still pop up over it)
+    if (host.app === 'bank') {
+      host.syncDeliverySheet(player, delivery, navPlan);
+      syncDispatchPopup(host.dispatchEls, host.dispatchState, activeOffer, delivery);
+      return;
+    }
     if (host.app === 'messenger') {
       host.syncMessengerApp();
       syncDispatchPopup(host.dispatchEls, host.dispatchState, activeOffer, delivery);

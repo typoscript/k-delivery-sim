@@ -39,7 +39,7 @@ export function renderDeliverySheetHtml(
   const stopsCnt = navPlan.recommendedStops.length;
   const revCnt = delivery.getRecentReviews().length;
 
-  // Context sub-pills matching the Baemin Connect top 3-tab structure ([콜 목록] / [내비] / [수익])
+  // Context sub-pills matching the Baemin Connect top tabs ([콜 목록] / [내비]; 정산 · 리뷰 · 커리어 live in the 💳 뱅크 app)
   let subNavHtml = '';
   if (topNav === 'calls') {
     subNavHtml = `
