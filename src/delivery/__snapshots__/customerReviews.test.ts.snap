@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`customer review generator fingerprint > writes the same reviews for the same deliveries 1`] = `
+{
+  "hash": -1543486240,
+  "reviews": 315,
+  "stars": [
+    61,
+    55,
+    67,
+    79,
+    53,
+  ],
+}
+`;
