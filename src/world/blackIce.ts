@@ -13,7 +13,13 @@ export interface IcePatch {
   radius: number;
   /** On a bridge deck (shown as 다리 위 결빙) */
   onBridge?: boolean;
+  /** Bridge direction (unit): a road crossing under the deck at the same drawn height is not on the ice */
+  dirX?: number;
+  dirZ?: number;
 }
+
+/** Riding within ~40° of a bridge's direction counts as being on its deck */
+const ALONG_COS = 0.75;
 
 /** Share of road segments that freeze over, by road type (shaded side streets and ramps most) */
 const FREEZE_CHANCE: Record<string, number> = {
@@ -49,7 +55,7 @@ export function planBlackIce(nodes: readonly OsmGraphNode[], edges: readonly Osm
       x: a.x + (b.x - a.x) * t,
       z: a.z + (b.z - a.z) * t,
       radius: e.bridge ? Math.max(5, e.width * 0.75) : Math.min(7, Math.max(3.5, e.width * 0.7)),
-      ...(e.bridge ? { onBridge: true } : {}),
+      ...(e.bridge ? { onBridge: true, dirX: (b.x - a.x) / e.dist, dirZ: (b.z - a.z) / e.dist } : {}),
     });
   });
   return out;
@@ -95,13 +101,15 @@ export class BlackIceField {
     }
   }
 
-  /** The patch under (x, z), or null */
-  public patchAt(x: number, z: number): IcePatch | null {
-    return this.nearest(x, z, 0, true);
+  /** The patch under (x, z), or null; with `heading`, bridge ice counts only when riding along the bridge */
+  public patchAt(x: number, z: number, heading?: number): IcePatch | null {
+    return this.nearest(x, z, 0, true, heading);
   }
 
-  /** The closest patch whose edge is within `range` m of (x, z), or null */
-  public nearest(x: number, z: number, range: number, inside = false): IcePatch | null {
+  /** The closest patch whose edge is within `range` m of (x, z), or null (bridge ice: see patchAt) */
+  public nearest(x: number, z: number, range: number, inside = false, heading?: number): IcePatch | null {
+    const hx = heading === undefined ? 0 : Math.sin(heading);
+    const hz = heading === undefined ? 0 : Math.cos(heading);
     if (!this.active) return null;
     const cx = Math.floor(x / CELL_M);
     const cz = Math.floor(z / CELL_M);
@@ -110,6 +118,9 @@ export class BlackIceField {
     for (let ix = cx - 1; ix <= cx + 1; ix++) {
       for (let iz = cz - 1; iz <= cz + 1; iz++) {
         for (const p of this.grid.get(`${ix},${iz}`) ?? []) {
+          if (heading !== undefined && p.onBridge && Math.abs(hx * (p.dirX ?? 0) + hz * (p.dirZ ?? 0)) < ALONG_COS) {
+            continue; // crossing under the bridge, not on its deck
+          }
           const d = Math.hypot(p.x - x, p.z - z) - p.radius;
           if ((inside ? d <= 0 : d <= range) && d < bestD) {
             best = p;

@@ -27,7 +27,7 @@ export function stepPhysicsFrame(ctx: GameContext, hooks: GameLoopHooks, loop: L
 
   const activeBump = inCorridor ? null : world.getSpeedBumpAt(scooterPhysics.state.x, scooterPhysics.state.z);
   // black ice: no grip at all, like braking on a wet manhole cover (whatever the weather)
-  const onIce = !inCorridor && world.blackIce.patchAt(scooterPhysics.state.x, scooterPhysics.state.z) !== null;
+  const onIce = !inCorridor && world.blackIce.patchAt(scooterPhysics.state.x, scooterPhysics.state.z, scooterPhysics.state.heading) !== null;
   // underpasses (지하차도) keep the rain and snow off the road
   const sheltered = !inCorridor && world.roadStructures.structureAt(scooterPhysics.state.x, scooterPhysics.state.z, scooterPhysics.state.heading) === 'tunnel';
   const roadCondition = inCorridor

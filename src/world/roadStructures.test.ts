@@ -51,4 +51,17 @@ describe('bridges and underpasses', () => {
     expect(idx.tunnelCount).toBeGreaterThan(50);
     expect(SUWON_OPEN_WORLD.edges.some((e) => e.tunnel && e.name.includes('지하차도'))).toBe(true);
   });
+
+  it('bridge ice applies only when riding along the bridge (not on a road crossing under it)', async () => {
+    const { BlackIceField } = await import('./blackIce');
+    const bridges = Array.from({ length: 40 }, () => edge(0, 1, { bridge: true }));
+    const field = new BlackIceField(nodes, bridges);
+    field.set(3, true);
+    const p = field.patches[0];
+    expect(p.onBridge).toBe(true);
+    expect(field.patchAt(p.x, p.z, 0)).toBe(p); // along the bridge (+Z)
+    expect(field.patchAt(p.x, p.z, Math.PI)).toBe(p); // the other way along it
+    expect(field.patchAt(p.x, p.z, Math.PI / 2)).toBeNull(); // crossing under it
+    expect(field.patchAt(p.x, p.z)).toBe(p); // no heading: position only
+  });
 });

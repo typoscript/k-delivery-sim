@@ -88,7 +88,13 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
     }
     // Black ice ahead (winter nights): warn once per patch while riding toward it
     if (isRiding && world.blackIce.isActive) {
-      const ice = world.blackIce.nearest(scooterPhysics.state.x, scooterPhysics.state.z, 32);
+      const ice = world.blackIce.nearest(
+        scooterPhysics.state.x,
+        scooterPhysics.state.z,
+        32,
+        false,
+        scooterPhysics.state.heading,
+      );
       if (ice && ice.id !== world.blackIce.warnedId) {
         world.blackIce.warnedId = ice.id;
         audio.playCameraApproachBeep(false);
