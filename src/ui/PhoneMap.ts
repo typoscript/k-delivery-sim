@@ -44,6 +44,9 @@ import {
   syncDeliverySheet as syncDeliverySheetFn,
 } from './phone/phoneFrame';
 
+/** Last open phone app (localStorage) */
+export const PHONE_APP_STORAGE_KEY = 'k_delivery_phone_app_v1';
+
 export class PhoneMap {
   // Offscreen high-res canvas & live Three.js texture rendered onto 3D Handheld / Handlebar-Mounted Phone!
   /** @internal phone/* */
@@ -324,6 +327,13 @@ export class PhoneMap {
     );
     setupMapPanAndZoom(this.zoomCanvas, this.followBtn, this.touchHandEl, this.view, () => this.isZoomed);
     this.setPlacement('pocket');
+    // reopen the app the rider had open last time
+    try {
+      const saved = window.localStorage.getItem(PHONE_APP_STORAGE_KEY);
+      if (saved && PHONE_APPS.some((a) => a.id === saved)) this.setApp(saved as PhoneApp);
+    } catch {
+      // storage unavailable
+    }
   }
 
   /**
@@ -458,10 +468,15 @@ export class PhoneMap {
     return this.app;
   }
 
-  /** Switches the open app (zoomed phone dock; the 3D phone shows the same app) */
+  /** Switches the open app (zoomed phone dock; the 3D phone shows the same app); remembered across reloads */
   public setApp(app: PhoneApp): void {
     if (app === this.app) return;
     this.app = app;
+    try {
+      window.localStorage.setItem(PHONE_APP_STORAGE_KEY, app);
+    } catch {
+      // not remembered
+    }
     this.phoneScreenEl.classList.toggle('app-weather', app === 'weather');
     this.phoneScreenEl.classList.toggle('app-messenger', app === 'messenger');
     this.phoneScreenEl.classList.toggle('app-bank', app === 'bank');

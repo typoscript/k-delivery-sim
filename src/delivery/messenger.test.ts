@@ -120,3 +120,51 @@ describe('messenger', () => {
     }
   });
 });
+
+describe('messenger save', () => {
+  it('chats survive a save / restore; quick replies are dropped (their orders are gone)', async () => {
+    const { parseMessengerSave } = await import('./messenger');
+    const m = new Messenger();
+    m.post(
+      'c:1',
+      { kind: 'customer', title: '고객', icon: '🙋', missionId: 'o1' },
+      { from: 'them', text: '문 앞에!', time: '12:00' },
+      CUSTOMER_REPLIES,
+    );
+    m.post('notice', { kind: 'notice', title: '민원', icon: '📢' }, { from: 'them', text: '민원', time: '12:01' });
+    const copy = new Messenger();
+    copy.restore(JSON.parse(JSON.stringify(m.toSave())));
+    expect(copy.list().map((t) => t.id)).toEqual(['notice', 'c:1']);
+    expect(copy.get('c:1')!.messages[0].text).toBe('문 앞에!');
+    expect(copy.get('c:1')!.replies).toHaveLength(0);
+    expect(copy.unread).toBe(2);
+    // new chats continue after the restored ones
+    copy.post('s:1', { kind: 'shop', title: '가게', icon: '🍗' }, { from: 'them', text: '완료', time: '12:02' });
+    expect(copy.list()[0].id).toBe('s:1');
+    // malformed saves are rejected or cleaned
+    expect(parseMessengerSave(null)).toBeNull();
+    expect(parseMessengerSave({ v: 2, threads: [] })).toBeNull();
+    const cleaned = parseMessengerSave({
+      v: 1,
+      seq: 3,
+      threads: [
+        {
+          id: 'a',
+          kind: 'customer',
+          title: 't',
+          icon: 'i',
+          unread: -5,
+          seq: 1,
+          messages: [
+            { from: 'hacker', text: 'x', time: '1' },
+            { from: 'me', text: 'ok', time: '12:00' },
+          ],
+        },
+        { id: 'b', kind: 'weird', title: 't', icon: 'i', messages: [] },
+      ],
+    })!;
+    expect(cleaned).toHaveLength(1);
+    expect(cleaned[0].messages).toEqual([{ from: 'me', text: 'ok', time: '12:00' }]);
+    expect(cleaned[0].unread).toBe(0);
+  });
+});

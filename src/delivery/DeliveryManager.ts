@@ -1,7 +1,14 @@
 import { DeliveryLocation } from '../types';
 import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
-import { CUSTOMER_REPLIES, LATE_ASK_SEC, LATE_REPLIES, Messenger } from './messenger';
+import {
+  CUSTOMER_REPLIES,
+  LATE_ASK_SEC,
+  LATE_REPLIES,
+  Messenger,
+  loadMessengerSave,
+  storeMessengerSave,
+} from './messenger';
 import { getInstructionMeta as instructionMetaOf } from './deliveryTypes';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
@@ -218,6 +225,9 @@ export class DeliveryManager {
 
   constructor(locations: DeliveryLocation[]) {
     indexComplexes(locations);
+    // the messenger keeps its chats across reloads
+    this.messenger.restore(loadMessengerSave());
+    this.messenger.onChange = (m) => storeMessengerSave(m.toSave());
     this.shops = locations.filter((l) => l.type === 'shop');
     this.residences = locations.filter((l) => l.type === 'residential');
     this.career = loadRiderCareer();
