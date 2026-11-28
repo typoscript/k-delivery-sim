@@ -68,6 +68,7 @@ export function modalCallbacks(r: AppRefs): ModalCallbacks {
       r.hud.showToast(`💳 결제가 완료되었습니다! 주유 완료 (+${addedPercent}% · -₩${cost.toLocaleString()})`, 3800);
     },
     onRepairConfirm: (cost) => {
+      if (r.rejectIfInsufficientFunds(cost)) return;
       r.scooterPhysics.repairVehicle();
       r.delivery.recordRepairExpense(cost);
       r.audio.playRepairSound();
@@ -147,6 +148,7 @@ export function modalCallbacks(r: AppRefs): ModalCallbacks {
       }
     },
     onConvenienceBuy: (item, cost) => {
+      if (r.rejectIfInsufficientFunds(cost)) return;
       r.delivery.recordConvenienceExpense(cost);
       r.audio.playConvenienceChime();
       if (item === 'energy_drink') {
