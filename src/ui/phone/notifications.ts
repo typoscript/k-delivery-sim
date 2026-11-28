@@ -22,13 +22,35 @@ export class NotificationCenter {
   public unread = 0;
   /** Bumped on every change (UI redraws lazily) */
   public version = 0;
+  /** Called after every change (the game keeps the list across reloads) */
+  public onChange: ((c: NotificationCenter) => void) | null = null;
+
+  private changed(): void {
+    this.version++;
+    this.onChange?.(this);
+  }
+
+  /** Save data: the list (newest first) and the unread count */
+  public toSave(): NotificationSave {
+    return { v: 1, unread: this.unread, items: this.items.map((n) => ({ icon: n.icon, app: n.app, text: n.text, time: n.time })) };
+  }
+
+  /** Restores a saved list (anything malformed is skipped) */
+  public restore(raw: unknown): void {
+    const save = parseNotificationSave(raw);
+    if (!save) return;
+    this.items = save.items.map((n, i) => ({ id: i + 1, ...n }));
+    this.nextId = this.items.length + 1;
+    this.unread = Math.min(save.unread, this.items.length);
+    this.version++;
+  }
 
   public push(icon: string, app: string, text: string, time: string): PhoneNotification {
     const n = { id: this.nextId++, icon, app, text, time };
     this.items.unshift(n);
     if (this.items.length > MAX_NOTIFICATIONS) this.items.length = MAX_NOTIFICATIONS;
     this.unread++;
-    this.version++;
+    this.changed();
     return n;
   }
 
@@ -40,13 +62,17 @@ export class NotificationCenter {
   public markAllRead(): void {
     if (this.unread === 0) return;
     this.unread = 0;
-    this.version++;
+    this.changed();
   }
 
   public clear(): void {
     this.items = [];
     this.unread = 0;
-    this.version++;
+    this.changed();
+  }
+
+  public get(id: number): PhoneNotification | undefined {
+    return this.items.find((n) => n.id === id);
   }
 }
 
@@ -58,7 +84,7 @@ export function notificationsHtml(c: NotificationCenter): string {
     .list()
     .map(
       (n) =>
-        `<div class="notif-row"><span class="notif-icon">${n.icon}</span><div class="notif-main"><div class="notif-app">${esc(n.app)} · ${n.time}</div><div class="notif-text">${esc(n.text)}</div></div></div>`,
+        `<button class="notif-row" data-notif-id="${n.id}"><span class="notif-icon">${n.icon}</span><div class="notif-main"><div class="notif-app">${esc(n.app)} · ${n.time}</div><div class="notif-text">${esc(n.text)}</div></div></button>`,
     )
     .join('');
   return `<div class="notif-head"><span>🔔 알림</span><button class="notif-clear" data-notif="clear">모두 지우기</button></div>${
@@ -119,4 +145,64 @@ export function renderBell3D(ctx: CanvasRenderingContext2D, w: number, unread: n
   ctx.textBaseline = 'middle';
   ctx.fillText(`🔔 ${Math.min(99, unread)}`, w / 2, 18.5);
   ctx.restore();
+}
+
+export interface NotificationSave {
+  v: 1;
+  unread: number;
+  items: Array<{ icon: string; app: string; text: string; time: string }>;
+}
+
+const str = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
+
+/** Validates saved notifications (null when it is not a notification save) */
+export function parseNotificationSave(raw: unknown): NotificationSave | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as { v?: unknown; unread?: unknown; items?: unknown };
+  if (r.v !== 1 || !Array.isArray(r.items)) return null;
+  const items: NotificationSave['items'] = [];
+  for (const it of r.items.slice(0, MAX_NOTIFICATIONS)) {
+    const x = it as Record<string, unknown>;
+    if (x && str(x.icon, 16) && str(x.app, 60) && str(x.text, 300) && str(x.time, 8)) {
+      items.push({ icon: x.icon, app: x.app, text: x.text, time: x.time });
+    }
+  }
+  const unread = typeof r.unread === 'number' && Number.isFinite(r.unread) ? Math.max(0, Math.floor(r.unread)) : 0;
+  return { v: 1, unread, items };
+}
+
+export const NOTIFICATIONS_STORAGE_KEY = 'k_delivery_notifications_v1';
+
+export function loadNotificationSave(): unknown {
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeNotificationSave(save: NotificationSave): void {
+  try {
+    window.localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(save));
+  } catch {
+    // storage full / blocked: the list is just not kept
+  }
+}
+
+/** The phone app a notification opens when tapped (battery / system notices open none) */
+export function appOfNotification(app: string): 'weather' | 'messenger' | 'bank' | null {
+  if (app === '날씨') return 'weather';
+  if (app.startsWith('메신저')) return 'messenger';
+  if (app === '뱅크') return 'bank';
+  return null;
+}
+
+/** 3D phone: which pulled-down notification row a tap at (x, y) hits (same layout as renderNotifications3D) */
+export function hitNotification3D(c: NotificationCenter, x: number, y: number, w: number): PhoneNotification | null {
+  const list = c.list().slice(0, 7);
+  const i = Math.floor((y - 76) / 66);
+  if (i < 0 || i >= list.length || x < 10 || x > w - 10) return null;
+  const top = 76 + i * 66;
+  return y <= top + 58 ? list[i] : null;
 }

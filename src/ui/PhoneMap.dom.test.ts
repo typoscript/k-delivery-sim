@@ -131,6 +131,32 @@ describe('phone apps (DOM)', () => {
     expect(activeDock()).toBe('delivery');
   });
 
+  it('a tapped notification opens its app (zoomed drawer and 3D list) and the list survives a reload', () => {
+    const phone = new PhoneMap(callbacks);
+    phone.notify('💬', '메신저 · 고객 101호', '문 앞에 놔주세요');
+    phone.notify('🌤️', '날씨', '비가 내리기 시작했어요');
+    phone.toggleNotifications(true);
+    phone.syncNotifications();
+    const rows = document.querySelectorAll<HTMLButtonElement>('#phone-notif-drawer [data-notif-id]');
+    expect(rows).toHaveLength(2);
+    rows[0].click(); // newest first: the weather push
+    expect(activeDock()).toBe('weather');
+    expect(phone.isNotificationsOpen).toBe(false);
+
+    // 3D: pull the list down, tap the second row (the messenger)
+    const { width: w, height: h } = phone.texCanvas;
+    handle3DScreenTouch(phone, 0.5, 1 - 12 / h, null);
+    expect(phone.isNotificationsOpen).toBe(true);
+    handle3DScreenTouch(phone, 0.5, 1 - (76 + 66 + 29) / h, null);
+    expect(activeDock()).toBe('messenger');
+    expect(phone.isNotificationsOpen).toBe(false);
+
+    // a new phone (reload) has the same list
+    const again = new PhoneMap(callbacks);
+    expect(again.notifications.list().map((n) => n.text)).toEqual(['비가 내리기 시작했어요', '문 앞에 놔주세요']);
+    expect(w).toBeGreaterThan(0);
+  });
+
   it('below 15% the phone goes into power saving (dimmed) and leaves a battery notification', () => {
     const phone = new PhoneMap(callbacks);
     phone.setPlacement('in_hand');

@@ -5816,3 +5816,13 @@ body.phone-3d-hover canvas {
   color: #dc2626;
   font-weight: 800;
 }
+
+/* notification rows are buttons: tapping one opens its app */
+button.notif-row {
+  width: 100%;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}

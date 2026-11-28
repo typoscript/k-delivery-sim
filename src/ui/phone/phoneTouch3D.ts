@@ -4,6 +4,7 @@ import { clamp } from '../../types';
 import { hitCallBanner } from './callBanner3D';
 import { hitDock3D } from './weatherApp';
 import { hitMessengerReply3D } from './messengerApp';
+import { hitNotification3D } from './notifications';
 
 /**
  * Drives the 1st-person touching hand when hovering over the in-world 3D phone
@@ -56,7 +57,14 @@ export function handle3DScreenTouch(
   host.callbacks.onScreenTap?.();
 
   // The status bar pulls the notification list down (tap again to close); while it is open a tap closes it
-  if (cy <= 36 || host.isNotificationsOpen) {
+  if (host.isNotificationsOpen) {
+    // a row opens its app; anywhere else (or the status bar) closes the list
+    const n = cy > 36 ? hitNotification3D(host.notifications, cx, cy, host.texCanvas.width) : null;
+    if (n) host.openNotification(n.id);
+    else host.toggleNotifications(false);
+    return 'switch_app';
+  }
+  if (cy <= 36) {
     host.toggleNotifications();
     return 'switch_app';
   }

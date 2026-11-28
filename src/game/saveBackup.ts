@@ -15,6 +15,7 @@ export const SAVE_KEYS = [
   'k_delivery_phone_apps_guide_done_v1',
   'k_delivery_suwon_district_v1',
   'k_delivery_phone_app_v1',
+  'k_delivery_notifications_v1',
 ] as const;
 
 const FORMAT = 'k-delivery-sim-save';

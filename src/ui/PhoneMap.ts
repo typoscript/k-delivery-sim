@@ -19,7 +19,13 @@ import { PHONE_APPS, PhoneApp, weatherAppHtml } from './phone/weatherApp';
 import type { WeatherReport } from '../game/weatherReport';
 import type { Messenger } from '../delivery/messenger';
 import { messengerHtml } from './phone/messengerApp';
-import { NotificationCenter, notificationsHtml } from './phone/notifications';
+import {
+  NotificationCenter,
+  appOfNotification,
+  loadNotificationSave,
+  notificationsHtml,
+  storeNotificationSave,
+} from './phone/notifications';
 import { DEFAULT_NOTIFICATION_PREFS, NotificationPrefs, notificationDelivery } from './phone/notificationPrefs';
 
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
@@ -261,8 +267,12 @@ export class PhoneMap {
       const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
       if (btn?.dataset.notif === 'clear') this.notifications.clear();
       if (btn?.dataset.notif === 'close') this.toggleNotifications(false);
+      if (btn?.dataset.notifId) this.openNotification(Number(btn.dataset.notifId));
       this.syncNotifications();
     });
+    // the notification list survives a reload
+    this.notifications.restore(loadNotificationSave());
+    this.notifications.onChange = (c) => storeNotificationSave(c.toSave());
 
     this.appDockEl.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -486,6 +496,15 @@ export class PhoneMap {
   /** Is the notification list pulled down (zoomed drawer and 3D screen) */
   public get isNotificationsOpen(): boolean {
     return this.notifOpen;
+  }
+
+  /** A tapped notification: its app opens (weather / messenger / bank) and the list closes */
+  public openNotification(id: number): void {
+    const n = this.notifications.get(id);
+    if (!n) return;
+    const app = appOfNotification(n.app);
+    this.toggleNotifications(false);
+    if (app) this.setApp(app);
   }
 
   /** Pulls the notification list down (or up); opening it reads everything */
