@@ -1,5 +1,44 @@
 /** Phone map route and self markers: bundle preview, navigation route, numbered stops, scooter pin, GPS arrow */
 import type { MapFrame } from './mapFrame';
+import { NO_GROUND_PARK_LIMIT_M, isNoGroundVehicleComplex } from '../../delivery/apartmentRules';
+
+/**
+ * 지상 차량 출입 금지 단지 on the route: a red dashed ring of the no-parking radius around the lobby, so the rider
+ * sees where to leave the scooter (outside the ring) to earn the walking allowance
+ */
+function drawNoGroundZones(f: MapFrame): void {
+  const { ctx, player, navPlan, rotateHeadingUp, toX, toY } = f;
+  for (const st of navPlan.recommendedStops) {
+    if (st.kind !== 'dropoff' || !st.location || !isNoGroundVehicleComplex(st.location)) continue;
+    const cx = toX(st.x);
+    const cy = toY(st.z);
+    const r = Math.hypot(toX(st.x + NO_GROUND_PARK_LIMIT_M) - cx, toY(st.z) - toY(st.z + 0)) || 1;
+    ctx.save();
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.85)';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // badge on the ring's edge, kept upright on a rotating map
+    ctx.translate(cx, cy);
+    if (rotateHeadingUp) ctx.rotate(-player.heading);
+    const by = -r - 8;
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.roundRect(-34, by - 7, 68, 14, 7);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 8.5px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(st.isCurrent ? '🚫 정문 밖 주차' : '🚫 지상 차량X', 0, by + 0.5);
+    ctx.restore();
+  }
+}
 
 /** Bundle preview line, the navigation route and the numbered stop markers */
 export function drawRouteLayer(f: MapFrame): void {
@@ -45,8 +84,9 @@ export function drawRouteLayer(f: MapFrame): void {
     ctx.restore();
   }
 
-  // 6. Numbered Bundled Stop Markers (1, 2, 3...)
+  // 6. Numbered Bundled Stop Markers (1, 2, 3...), no-vehicle complex rings under them
   if (!player.inCorridor) {
+    drawNoGroundZones(f);
     for (let i = navPlan.recommendedStops.length - 1; i >= 0; i--) {
       const st = navPlan.recommendedStops[i];
       const tx = toX(st.x);
