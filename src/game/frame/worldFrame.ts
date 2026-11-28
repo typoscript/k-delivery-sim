@@ -1,4 +1,4 @@
-import { bridgeGust } from '../bridgeWind';
+import { WIND_MIN_KMH, bridgeGust, windLevelFor, windRollFor } from '../bridgeWind';
 /** Per-frame stage of the game loop (gameLoop.ts calls the stages in order each frame) */
 import type { GameContext } from '../GameContext';
 import type { FrameState, GameLoopHooks, LoopState } from '../gameLoop';
@@ -93,6 +93,9 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       const sp = scooterPhysics.state;
       const onBridge = world.roadStructures.structureAt(sp.x, sp.z, sp.heading) === 'bridge';
       const gust = onBridge ? bridgeGust(elapsed, world.weatherMode, Math.abs(sp.speed) * 3.6) : 0;
+      // the rider leans into the wind and hears it rush past (fades out off the bridge)
+      ctx.camController.windRoll = windRollFor(gust);
+      audio.setWind(onBridge && Math.abs(sp.speed) * 3.6 >= WIND_MIN_KMH ? windLevelFor(gust) : 0);
       if (gust !== 0) {
         // rider's right = forward x up = (-fz, 0, fx) with forward (sin h, cos h)
         const fx = Math.sin(sp.heading);
@@ -104,6 +107,10 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
           hud.showToast('🌬️ 다리 위 옆바람! 핸들이 살짝 밀려요 — 비·눈 오는 날엔 더 세요', 3000);
         }
       }
+    }
+    else {
+      ctx.camController.windRoll = 0;
+      audio.setWind(0);
     }
     // Streams on foot: wading through the water is slow (stepping stones and bridges are the way across)
     const wading = !isRiding && playerCtrl.state.mode === 'on_foot' && world.isWadingAt(playerCtrl.state.x, playerCtrl.state.z);

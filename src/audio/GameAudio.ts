@@ -58,6 +58,8 @@ import {
 } from './engineSound';
 import {
   setElevatorHum as setElevatorHumFn,
+  setWaterAmbience as setWaterAmbienceFn,
+  setWindAmbience as setWindAmbienceFn,
   updateWeatherAudio as updateWeatherAudioFn,
 } from './ambience';
 
@@ -379,6 +381,16 @@ export class GameAudio {
   /** Soft digital LED floor-pass tick inside the 3D apartment elevator */
   public playElevatorFloorTick(): void {
     playElevatorFloorTick(this.sfx);
+  }
+
+  /** Wind rushing past on a bridge (0 = calm) */
+  public setWind(level: number): void {
+    setWindAmbienceFn(this, level);
+  }
+
+  /** Running water of a nearby stream (0 = none) */
+  public setWater(level: number): void {
+    setWaterAmbienceFn(this, level);
   }
 
   /** Continuous low traction-motor hum while riding the 3D apartment elevator */

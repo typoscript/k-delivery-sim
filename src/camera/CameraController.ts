@@ -26,6 +26,8 @@ export class CameraController {
   private lastY = 0;
 
   private smoothedRoll = 0;
+  /** Extra horizon roll from a crosswind gust while riding (set every frame by the world frame, radians) */
+  public windRoll = 0;
   private smoothedEyeY = 1.62;
 
   private readonly tmpEye = new THREE.Vector3();
@@ -160,7 +162,7 @@ export class CameraController {
     this.smoothedEyeY = this.tmpEye.y;
 
     // Horizon tilts smoothly with the scooter's physical cornering lean (~62% roll)
-    const targetRoll = scooter.leanAngle * 0.62;
+    const targetRoll = scooter.leanAngle * 0.62 + this.windRoll;
     this.smoothedRoll += (targetRoll - this.smoothedRoll) * Math.min(1, clampedDt * 14);
 
     // Slight look-into-turn head turn + pitch

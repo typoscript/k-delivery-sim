@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlackIceField, blackIceStage } from '../world/blackIce';
 import { buildWeatherReport } from './weatherReport';
-import { WIND_MIN_KMH, WIND_PEAK_MS, bridgeGust } from './bridgeWind';
+import { WIND_MIN_KMH, WIND_PEAK_MS, bridgeGust, windLevelFor, windRollFor } from './bridgeWind';
 import { seasonOfDay } from './seasons';
 import type { OsmGraphEdge, OsmGraphNode } from '../data/suwonTypes';
 
@@ -84,5 +84,16 @@ describe('bridge crosswind', () => {
     expect(peak('snow')).toBeGreaterThan(peak('clear') * 1.5);
     expect(Math.abs(bridgeGust(12.3, 'clear', 30))).toBeLessThan(Math.abs(bridgeGust(12.3, 'clear', 60)) + 1e-9);
     expect(bridgeGust(12.3, 'clear', 60)).toBe(bridgeGust(12.3, 'clear', 60)); // deterministic
+  });
+});
+
+describe('crosswind feel', () => {
+  it('the rider leans into the wind (gentle, capped) and hears it louder in a gust', () => {
+    expect(windRollFor(1)).toBeLessThan(0); // pushed right = wind from the left: lean left
+    expect(windRollFor(-1)).toBeGreaterThan(0);
+    expect(Math.abs(windRollFor(100))).toBeLessThanOrEqual(0.05);
+    expect(Math.abs(windRollFor(0))).toBe(0);
+    expect(windLevelFor(0)).toBeCloseTo(0.25);
+    expect(windLevelFor(WIND_PEAK_MS)).toBe(1);
   });
 });

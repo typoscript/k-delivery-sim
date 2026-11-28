@@ -21,3 +21,16 @@ export function bridgeGust(t: number, weather: WeatherMode, speedKmh: number): n
   const gusts = Math.sin(t * 1.3) * 0.7 + Math.sin(t * 2.9 + 1.1) * 0.3;
   return WIND_PEAK_MS * WEATHER_MUL[weather] * speedMul * swell * gusts;
 }
+
+/**
+ * Horizon roll (radians) for a sideways push of `gust` m/s: the rider leans into the wind a little. A push to the
+ * right (+) means wind from the left, so the lean is to the left (negative roll = left, as `leanAngle`).
+ */
+export function windRollFor(gust: number): number {
+  return Math.max(-0.05, Math.min(0.05, -gust * 0.035));
+}
+
+/** Loudness 0..1 of the wind rushing past for a push of `gust` m/s */
+export function windLevelFor(gust: number): number {
+  return Math.min(1, 0.25 + Math.abs(gust) / WIND_PEAK_MS);
+}
