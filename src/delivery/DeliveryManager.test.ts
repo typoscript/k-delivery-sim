@@ -284,6 +284,27 @@ describe('DeliveryManager mission flow', () => {
     expect(dm.collectNewlyMetWeekGoals()).toEqual([]);
   });
 
+  it('safe stops give back rating (3 a day) and pay the safe-stop goal when it is today\'s goal', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    // a working day whose goals include the safe-stop goal
+    while (!dm.getShiftGoals().some((g) => g.id === 'safe_stop') && dm.shiftDay < 500) dm.shiftDay++;
+    dm.riderRating = 4.5;
+    const wallet = dm.totalEarnings;
+    const r1 = dm.recordSafeStop();
+    expect(r1).toMatchObject({ count: 1, ratingGain: 0.1, newRating: 4.6, bonus: 0 });
+    dm.recordSafeStop();
+    const r3 = dm.recordSafeStop();
+    expect(r3.newRating).toBe(4.8);
+    expect(r3.goals.map((g) => g.id)).toEqual(['safe_stop']);
+    expect(r3.bonus).toBe(3000);
+    expect(dm.totalEarnings).toBe(wallet + 3000);
+    const r4 = dm.recordSafeStop();
+    expect(r4).toMatchObject({ count: 4, ratingGain: 0, newRating: 4.8 }); // daily rating cap
+    // rating never goes above 5.0
+    const top = new DeliveryManager(LOCATIONS);
+    expect(top.recordSafeStop()).toMatchObject({ ratingGain: 0, newRating: 5 });
+  });
+
   it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {
     const dm = new DeliveryManager(LOCATIONS);
     for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);

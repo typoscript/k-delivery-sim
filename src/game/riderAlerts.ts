@@ -107,3 +107,50 @@ export class RiderAlertMonitor {
     return null;
   }
 }
+
+/** Stopped for a red light: below this speed before reaching the junction */
+export const SAFE_STOP_KMH = 3;
+/** Slowed for a pedestrian: below this speed before reaching them */
+export const SAFE_YIELD_KMH = 10;
+/** A warning is followed for this long at most */
+export const SAFE_STOP_WINDOW_SEC = 8;
+/** The same spot does not count twice within this distance / time (no creeping-and-stopping farming) */
+export const SAFE_STOP_REPEAT_M = 30;
+export const SAFE_STOP_REPEAT_SEC = 40;
+
+export type SafeStopKind = 'safe_stop' | 'safe_yield';
+
+/**
+ * Follows each warning: braking to a stop before the red-light junction (or slowing down before the pedestrian)
+ * counts as a safe stop; riding past it or crashing drops the warning. Pure logic (dt-driven), unit tested.
+ */
+export class SafeStopTracker {
+  private watch: { kind: RiderAlert['kind']; x: number; z: number; fx: number; fz: number; distance: number; t: number } | null = null;
+  private last: { x: number; z: number; t: number } | null = null;
+  private time = 0;
+
+  /** Starts following a warning that was just shown */
+  public onAlert(alert: RiderAlert, p: RiderPose): void {
+    this.watch = { kind: alert.kind, x: p.x, z: p.z, fx: Math.sin(p.heading), fz: Math.cos(p.heading), distance: alert.distance, t: 0 };
+  }
+
+  /** Returns a safe stop / yield the moment it happens, else null */
+  public step(dt: number, p: RiderPose, crashed: boolean): SafeStopKind | null {
+    this.time += dt;
+    const w = this.watch;
+    if (!w) return null;
+    w.t += dt;
+    const along = (p.x - w.x) * w.fx + (p.z - w.z) * w.fz;
+    if (crashed || w.t > SAFE_STOP_WINDOW_SEC || along > w.distance) {
+      this.watch = null; // rode past it / crashed / took too long
+      return null;
+    }
+    const limitKmh = w.kind === 'red_light' ? SAFE_STOP_KMH : SAFE_YIELD_KMH;
+    if (Math.abs(p.speed) * 3.6 >= limitKmh) return null;
+    this.watch = null;
+    const l = this.last;
+    if (l && this.time - l.t < SAFE_STOP_REPEAT_SEC && Math.hypot(p.x - l.x, p.z - l.z) < SAFE_STOP_REPEAT_M) return null;
+    this.last = { x: p.x, z: p.z, t: this.time };
+    return w.kind === 'red_light' ? 'safe_stop' : 'safe_yield';
+  }
+}

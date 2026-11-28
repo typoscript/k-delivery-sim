@@ -23,7 +23,9 @@ export function renderDailyMissionWidget(delivery: DeliveryManager): string {
               : `${g.target - g.current}건 더 배달하고 사고 없이 퇴근하기`
           : g.claimed
             ? '보너스 지갑 반영 완료'
-            : `앞으로 ${g.target - g.current}건`;
+            : g.id === 'safe_stop'
+              ? `빨간불·보행자 경고 뒤 멈추기 · 앞으로 ${g.target - g.current}회`
+              : `앞으로 ${g.target - g.current}건`;
       return `
       <div class="bc-mission-card ${g.claimed ? 'done' : ''}">
         <div class="bc-mission-top">

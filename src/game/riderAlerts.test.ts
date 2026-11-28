@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALERT_COOLDOWN_SEC, RiderAlertMonitor, pedestrianAhead, redLightAhead, warnDistance } from './riderAlerts';
+import { ALERT_COOLDOWN_SEC, RiderAlertMonitor, SafeStopTracker, pedestrianAhead, redLightAhead, warnDistance } from './riderAlerts';
 
 // Riding north (+Z) at 30 km/h from the origin
 const pose = { x: 0, z: 0, heading: 0, speed: 30 / 3.6 };
@@ -39,5 +39,50 @@ describe('rider alerts', () => {
     expect(m.step(0.1, true, pose, signals, peds)).toEqual({ kind: 'red_light', distance: 12 });
     expect(m.step(0.1, true, pose, signals, peds)).toBeNull();
     expect(m.step(ALERT_COOLDOWN_SEC, true, pose, signals, peds)?.kind).toBe('pedestrian');
+  });
+});
+
+describe('SafeStopTracker', () => {
+  const pose = (z: number, kmh: number) => ({ x: 0, z, heading: 0, speed: kmh / 3.6 });
+  /** Brakes from 40 km/h at `decel` m/s² after a red-light warning `dist` m ahead; returns the result */
+  const brake = (t: SafeStopTracker, dist: number, decel: number, z0 = 0, kind: 'red_light' | 'pedestrian' = 'red_light') => {
+    let z = z0;
+    let v = 40 / 3.6;
+    t.onAlert({ kind, distance: dist }, pose(z, 40));
+    for (let i = 0; i < 600; i++) {
+      v = Math.max(0, v - decel * 0.016);
+      z += v * 0.016;
+      const r = t.step(0.016, { x: 0, z, heading: 0, speed: v }, false);
+      if (r) return r;
+    }
+    return null;
+  };
+
+  it('counts stopping before the red-light junction', () => {
+    expect(brake(new SafeStopTracker(), 30, 5)).toBe('safe_stop');
+  });
+
+  it('does not count riding through the junction', () => {
+    expect(brake(new SafeStopTracker(), 10, 2)).toBeNull();
+  });
+
+  it('a pedestrian warning only needs slowing below 10 km/h', () => {
+    expect(brake(new SafeStopTracker(), 20, 5, 0, 'pedestrian')).toBe('safe_yield');
+  });
+
+  it('a crash ends the warning without a reward', () => {
+    const t = new SafeStopTracker();
+    t.onAlert({ kind: 'red_light', distance: 30 }, pose(0, 40));
+    expect(t.step(0.1, pose(1, 30), true)).toBeNull();
+    expect(t.step(0.1, pose(1, 0), false)).toBeNull(); // nothing is being followed any more
+  });
+
+  it('the same spot counts once (no creep-and-stop farming)', () => {
+    const t = new SafeStopTracker();
+    expect(brake(t, 30, 5)).toBe('safe_stop');
+    expect(brake(t, 30, 5, 2)).toBeNull(); // same junction again right away
+    // far away later: counts again
+    for (let i = 0; i < 3000; i++) t.step(0.016, pose(0, 0), false);
+    expect(brake(t, 30, 5, 500)).toBe('safe_stop');
   });
 });

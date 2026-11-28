@@ -14,6 +14,9 @@ import {
   saveRiderCareer,
 } from './RiderCareer';
 import {
+  SAFE_STOP_COUNTER,
+  SAFE_STOP_RATING_DAILY_MAX,
+  SAFE_STOP_RATING_GAIN,
   SHIFT_LEDGER_KEYS,
   ShiftGoalSpec,
   ShiftGoalStatus,
@@ -279,6 +282,24 @@ export class DeliveryManager {
     const fresh = this.getWeekGoalsLive().filter((g) => g.met && !this.weekGoalsSeen.ids.has(g.id));
     for (const g of fresh) this.weekGoalsSeen.ids.add(g.id);
     return fresh;
+  }
+
+  /**
+   * The rider stopped (red light) or slowed down (pedestrian) after a warning: counts toward the safe-stop goal
+   * (paid right away when it completes) and gives back a little rider rating, a few times a day.
+   */
+  public recordSafeStop(): { count: number; ratingGain: number; newRating: number; goals: ShiftGoalSpec[]; bonus: number } {
+    this.progress.bump(SAFE_STOP_COUNTER);
+    const count = this.progress.counters[SAFE_STOP_COUNTER] ?? 0;
+    let ratingGain = 0;
+    if (count <= SAFE_STOP_RATING_DAILY_MAX && this.riderRating < 5) {
+      const next = Math.min(5, Math.round((this.riderRating + SAFE_STOP_RATING_GAIN) * 10) / 10);
+      ratingGain = Math.round((next - this.riderRating) * 10) / 10;
+      this.riderRating = next;
+    }
+    const { goals, bonus } = this.awardDueGoals('delivery');
+    this.persistCareer();
+    return { count, ratingGain, newRating: this.riderRating, goals, bonus };
   }
 
   /** The current week so far (finished days of this week) */

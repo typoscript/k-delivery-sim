@@ -19,6 +19,12 @@ export interface ShiftGoalSpec {
   counter?: string;
 }
 
+/** Daily counter of safe stops / yields after a red-light or pedestrian warning */
+export const SAFE_STOP_COUNTER = 'safeStop';
+/** Safe stops that each give back rider rating (+SAFE_STOP_RATING_GAIN) per day */
+export const SAFE_STOP_RATING_DAILY_MAX = 3;
+export const SAFE_STOP_RATING_GAIN = 0.1;
+
 /** Every day: the delivery count goal first, the accident-free clock-out goal last */
 export const DELIVERIES_GOAL: ShiftGoalSpec = { id: 'deliveries', icon: '📦', title: '배달 3건 완료', target: 3, bonus: 5000, awardAt: 'delivery' };
 export const SAFE_GOAL: ShiftGoalSpec = { id: 'safe', icon: '🛡️', title: '무사고 퇴근 (3건 이상 · 보행자 사고 0건)', target: 3, bonus: 2000, awardAt: 'clock_out' };
@@ -33,6 +39,7 @@ export const ROTATING_GOALS: readonly ShiftGoalSpec[] = [
   { id: 'urgent', icon: '⏱️', title: '급한 배달 제시간 1건', target: 1, bonus: 3000, awardAt: 'delivery', counter: 'urgentOnTime' },
   { id: 'regular', icon: '⭐', title: '단골 고객 배달 1건', target: 1, bonus: 2000, awardAt: 'delivery', counter: 'regular' },
   { id: 'far', icon: '🛣️', title: '1km 넘는 장거리 배달 2건', target: 2, bonus: 3000, awardAt: 'delivery', counter: 'far' },
+  { id: 'safe_stop', icon: '🚦', title: '경고 후 안전 정지 3회', target: 3, bonus: 3000, awardAt: 'delivery', counter: SAFE_STOP_COUNTER },
 ];
 
 export interface GoalDistrict {
