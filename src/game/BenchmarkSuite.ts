@@ -61,7 +61,7 @@ interface Scenario {
   snowCover?: boolean;
 }
 
-const SCENARIOS: Scenario[] = [
+export const SCENARIOS: Scenario[] = [
   { name: '인계동 도보', district: 'ingye', riding: false, night: false, weather: 'clear', motion: 'look' },
   {
     name: '수원역 도보 (최고 밀도)',

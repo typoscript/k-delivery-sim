@@ -43,10 +43,11 @@ export function renderOverlay(host: PerfMonitor): void {
   if (extraStr) lines.push(extraStr);
   if (host.statusLine) lines.push(`▶ ${host.statusLine}`);
   if (host.lastSuite) {
-    lines.push('── 최악 조건 벤치마크 (fps · p95 · cpu · gpu · draws) ──');
+    lines.push('── 최악 조건 벤치마크 (fps · p95 · cpu · gpu · draws · 기준 대비 draws/tris) ──');
     for (const r of host.lastSuite) {
+      const vsBase = r['Δ드로우'] !== undefined ? ` · ${r['Δ드로우']}/${r['Δ삼각형']}${r['회귀'] ? ` ${r['회귀']}` : ''}` : '';
       lines.push(
-        `${String(r.scenario).padEnd(16)} ${r.fps} · ${r.frameP95}ms · ${r.cpuMs} · ${r.gpuMs ?? '-'} · ${r.drawCalls}`,
+        `${String(r.scenario).padEnd(16)} ${r.fps} · ${r.frameP95}ms · ${r.cpuMs} · ${r.gpuMs ?? '-'} · ${r.drawCalls}${vsBase}`,
       );
     }
   }

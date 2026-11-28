@@ -1,3 +1,4 @@
+import { baselineFromRuns, checkAgainstBaseline, formatDelta } from './game/perf/benchBaseline';
 import * as THREE from 'three';
 import { NO_MIRROR_LAYER } from './world/renderLayers';
 import './style.css';
@@ -381,11 +382,32 @@ const runSuite = async () => {
     },
     (msg) => (perf.statusLine = msg)
   );
-  perf.lastSuite = rows as unknown as Array<Record<string, string | number | null>>;
-  perf.statusLine = `벤치마크 완료 · MSAA ${ANTIALIAS ? 'ON' : 'OFF'} · DPR ${window.devicePixelRatio}`;
-  (window as unknown as { __benchResult: unknown }).__benchResult = { antialias: ANTIALIAS, dpr: window.devicePixelRatio, rows };
+  // regression watch: scene cost against the committed baseline (draw calls / triangles)
+  const checks = checkAgainstBaseline(rows);
+  perf.lastSuite = rows.map((r, i) => ({
+    ...r,
+    'Δ드로우': formatDelta(checks[i].drawCallsDelta),
+    'Δ삼각형': formatDelta(checks[i].trianglesDelta),
+    '회귀': checks[i].regressed ? '⚠️' : '',
+  })) as unknown as Array<Record<string, string | number | null>>;
+  const regressed = checks.filter((c) => c.regressed);
+  perf.statusLine = `벤치마크 완료 · MSAA ${ANTIALIAS ? 'ON' : 'OFF'} · DPR ${window.devicePixelRatio}${
+    regressed.length > 0 ? ` · ⚠️ 기준보다 크게 늘어난 장면 ${regressed.length}개` : ' · 기준 대비 회귀 없음'
+  }`;
+  if (regressed.length > 0) console.warn('[bench] 기준보다 드로우콜/삼각형이 크게 늘어난 장면:', regressed);
+  benchRuns.push(rows);
+  (window as unknown as { __benchResult: unknown }).__benchResult = {
+    antialias: ANTIALIAS,
+    dpr: window.devicePixelRatio,
+    rows,
+    checks,
+  };
   return rows;
 };
+/** Suite runs of this session: `__benchBaseline()` averages them into a baseline to paste into benchBaseline.ts */
+const benchRuns: Array<Parameters<typeof baselineFromRuns>[0][number]> = [];
+(window as unknown as { __benchBaseline: unknown }).__benchBaseline = () =>
+  JSON.stringify(baselineFromRuns(benchRuns), null, 2);
 (window as unknown as { __benchSuite: unknown }).__benchSuite = runSuite;
 if (IS_UNIFIED_MAP && new URLSearchParams(window.location.search).get('bench') === 'suite') {
   window.setTimeout(() => void runSuite(), 5000);
