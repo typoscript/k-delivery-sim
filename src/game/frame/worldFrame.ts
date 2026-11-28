@@ -300,6 +300,7 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       );
       for (const g of res.goals) {
         window.setTimeout(() => hud.showToast(`🎯 오늘의 목표 달성! ${g.icon} ${g.title} +₩${g.bonus.toLocaleString()}`, 3600), 2800);
+        hud.phoneMap.notify('🎯', '뱅크', `오늘의 목표 달성 · ${g.title} +₩${g.bonus.toLocaleString()}`);
       }
     }
     if (alert) {

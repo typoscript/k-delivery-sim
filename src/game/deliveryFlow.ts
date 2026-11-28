@@ -167,6 +167,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       window.setTimeout(() => {
         audio.playGoalSparkle();
         hud.showToast(`📆 주간 목표 달성! ${g.icon} ${g.title} · ${last}일차 퇴근 때 +₩${g.bonus.toLocaleString()}`, 4600);
+        hud.phoneMap.notify('📆', '뱅크', `주간 목표 달성 · ${g.title} (퇴근 때 +₩${g.bonus.toLocaleString()})`);
       }, delayMs + i * 4800)
     );
   };
@@ -371,6 +372,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       window.setTimeout(() => audio.playGoalSparkle(), 420);
       modalUi.showMissionBonusPopup(info.title, info.bonus, info.totalWallet);
       hud.showToast(`🏆 오늘의 목표 달성! ${info.title} +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
+      hud.phoneMap.notify('🏆', '뱅크', `오늘의 목표 달성 · ${info.title} +₩${info.bonus.toLocaleString()}`);
       return;
     }
     hud.showToast(

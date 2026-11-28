@@ -234,6 +234,7 @@ const hud = new Hud(
   () => flow.handleCycleWeather()
 );
 hud.phoneMap.messenger = delivery.messenger;
+delivery.messenger.onMessage = (t, msg) => hud.phoneMap.notify('💬', `메신저 · ${t.title}`, msg.text);
 
 // 3D Scooter, 3D Right-Hand Smartphone, 3D Left-Hand Takeout Food Bag!
 const scooterMesh = new ScooterMesh(scene, hud.phoneMap.screenTexture);

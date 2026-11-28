@@ -19,6 +19,7 @@ import { PHONE_APPS, PhoneApp, weatherAppHtml } from './phone/weatherApp';
 import type { WeatherReport } from '../game/weatherReport';
 import type { Messenger } from '../delivery/messenger';
 import { messengerHtml } from './phone/messengerApp';
+import { NotificationCenter, notificationsHtml } from './phone/notifications';
 
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
 
@@ -150,6 +151,12 @@ export class PhoneMap {
   private openThreadId: string | null = null;
   private messengerHtmlKey = '';
   private dockBadgeCount = -1;
+  /** Notification center (status bar tap pulls the list down on the zoomed phone) */
+  public readonly notifications = new NotificationCenter();
+  private readonly notifDrawerEl = document.getElementById('phone-notif-drawer')!;
+  private readonly notifBadgeEl = document.getElementById('sb-notif-badge')!;
+  private notifOpen = false;
+  private notifKey = '';
 
   /** @internal phone/* */
   readonly callbacks: PhoneCallbacks;
@@ -240,6 +247,18 @@ export class PhoneMap {
       }
       this.messengerHtmlKey = '';
       this.syncMessengerApp();
+    });
+
+    document.getElementById('phone-statusbar')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleNotifications();
+    });
+    this.notifDrawerEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
+      if (btn?.dataset.notif === 'clear') this.notifications.clear();
+      if (btn?.dataset.notif === 'close') this.toggleNotifications(false);
+      this.syncNotifications();
     });
 
     this.appDockEl.addEventListener('click', (e) => {
@@ -459,6 +478,32 @@ export class PhoneMap {
     navPlan: NavigationPlan
   ): void {
     syncDeliverySheetFn(this, player, delivery, navPlan);
+  }
+
+  /** Pulls the notification list down (or up); opening it reads everything */
+  public toggleNotifications(open = !this.notifOpen): void {
+    this.notifOpen = open;
+    this.notifDrawerEl.classList.toggle('hidden', !open);
+    if (open) this.notifications.markAllRead();
+    this.notifKey = '';
+    this.syncNotifications();
+  }
+
+  /** Adds a notification (it also stays in the center after its toast is gone) */
+  public notify(icon: string, app: string, text: string): void {
+    this.notifications.push(icon, app, text, this.clockLabel ?? '');
+    if (this.notifOpen) this.notifications.markAllRead();
+  }
+
+  /** @internal phone/* - drawer contents and the status bar bell */
+  syncNotifications(): void {
+    const c = this.notifications;
+    const key = `${c.version}|${this.notifOpen}`;
+    if (key === this.notifKey) return;
+    this.notifKey = key;
+    this.notifBadgeEl.textContent = c.unread > 0 ? `🔔${Math.min(99, c.unread)}` : '';
+    this.notifBadgeEl.classList.toggle('hidden', c.unread === 0);
+    if (this.notifOpen) this.notifDrawerEl.innerHTML = notificationsHtml(c);
   }
 
   /** [Y]: the next app on the dock */

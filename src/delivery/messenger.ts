@@ -61,6 +61,8 @@ export class Messenger {
   public version = 0;
   /** Called after every change (the game saves the chats) */
   public onChange: ((m: Messenger) => void) | null = null;
+  /** Called for every incoming message (phone notification) */
+  public onMessage: ((t: ChatThread, msg: ChatMessage) => void) | null = null;
 
   /** Adds a message to a chat (created on first use) and optionally offers quick replies */
   public post(
@@ -82,6 +84,7 @@ export class Messenger {
     this.trim();
     this.version++;
     this.onChange?.(this);
+    if (msg.from === 'them') this.onMessage?.(t, msg);
     return t;
   }
 
