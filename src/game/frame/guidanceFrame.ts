@@ -84,6 +84,8 @@ export function stepGuidanceFrame(
   onboardingSettings.updateOnboarding(playerCtrl.state, delivery, {
     financeTabOpen: hud.phoneMap.app === 'bank',
     isPeakTime: delivery.demandPhase.isPeak,
+    phoneApp: hud.phoneMap.app,
+    phoneOut: hud.phoneMap.placement !== 'pocket',
   });
 
   hud.update(

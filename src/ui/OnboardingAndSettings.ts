@@ -7,6 +7,8 @@ const TUTORIAL_STORAGE_KEY = 'k_delivery_tutorial_done_v1';
 /** Second guide stage (working day: peak time, daily goals, clock-out), saved separately so riders who
  *  finished the first-shift guide before it existed still see it once */
 const SHIFT_GUIDE_STORAGE_KEY = 'k_delivery_shift_guide_done_v1';
+/** Third stage (the phone's apps: weather, messenger, bank), saved on its own so every rider sees it once */
+const APPS_GUIDE_STORAGE_KEY = 'k_delivery_phone_apps_guide_done_v1';
 
 /** Extra live state the guide watches (from the game loop) */
 export interface OnboardingWatch {
@@ -14,6 +16,9 @@ export interface OnboardingWatch {
   financeTabOpen: boolean;
   /** The game clock is in a lunch / dinner rush */
   isPeakTime: boolean;
+  /** The app open on the phone, and whether the phone is out of the pocket */
+  phoneApp?: 'delivery' | 'weather' | 'messenger' | 'bank';
+  phoneOut?: boolean;
 }
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
@@ -75,12 +80,17 @@ export class OnboardingAndSettings {
   private shiftStepClockOutDone = false;
   private shiftGuideStartDay = -1;
   private shiftGuideClosing = false;
+  /** Third stage: the phone's apps */
+  private appsGuideDone = false;
+  private appsSeen = new Set<string>();
+  private appsGuideClosing = false;
 
   constructor(callbacks: SettingsCallbacks) {
     this.callbacks = callbacks;
     this.settings = this.loadSettings();
     this.tutorialDismissed = this.loadTutorialDone();
     this.shiftGuideDone = this.loadFlag(SHIFT_GUIDE_STORAGE_KEY);
+    this.appsGuideDone = this.loadFlag(APPS_GUIDE_STORAGE_KEY);
 
     this.syncControlsFromState();
 
@@ -145,7 +155,7 @@ export class OnboardingAndSettings {
       this.dismissTutorial();
     });
 
-    if (this.tutorialDismissed && this.shiftGuideDone) {
+    if (this.tutorialDismissed && this.shiftGuideDone && this.appsGuideDone) {
       this.guideCard.classList.add('hidden');
     } else {
       this.guideCard.classList.remove('hidden');
@@ -172,6 +182,11 @@ export class OnboardingAndSettings {
   /** The guide card currently shows the working-day stage */
   private get inShiftStage(): boolean {
     return this.tutorialDismissed && !this.shiftGuideDone;
+  }
+
+  /** The guide card currently shows the phone-apps stage (after the working-day stage) */
+  private get inAppsStage(): boolean {
+    return this.tutorialDismissed && this.shiftGuideDone && !this.appsGuideDone;
   }
 
   private loadSettings(): GameSettings {
@@ -261,16 +276,24 @@ export class OnboardingAndSettings {
 
   /** Skip / finish: the first-shift stage hands over to the working-day stage, which then closes the card */
   public dismissTutorial(): void {
+    if (this.inAppsStage) {
+      this.appsGuideDone = true;
+      this.saveFlag(APPS_GUIDE_STORAGE_KEY, true);
+      this.guideCard.classList.add('hidden');
+      return;
+    }
     if (this.inShiftStage) {
       this.shiftGuideDone = true;
       this.saveFlag(SHIFT_GUIDE_STORAGE_KEY, true);
-      this.guideCard.classList.add('hidden');
+      this.lastGuideFp = '';
+      if (this.appsGuideDone) this.guideCard.classList.add('hidden');
+      else this.renderOnboarding();
       return;
     }
     this.tutorialDismissed = true;
     this.saveTutorialDone(true);
     this.lastGuideFp = '';
-    if (this.shiftGuideDone) {
+    if (this.shiftGuideDone && this.appsGuideDone) {
       this.guideCard.classList.add('hidden');
     } else {
       this.renderOnboarding();
@@ -289,15 +312,22 @@ export class OnboardingAndSettings {
     this.shiftStepBonusDone = false;
     this.shiftStepClockOutDone = false;
     this.shiftGuideStartDay = -1;
+    this.appsGuideDone = false;
+    this.appsSeen.clear();
     this.lastGuideFp = '';
     this.saveTutorialDone(false);
     this.saveFlag(SHIFT_GUIDE_STORAGE_KEY, false);
+    this.saveFlag(APPS_GUIDE_STORAGE_KEY, false);
     this.guideCard.classList.remove('hidden');
     this.renderOnboarding();
   }
 
   /** Tracks live player progress through the 4-step first-shift onboarding checklist */
   public updateOnboarding(player: PlayerState, delivery: DeliveryManager, watch: OnboardingWatch): void {
+    if (this.inAppsStage) {
+      this.updateAppsGuide(watch);
+      return;
+    }
     if (this.inShiftStage) {
       this.updateShiftGuide(delivery, watch);
       return;
@@ -349,7 +379,25 @@ export class OnboardingAndSettings {
     }
   }
 
+  /** Phone apps guide: each app opened once (switching with [Y] or the dock) */
+  private updateAppsGuide(watch: OnboardingWatch): void {
+    if (watch.phoneOut && watch.phoneApp) this.appsSeen.add(watch.phoneApp);
+    this.renderOnboarding();
+    const allDone = ['weather', 'messenger', 'bank'].every((a) => this.appsSeen.has(a));
+    if (allDone && !this.appsGuideClosing) {
+      this.appsGuideClosing = true;
+      window.setTimeout(() => {
+        this.appsGuideClosing = false;
+        if (this.inAppsStage) this.dismissTutorial();
+      }, 3600);
+    }
+  }
+
   private renderOnboarding(): void {
+    if (this.inAppsStage) {
+      this.renderAppsGuide();
+      return;
+    }
     const shift = this.inShiftStage;
     const fp = shift
       ? `shift:${this.shiftStepPeakDone}:${this.shiftStepGoalsDone}:${this.shiftStepBonusDone}:${this.shiftStepClockOutDone}`
@@ -396,6 +444,24 @@ export class OnboardingAndSettings {
           },
         ];
 
+    this.renderSteps(steps);
+  }
+
+  private renderAppsGuide(): void {
+    const seen = (a: string) => this.appsSeen.has(a);
+    const fp = `apps:${[...this.appsSeen].sort().join(',')}`;
+    if (fp === this.lastGuideFp) return;
+    this.lastGuideFp = fp;
+    this.guideTitle.textContent = '📱 휴대폰 앱 가이드';
+    this.renderSteps([
+      { done: seen('weather') || seen('messenger') || seen('bank'), label: '① [Tab]으로 휴대폰을 꺼내고 [Y] (또는 화면 아래 앱 독)로 앱 바꾸기' },
+      { done: seen('weather'), label: '② 🌤️ 날씨 앱: 오늘의 특보·시간별 예보 확인 (비 예보면 정비소 🧥 우비)' },
+      { done: seen('messenger'), label: '③ 💬 메신저: 고객·가게 메시지 확인 — 고객 요청에 빠른 답장하면 +₩300' },
+      { done: seen('bank'), label: '④ 💳 뱅크 앱: 정산·오늘의 목표 확인, 하루를 마치면 🏁 퇴근하기' },
+    ]);
+  }
+
+  private renderSteps(steps: ReadonlyArray<{ done: boolean; label: string }>): void {
     const doneCount = steps.filter((s) => s.done).length;
     this.guideFill.style.width = `${(doneCount / steps.length) * 100}%`;
 
