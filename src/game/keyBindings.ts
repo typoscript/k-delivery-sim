@@ -131,3 +131,34 @@ export function keyLabel(code: string): string {
   if (code.startsWith('Alt')) return 'Alt';
   return code;
 }
+
+let activeBindings: KeyBindings = {};
+
+/** The game sets this from the settings; key hints in UI text read it */
+export function setActiveBindings(b: KeyBindings): void {
+  activeBindings = b;
+}
+
+/** How a default key is written in UI text ('E', 'Tab', 'Shift' ...) */
+const HINT_OF: Record<string, string> = Object.fromEntries(
+  BINDABLE_ACTIONS.map((a) => [a.code, a.code === 'ShiftLeft' ? 'Shift' : keyLabel(a.code)]),
+);
+
+/**
+ * Rewrites the key hints in a UI text to the player's keys: `[E]`, `<kbd>E</kbd>` and `(V)` of a rebound action show
+ * its new key (one pass, so swapped keys do not chain). Text without rebound keys comes back unchanged.
+ */
+export function localizeKeyHints(text: string, bindings: KeyBindings = activeBindings): string {
+  const map = new Map<string, string>();
+  for (const a of BINDABLE_ACTIONS) {
+    const bound = bindings[a.id];
+    if (bound && bound !== a.code) map.set(HINT_OF[a.code], bound === 'ShiftLeft' ? 'Shift' : keyLabel(bound));
+  }
+  if (map.size === 0) return text;
+  const keys = [...map.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const re = new RegExp(`(\\[|<kbd>|\\()(${keys})(\\]|</kbd>|\\))`, 'g');
+  return text.replace(re, (all, open: string, key: string, close: string) => {
+    const pair = (open === '[' && close === ']') || (open === '<kbd>' && close === '</kbd>') || (open === '(' && close === ')');
+    return pair ? `${open}${map.get(key)}${close}` : all;
+  });
+}

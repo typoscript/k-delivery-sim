@@ -253,6 +253,7 @@ export class GameAudio {
 
   /** Celebratory fanfare chime for completing the Daily Delivery Mission (+₩5,000 bonus!) */
   public playMissionBonusFanfare(): void {
+    this.onCue?.('🎉 보너스 팡파르');
     playMissionBonusFanfare(this.sfx);
   }
 
@@ -265,6 +266,7 @@ export class GameAudio {
 
   /** Lunch / dinner rush begins: bright rising "rush hour" jingle */
   public playPeakRushJingle(): void {
+    this.onCue?.('🎵 피크타임 시작');
     playPeakRushJingle(this.sfx);
   }
 
@@ -301,16 +303,19 @@ export class GameAudio {
 
   /** Bright restaurant pickup counter "딩동~ 딩동!" bell ("음식이 준비되었습니다!") */
   public playFoodReadyDingDong(): void {
+    this.onCue?.('🔔 음식 준비 완료 벨');
     playFoodReadyDingDong(this.sfx);
   }
 
   /** Realistic hollow wooden apartment door knock sound ("똑! 똑! 똑!") */
   public playDoorKnockSound(): void {
+    this.onCue?.('🚪 똑똑 (노크)');
     playDoorKnockSound(this.sfx);
   }
 
   /** Apartment intercom doorbell ("딩동~") + synthesized friendly dialogue cadence ("누구세요? 배달이요!") */
   public playIntercomBellAndVoice(): void {
+    this.onCue?.('🔔 인터폰');
     playIntercomBellAndVoice(this.sfx);
   }
 
@@ -327,6 +332,7 @@ export class GameAudio {
 
   /** Synthesizes low-fuel dashboard warning double-beep */
   public playLowFuelWarningBeep(): void {
+    this.onCue?.('⛽ 연료 부족 경고음');
     playLowFuelWarningBeep(this.sfx);
   }
 
@@ -342,6 +348,7 @@ export class GameAudio {
 
   /** Mechanic air-wrench whir & confirmation chime for scooter repair */
   public playRepairSound(): void {
+    this.onCue?.('🔧 정비 소리');
     playRepairSound(this.sfx);
   }
 
@@ -378,11 +385,13 @@ export class GameAudio {
 
   /** Soft modern smartphone wireless charging confirmation harmonic ping */
   public playWirelessChargeStart(): void {
+    this.onCue?.('⚡ 충전 시작음');
     playWirelessChargeStart(this.sfx);
   }
 
   /** Gentle descending low-battery alert chime */
   public playLowBatteryBeep(): void {
+    this.onCue?.('🪫 배터리 부족 경고음');
     playLowBatteryBeep(this.sfx);
   }
 

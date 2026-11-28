@@ -22,6 +22,7 @@ export function stepRoadConditions(ctx: GameContext, loop: LoopState, f: FrameSt
         world.puddles.splashedId = puddle.id;
         ctx.visorRain.splash(Math.min(34, 10 + Math.abs(sp.speed) * 1.6));
         audio.playCargoBoxSound();
+        audio.onCue?.('💦 첨벙 (물웅덩이)');
         // fast through a puddle by the sidewalk: people nearby get soaked
         const soaked =
           Math.abs(sp.speed) > PUDDLE_SPLASH_PEOPLE_SPEED ? pedestrians.splashNear(puddle.x, puddle.z, 4.5) : 0;
@@ -125,6 +126,7 @@ export function stepRoadConditions(ctx: GameContext, loop: LoopState, f: FrameSt
     if (ice && ice.id !== world.blackIce.warnedId) {
       world.blackIce.warnedId = ice.id;
       audio.playCameraApproachBeep(false);
+      audio.onCue?.('🧊 결빙 경고음');
       hud.showToast(
         ice.onBridge
           ? '🧊 다리 위 결빙 주의! 다리는 가장 먼저 얼어요 — 미리 속도를 줄이고 브레이크·급회전 금지'

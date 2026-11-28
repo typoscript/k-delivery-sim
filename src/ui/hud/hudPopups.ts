@@ -1,10 +1,11 @@
+import { localizeKeyHints } from '../../game/keyBindings';
 /** Transient HUD popups: toasts, accident banner, speed camera flash, fine ticket card and customer chat bubble */
 import type { Hud } from '../Hud';
 import { CustomerChatEvent } from '../../delivery/DeliveryManager';
 import { SpeedCameraTriggerEvent } from '../../world/RoadHazardManager';
 
 export function showToast(host: Hud, message: string, durationMs = 2800): void {
-  host.toast.textContent = message;
+  host.toast.textContent = localizeKeyHints(message);
   host.toast.classList.remove('hidden');
   if (host.toastTimer !== null) {
     window.clearTimeout(host.toastTimer);

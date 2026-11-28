@@ -1,3 +1,4 @@
+import { localizeKeyHints } from '../game/keyBindings';
 import { PlayerState } from '../player/PlayerController';
 import { DemandPhase } from '../game/GameClock';
 import { ScooterState } from '../vehicle/ScooterPhysics';
@@ -270,7 +271,7 @@ export class Hud {
 
     const promptHtml = computePromptFn(player, scooter, delivery, navPlan, ctx);
     if (promptHtml && !ctx.modalOpen) {
-      this.interactPrompt.innerHTML = promptHtml;
+      this.interactPrompt.innerHTML = localizeKeyHints(promptHtml);
       this.interactPrompt.classList.remove('hidden');
     } else {
       this.interactPrompt.classList.add('hidden');

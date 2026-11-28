@@ -1,4 +1,12 @@
-import { BINDABLE_ACTIONS, BindableAction, bindKey, codeFor, keyLabel, parseKeyBindings } from '../game/keyBindings';
+import {
+  BINDABLE_ACTIONS,
+  BindableAction,
+  bindKey,
+  codeFor,
+  keyLabel,
+  localizeKeyHints,
+  parseKeyBindings,
+} from '../game/keyBindings';
 import { AccessibilityPrefs, DEFAULT_ACCESSIBILITY, parseAccessibility } from '../game/accessibility';
 import { DEFAULT_NOTIFICATION_PREFS, NotificationPrefs, parseNotificationPrefs } from './phone/notificationPrefs';
 
@@ -642,11 +650,11 @@ export class OnboardingAndSettings {
     this.guideFill.style.width = `${(doneCount / steps.length) * 100}%`;
 
     const firstPending = steps.findIndex((s) => !s.done);
-    this.guideStepList.innerHTML = steps
+    this.guideStepList.innerHTML = localizeKeyHints(steps
       .map((s, idx) => {
         const cls = s.done ? 'ob-step done' : idx === firstPending ? 'ob-step active' : 'ob-step';
         return `<div class="${cls}"><span>${s.done ? '✓' : '○'}</span><span>${s.label}</span></div>`;
       })
-      .join('');
+      .join(''));
   }
 }

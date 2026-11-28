@@ -39,3 +39,18 @@ describe('key rebinding', () => {
     expect(keyLabel('ShiftLeft')).toBe('왼쪽 Shift');
   });
 });
+
+describe('key hints follow the player keys', () => {
+  it('rewrites [E], <kbd>E</kbd> and (V) of rebound actions only, swaps without chaining', async () => {
+    const { localizeKeyHints } = await import('./keyBindings');
+    const text = '배달통 [E] 적재 · <kbd>E</kbd> 열기 · 휴대폰 확대(V) · [Esc] 닫기 · [Tab] 거치';
+    expect(localizeKeyHints(text, {})).toBe(text);
+    expect(localizeKeyHints(text, { interact: 'KeyT', zoom: 'KeyZ' })).toBe(
+      '배달통 [T] 적재 · <kbd>T</kbd> 열기 · 휴대폰 확대(Z) · [Esc] 닫기 · [Tab] 거치',
+    );
+    // forward <-> interact swapped: E shows W and W shows E, not W -> E -> W
+    const swapped = bindKey({}, 'forward', 'KeyE')!;
+    expect(localizeKeyHints('[E] 상호작용 · [W] 가속', swapped)).toBe('[W] 상호작용 · [E] 가속');
+    expect(localizeKeyHints('[Shift] 달리기', { sprint: 'KeyC' })).toBe('[C] 달리기');
+  });
+});
