@@ -28,6 +28,14 @@ describe('bridges and underpasses', () => {
     expect([idx.bridgeCount, idx.tunnelCount]).toEqual([1, 1]);
   });
 
+  it('with a heading, only riding along the structure counts (a road crossing over the underpass is not in it)', () => {
+    const idx = new RoadStructureIndex(nodes, edges);
+    expect(idx.structureAt(52, 30, 0)).toBe('tunnel'); // heading +Z, along the underpass
+    expect(idx.structureAt(52, 30, Math.PI)).toBe('tunnel'); // the other way along it
+    expect(idx.structureAt(52, 30, Math.PI / 2)).toBeNull(); // crossing it at a right angle
+    expect(idx.structureAt(52, 30, 0.5)).toBe('tunnel'); // a little off its line
+  });
+
   it('bridges freeze first and underpasses never do', () => {
     const many = Array.from({ length: 200 }, (_, i) =>
       edge(0, 1, { bridge: i % 2 === 0, tunnel: i % 2 === 1, highway: 'residential' }),

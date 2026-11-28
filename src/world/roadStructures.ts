@@ -15,7 +15,13 @@ interface Segment {
   bz: number;
   halfWidth: number;
   kind: RoadStructure;
+  /** Unit direction along the segment */
+  dirX: number;
+  dirZ: number;
 }
+
+/** Travelling at most ~40° off the structure's direction counts as being on it (not crossing over / under it) */
+const ALONG_COS = 0.75;
 
 const CELL_M = 50;
 
@@ -34,7 +40,17 @@ export class RoadStructureIndex {
       else tunnels++;
       const a = nodes[e.a];
       const b = nodes[e.b];
-      const seg: Segment = { ax: a.x, az: a.z, bx: b.x, bz: b.z, halfWidth: e.width / 2 + 0.5, kind };
+      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      const seg: Segment = {
+        ax: a.x,
+        az: a.z,
+        bx: b.x,
+        bz: b.z,
+        halfWidth: e.width / 2 + 0.5,
+        kind,
+        dirX: (b.x - a.x) / len,
+        dirZ: (b.z - a.z) / len,
+      };
       // register in every cell the segment's padded bounding box touches
       const pad = seg.halfWidth;
       for (
@@ -58,8 +74,14 @@ export class RoadStructureIndex {
     this.tunnelCount = tunnels;
   }
 
-  /** The bridge / underpass under (x, z), or null on an ordinary road (or off the road) */
-  public structureAt(x: number, z: number): RoadStructure | null {
+  /**
+   * The bridge / underpass under (x, z), or null on an ordinary road (or off the road). With `heading` (rad,
+   * 0 = +Z) only a structure the rider travels along counts: the road crossing over an underpass (or under a bridge)
+   * at the same drawn height is not on it.
+   */
+  public structureAt(x: number, z: number, heading?: number): RoadStructure | null {
+    const hx = heading === undefined ? 0 : Math.sin(heading);
+    const hz = heading === undefined ? 0 : Math.cos(heading);
     const list = this.grid.get(`${Math.floor(x / CELL_M)},${Math.floor(z / CELL_M)}`);
     if (!list) return null;
     for (const s of list) {
@@ -69,7 +91,9 @@ export class RoadStructureIndex {
       const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (z - s.az) * dz) / len2));
       const px = s.ax + dx * t - x;
       const pz = s.az + dz * t - z;
-      if (px * px + pz * pz <= s.halfWidth * s.halfWidth) return s.kind;
+      if (px * px + pz * pz > s.halfWidth * s.halfWidth) continue;
+      if (heading !== undefined && Math.abs(hx * s.dirX + hz * s.dirZ) < ALONG_COS) continue;
+      return s.kind;
     }
     return null;
   }
