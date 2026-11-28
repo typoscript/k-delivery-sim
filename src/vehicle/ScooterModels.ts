@@ -172,14 +172,25 @@ export function loadBikeGarage(): BikeGarageSave {
     const parsed = JSON.parse(raw) as Partial<BikeGarageSave>;
     const modelId: ScooterModelId =
       parsed.modelId === 'cub' || parsed.modelId === 'electric' ? parsed.modelId : 'pcx';
-    const paintId: ScooterPaintId =
-      parsed.paintId && parsed.paintId in SCOOTER_PAINTS ? parsed.paintId : 'pearl_white';
-    const ownedModels: ScooterModelId[] = Array.isArray(parsed.ownedModels)
-      ? Array.from(new Set<ScooterModelId>(['pcx', ...parsed.ownedModels]))
-      : ['pcx'];
-    const ownedPaints: ScooterPaintId[] = Array.isArray(parsed.ownedPaints)
-      ? Array.from(new Set<ScooterPaintId>(['pearl_white', ...parsed.ownedPaints]))
-      : ['pearl_white'];
+    // Known ids only (own keys: `'toString' in SCOOTER_PAINTS` is true)
+    const isModel = (m: unknown): m is ScooterModelId => typeof m === 'string' && Object.hasOwn(SCOOTER_MODELS, m);
+    const isPaint = (p: unknown): p is ScooterPaintId => typeof p === 'string' && Object.hasOwn(SCOOTER_PAINTS, p);
+    const paintId: ScooterPaintId = isPaint(parsed.paintId) ? parsed.paintId : 'pearl_white';
+    // The bike / paint in use always counts as owned (older saves had no owned lists)
+    const ownedModels = Array.from(
+      new Set<ScooterModelId>([
+        'pcx',
+        modelId,
+        ...(Array.isArray(parsed.ownedModels) ? parsed.ownedModels.filter(isModel) : []),
+      ]),
+    );
+    const ownedPaints = Array.from(
+      new Set<ScooterPaintId>([
+        'pearl_white',
+        paintId,
+        ...(Array.isArray(parsed.ownedPaints) ? parsed.ownedPaints.filter(isPaint) : []),
+      ]),
+    );
     return { modelId, paintId, ownedModels, ownedPaints };
   } catch {
     return fallback;
