@@ -18,6 +18,12 @@ export interface SkyLook {
 export function skyLookFor(weather: WeatherMode, night: boolean): SkyLook {
   const isRain = weather === 'rain';
   const isCloudy = weather === 'cloudy';
+  if (weather === 'snow') {
+    // overcast and white: thick pale fog, flat light; at night the snow reflects the city glow
+    return night
+      ? { bg: 0x1a2230, fog: 0x2a3444, fogDensity: 0.0048, dirI: 0.22, dirColor: 0x9fb4d0, hemiI: 0.4, lampE: 3.6, windowE: 1.25, buildingE: 0.92 }
+      : { bg: 0xc4ccd6, fog: 0xd3d9e0, fogDensity: 0.0044, dirI: 0.72, dirColor: 0xe8eef6, hemiI: 0.95, lampE: 0.9, windowE: 0.35, buildingE: 0 };
+  }
   if (night) {
     const bg = isRain ? 0x060b14 : isCloudy ? 0x09101d : 0x0b1220;
     return {

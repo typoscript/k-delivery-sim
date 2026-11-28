@@ -22,7 +22,7 @@ export function computeDeliverySheetFingerprint(
   const distFp = navPlan.guidance ? Math.round(navPlan.guidance.totalDistance / 5) : -1;
   const finFp = `${delivery.totalEarnings}:${delivery.fuelExpense}:${delivery.repairExpense}:${delivery.fineExpense}`;
   const revFp = `${delivery.getRecentReviews().length}:${delivery.getRegularShops().length}:${delivery.getDayHistory().length}:${delivery.lifetimeCompleted}`;
-  const fingerprint = `${activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|n:${delivery.isNightMode}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|rv:${revFp}|${player.inCorridor}`;
+  const fingerprint = `${activeTab}|${delivery.selectedMissionId ?? 'auto'}|r:${delivery.isWeatherRaining}|s:${delivery.isWeatherSnowing}|n:${delivery.isNightMode}|${activeFp}|${availFp}|c:${delivery.completedMissions.length}|d:${distFp}|f:${finFp}|rv:${revFp}|${player.inCorridor}`;
   return fingerprint;
 }
 

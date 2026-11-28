@@ -6,7 +6,7 @@
  */
 import type { ActiveMission, DeliveryOrder } from './deliveryTypes';
 
-export type DemandEventId = 'rain_soup' | 'late_snack' | 'lunch_meal' | 'cafe_time';
+export type DemandEventId = 'rain_soup' | 'snow_warm' | 'late_snack' | 'lunch_meal' | 'cafe_time';
 
 export interface DemandEventSpec {
   id: DemandEventId;
@@ -52,6 +52,18 @@ export const DEMAND_EVENTS: Record<DemandEventId, DemandEventSpec> = {
     missedText: '국물이 쏟아져',
     menuNoun: '국물 요리',
   },
+  snow_warm: {
+    id: 'snow_warm',
+    icon: '❄️',
+    label: '눈 오는 날 따끈한 국물',
+    bonus: 1200,
+    pickChance: 0.6,
+    menu: SOUP_MENU,
+    condition: { tempMin: 70 },
+    conditionText: '따뜻하게(온도 70% 이상) 배달 시',
+    missedText: '국물이 식어',
+    menuNoun: '따끈한 국물 요리',
+  },
   late_snack: {
     id: 'late_snack',
     icon: '🍗',
@@ -91,12 +103,13 @@ export const DEMAND_EVENTS: Record<DemandEventId, DemandEventSpec> = {
 };
 
 /**
- * Events running now: rain first (a rainy lunch / night favours soups), then the time of day - the lunch rush
- * (demand phase `lunch_peak`), the quiet afternoon (`afternoon`) or the night.
+ * Events running now: rain or snow first (a rainy / snowy lunch or night favours soups), then the time of day - the
+ * lunch rush (demand phase `lunch_peak`), the quiet afternoon (`afternoon`) or the night.
  */
-export function activeDemandEvents(raining: boolean, night: boolean, phaseId = ''): DemandEventSpec[] {
+export function activeDemandEvents(raining: boolean, night: boolean, phaseId = '', snowing = false): DemandEventSpec[] {
   const out: DemandEventSpec[] = [];
   if (raining) out.push(DEMAND_EVENTS.rain_soup);
+  else if (snowing) out.push(DEMAND_EVENTS.snow_warm);
   if (phaseId === 'lunch_peak') out.push(DEMAND_EVENTS.lunch_meal);
   else if (phaseId === 'afternoon') out.push(DEMAND_EVENTS.cafe_time);
   if (night) out.push(DEMAND_EVENTS.late_snack);

@@ -152,6 +152,8 @@ export class DeliveryManager {
   public lifetimeCompleted = 0; // Lifetime completed deliveries (determines Rider Tier!)
   public career: RiderCareerSave;
   public isWeatherRaining = false;
+  /** Snowing: new calls carry the snow surcharge and the snow-day event (isWeatherRaining is false then) */
+  public isWeatherSnowing = false;
   public isNightMode = false;
   /** Current demand phase from the game clock (call frequency, peak surcharge, kitchen wait) */
   public demandPhase: DemandPhase = demandPhaseAt(SHIFT_START_MINUTE);
@@ -481,8 +483,14 @@ export class DeliveryManager {
   }
 
   public setWeatherRaining(raining: boolean): void {
-    if (this.isWeatherRaining === raining) return;
-    this.isWeatherRaining = raining;
+    this.setWeatherPrecipitation(raining ? 'rain' : null);
+  }
+
+  /** Rain / snow / dry for the call surcharges and weather events */
+  public setWeatherPrecipitation(kind: 'rain' | 'snow' | null): void {
+    if (this.isWeatherRaining === (kind === 'rain') && this.isWeatherSnowing === (kind === 'snow')) return;
+    this.isWeatherRaining = kind === 'rain';
+    this.isWeatherSnowing = kind === 'snow';
     // Immediately refresh unaccepted calls so players see "+₩1,500 우천 할증" calls right away!
     this.refreshAvailableOrders();
   }
@@ -674,7 +682,7 @@ export class DeliveryManager {
       m.chatLoadedElapsedSec += clampedDt;
       if (m.chatLoadedElapsedSec < m.chatTriggerDelaySec) continue;
       m.chatEventTriggered = true;
-      const ev = createCustomerChatEvent(m, this.isWeatherRaining);
+      const ev = createCustomerChatEvent(m, this.isWeatherRaining || this.isWeatherSnowing);
       this.invalidateNavCache();
       onChatEvent(ev);
       break;

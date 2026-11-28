@@ -1,5 +1,5 @@
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
-import { activeDemandEvents } from './demandEvents';
+import { orderSurcharges } from './orderBoard';
 import { buildDeliveryOrder, pickOrderNumber, rollSpecialOrder } from './orderFactory';
 import { DeliveryLocation } from '../types';
 import { BOARD_CHECK_SEC, RivalContest, RivalPosition, contestingRival, pickBoardCallTaken, snatchDelaySec } from './rivalCompetition';
@@ -9,8 +9,6 @@ import {
   DeliveryOrder,
   DispatchOrderType,
   MAX_CONCURRENT_ORDERS,
-  NIGHT_SURCHARGE_BONUS,
-  RAIN_SURCHARGE_BONUS,
 } from './DeliveryManager';
 
 export type DispatchOfferState = 'IDLE' | 'OFFERING' | 'COOLDOWN';
@@ -255,9 +253,7 @@ export class OrderDispatchManager {
     );
 
     const count = type === 'ALTTLE_BUNDLE' ? 2 : 1;
-    const rainBonus = delivery.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0;
-    const nightBonus = delivery.isNightMode ? NIGHT_SURCHARGE_BONUS : 0;
-    const peakBonus = delivery.demandPhase.peakBonus;
+    const surcharges = orderSurcharges(delivery);
     const orders: DeliveryOrder[] = [];
 
     // For ALTTLE_BUNDLE, prefer geographically reasonable pairs (different customers)
@@ -290,7 +286,7 @@ export class OrderDispatchManager {
           type,
           shop,
           customer,
-          surcharges: { rainBonus, nightBonus, peakBonus, events: activeDemandEvents(delivery.isWeatherRaining, delivery.isNightMode, delivery.demandPhase.id) },
+          surcharges,
           special:
             type === 'SINGLE'
               ? rollSpecialOrder(delivery.isNightMode, delivery.demandPhase.isPeak, Math.random, delivery.getReputation().specialChanceMul)

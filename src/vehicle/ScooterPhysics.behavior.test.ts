@@ -74,3 +74,22 @@ describe('ScooterPhysics behaviour', () => {
     expect(a).toMatchSnapshot();
   });
 });
+
+describe('snow', () => {
+  it('brakes worse than a wet road, which brakes worse than a dry one', () => {
+    const stopDistance = (road: Parameters<ScooterPhysics['step']>[3]) => {
+      const p = new ScooterPhysics();
+      p.placeAt(0, 0, 0);
+      p.setMounted(true);
+      for (let t = 0; t < 4; t += DT) p.step(DT, { ...idle, throttle: true }, [], road);
+      const z0 = p.state.z;
+      for (let t = 0; t < 6 && p.state.speed > 0.05; t += DT) p.step(DT, { ...idle, brake: true }, [], road);
+      return p.state.z - z0;
+    };
+    const dry = stopDistance({ isRaining: false, surface: 'none' });
+    const wet = stopDistance({ isRaining: true, surface: 'none' });
+    const snow = stopDistance({ isRaining: true, isSnowing: true, surface: 'none' });
+    expect(wet).toBeGreaterThan(dry);
+    expect(snow).toBeGreaterThan(wet);
+  });
+});

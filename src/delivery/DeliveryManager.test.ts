@@ -355,3 +355,17 @@ describe('DeliveryManager mission flow', () => {
     expect(dm.isRegularCustomer(customer.id)).toBe(true);
   });
 });
+
+describe('weather surcharges on new calls', () => {
+  it('rain stamps ₩1,500, snow ₩2,000 marked as a snow day; dry weather nothing', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    dm.setWeatherPrecipitation('rain');
+    expect(dm.availableOrders.length).toBeGreaterThan(0);
+    expect(dm.availableOrders.every((o) => o.rainBonus === 1500 && !o.snowDay)).toBe(true);
+    dm.setWeatherPrecipitation('snow');
+    expect(dm.isWeatherRaining).toBe(false);
+    expect(dm.availableOrders.every((o) => o.rainBonus === 2000 && o.snowDay)).toBe(true);
+    dm.setWeatherPrecipitation(null);
+    expect(dm.availableOrders.every((o) => o.rainBonus === 0 && !o.snowDay)).toBe(true);
+  });
+});

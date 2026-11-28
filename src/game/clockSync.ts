@@ -69,11 +69,13 @@ const WEATHER_MESSAGES: Record<'auto' | 'manual', Record<WeatherMode, string>> =
     rain: `🌧️ 비가 내리기 시작했어요! 신규 콜 우천 할증 +₩1,500 · ${eventNote(DEMAND_EVENTS.rain_soup)} · 빗길 미끄럼 주의`,
     cloudy: '☁️ 하늘이 흐려졌어요',
     clear: '☀️ 날이 갰어요 · 노면이 마르고 있어요',
+    snow: `❄️ 눈이 내리기 시작했어요! 신규 콜 강설 할증 +₩2,000 · ${eventNote(DEMAND_EVENTS.snow_warm)} · 눈길 미끄럼 주의`,
   },
   manual: {
     rain: `🌧️ 비(우천) 모드! 빗길 맨홀·횡단보도 슬립 주의 · 신규 콜 우천 할증 +₩1,500 · ${eventNote(DEMAND_EVENTS.rain_soup)}`,
     cloudy: '☁️ 흐림 모드 (조명 톤 다운)',
     clear: '☀️ 맑음 모드 (건조 노면)',
+    snow: `❄️ 눈 모드! 눈길은 빗길보다 더 미끄러워요 · 신규 콜 강설 할증 +₩2,000 · ${eventNote(DEMAND_EVENTS.snow_warm)}`,
   },
 };
 
@@ -85,8 +87,8 @@ export function setWeatherMode(ctx: GameContext, mode: WeatherMode, source: 'aut
   const { weather, world, delivery, scooterPhysics, hud, voiceNav, weatherSchedule } = ctx;
   weather.setMode(mode);
   world.setWeather(mode);
-  delivery.setWeatherRaining(mode === 'rain');
-  if (mode === 'rain') scooterPhysics.state.headlights = true;
+  delivery.setWeatherPrecipitation(mode === 'rain' || mode === 'snow' ? mode : null);
+  if (mode === 'rain' || mode === 'snow') scooterPhysics.state.headlights = true;
   if (source === 'manual') weatherSchedule.override(mode);
   if (source === 'silent') return;
   hud.showToast(WEATHER_MESSAGES[source][mode], 3800);
@@ -94,4 +96,5 @@ export function setWeatherMode(ctx: GameContext, mode: WeatherMode, source: 'aut
     ctx.audio.playThunderRumble();
     voiceNav.speak('비가 내리기 시작했습니다. 빗길 운전에 주의하세요.');
   }
+  if (source === 'auto' && mode === 'snow') voiceNav.speak('눈이 내리기 시작했습니다. 눈길 운전에 주의하세요.');
 }

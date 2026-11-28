@@ -28,7 +28,9 @@ export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
     onRefreshOrders: () => {
       r.delivery.refreshAvailableOrders();
       r.hud.showToast(
-        r.delivery.isWeatherRaining
+        r.delivery.isWeatherSnowing
+          ? '❄️ 강설 할증(+₩2,000) 신규 배달 콜을 새로고침했습니다'
+          : r.delivery.isWeatherRaining
           ? '🌧️ 우천 할증(+₩1,500) 신규 배달 콜을 새로고침했습니다'
           : '신규 배달 콜을 새로고침했습니다',
       );

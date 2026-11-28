@@ -2,7 +2,13 @@
 import type { DeliveryManager } from './DeliveryManager';
 import { activeDemandEvents } from './demandEvents';
 import { pickLocalCustomer, pickLocalShop } from './localPairing';
-import { DeliveryOrder, MAX_CONCURRENT_ORDERS, NIGHT_SURCHARGE_BONUS, RAIN_SURCHARGE_BONUS } from './deliveryTypes';
+import {
+  DeliveryOrder,
+  MAX_CONCURRENT_ORDERS,
+  NIGHT_SURCHARGE_BONUS,
+  RAIN_SURCHARGE_BONUS,
+  SNOW_SURCHARGE_BONUS,
+} from './deliveryTypes';
 import {
   OrderSurcharges,
   buildDeliveryOrder,
@@ -13,10 +19,11 @@ import {
 
 export function orderSurcharges(host: DeliveryManager): OrderSurcharges {
   return {
-    rainBonus: host.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
+    rainBonus: host.isWeatherSnowing ? SNOW_SURCHARGE_BONUS : host.isWeatherRaining ? RAIN_SURCHARGE_BONUS : 0,
+    ...(host.isWeatherSnowing ? { snowDay: true } : {}),
     nightBonus: host.isNightMode ? NIGHT_SURCHARGE_BONUS : 0,
     peakBonus: host.demandPhase.peakBonus,
-    events: activeDemandEvents(host.isWeatherRaining, host.isNightMode, host.demandPhase.id),
+    events: activeDemandEvents(host.isWeatherRaining, host.isNightMode, host.demandPhase.id, host.isWeatherSnowing),
   };
 }
 

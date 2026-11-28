@@ -111,7 +111,7 @@ export function settlementLines(r: SettlementResult): ReceiptLine[] {
   const add = (key: string, label: string, amount: number, tone: LineTone = 'income') => {
     if (amount > 0) lines.push({ key, label, amount, tone });
   };
-  add('rain', '🌧️ 우천 할증 보너스', r.rainBonus, 'rain');
+  add('rain', r.order.snowDay ? '❄️ 강설 할증 보너스' : '🌧️ 우천 할증 보너스', r.rainBonus, 'rain');
   add('night', '🌙 심야 할증 보너스', r.nightBonus);
   add('peak', '🔥 피크타임 할증', r.peakBonus);
   const sp = r.order.special ? SPECIAL_ORDERS[r.order.special] : null;

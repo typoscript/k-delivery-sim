@@ -20,6 +20,8 @@ export interface ScooterInput {
 
 export interface RoadCondition {
   isRaining: boolean;
+  /** Snow on the road: wet-road rules (isRaining is true too) plus even less grip */
+  isSnowing?: boolean;
   surface: SlipSurfaceType;
   onSpeedBump?: boolean;
   speedBumpLabel?: string;

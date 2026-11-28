@@ -350,7 +350,7 @@ const runSuite = async () => {
         gameCtx.weatherSchedule.remainingMin = Number.POSITIVE_INFINITY;
         weather.setMode(mode);
         world.setWeather(mode);
-        delivery.setWeatherRaining(mode === 'rain');
+        delivery.setWeatherPrecipitation(mode === 'rain' || mode === 'snow' ? mode : null);
       },
       turnView: (dy) => {
         camController.onFootYaw += dy;

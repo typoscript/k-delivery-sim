@@ -13,6 +13,7 @@ export const MAX_CONCURRENT_ORDERS = 3;
 export const CARGO_SLOT_COUNT = 3;
 export const INTERACT_ZONE_RADIUS = 3.6;
 export const RAIN_SURCHARGE_BONUS = 1500;
+export const SNOW_SURCHARGE_BONUS = 2000; // 눈길 강설 할증 (stored in the order's rainBonus: weather surcharge)
 export const NIGHT_SURCHARGE_BONUS = 1200; // 심야(야간) 배달 할증 +₩1,200
 export const VILLA_STAIR_BONUS = 500; // 엘리베이터 없는 구축 빌라 계단 수고비 +₩500
 export const OPTIMAL_TEMP_BONUS = 300; // 보온/보냉 최적 온도 유지 보너스 +₩300
@@ -297,7 +298,9 @@ export interface DeliveryOrder {
   isSpillSensitive: boolean;
   foodCategoryTag: string;
   baseFee: number;
-  rainBonus: number; // +1500 when generated in Rain mode!
+  rainBonus: number; // weather surcharge: +1500 when generated in rain, +2000 in snow (snowDay)
+  /** Generated while it snowed: rainBonus is the snow surcharge (labels say 강설 instead of 우천) */
+  snowDay?: boolean;
   nightBonus: number; // +1200 when generated in Night mode!
   /** +₩1,000 when generated during a lunch / dinner rush (GameClock demand phase) */
   peakBonus?: number;

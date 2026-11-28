@@ -4,7 +4,7 @@ export const CITY_BLOCK_CENTERS = [-160, -80, 0, 80, 160] as const;
 /** Square half-extent of the drivable world (410m per legacy district, ~3.1km for the unified Suwon map) */
 export const CITY_WORLD_LIMIT = ACTIVE_MAP_DATA.meta.worldLimit;
 
-export type WeatherMode = 'clear' | 'cloudy' | 'rain';
+export type WeatherMode = 'clear' | 'cloudy' | 'rain' | 'snow';
 export type SlipSurfaceType = 'none' | 'manhole' | 'crosswalk_paint';
 export type ResidenceKind = 'apartment' | 'walkup_villa' | 'officetel';
 export type FoodTempType = 'hot' | 'cold';

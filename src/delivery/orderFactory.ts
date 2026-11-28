@@ -21,6 +21,8 @@ export interface OrderSurcharges {
   rainBonus: number;
   nightBonus: number;
   peakBonus: number;
+  /** It is snowing (rainBonus is the snow surcharge) */
+  snowDay?: boolean;
   /** Demand events running now (menu choice + surcharge); none when omitted */
   events?: readonly DemandEventSpec[];
 }
@@ -80,6 +82,7 @@ export function buildDeliveryOrder(opts: {
     rainBonus: opts.surcharges.rainBonus,
     nightBonus: opts.surcharges.nightBonus,
     peakBonus: opts.surcharges.peakBonus,
+    ...(opts.surcharges.snowDay ? { snowDay: true } : {}),
     ...(spec ? { special: spec.kind, specialBonus: spec.bonus } : {}),
     ...(event ? { demandEvent: event.id, eventBonus: event.bonus } : {}),
     ...(opts.regularCustomer ? { regularCustomer: true } : {}),

@@ -358,7 +358,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
   };
 
   const handleCycleWeather = () => {
-    const order = ['clear', 'cloudy', 'rain'] as const;
+    const order = ['clear', 'cloudy', 'rain', 'snow'] as const;
     setWeatherMode(ctx, order[(order.indexOf(weather.mode) + 1) % order.length], 'manual');
   };
 

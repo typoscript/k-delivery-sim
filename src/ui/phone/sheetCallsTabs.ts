@@ -31,7 +31,7 @@ export function renderCallsTab(player: PlayerState, delivery: DeliveryManager): 
           ${o.menuName}
           <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span>
           <span class="inst-badge">${getInstructionMeta(o.deliveryInstruction).badge}</span>
-          ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">🌧️ 우천 +₩${o.rainBonus.toLocaleString()}</span>` : ''}
+          ${o.rainBonus > 0 ? `<span class="rain-bonus-tag">${o.snowDay ? '❄️ 강설' : '🌧️ 우천'} +₩${o.rainBonus.toLocaleString()}</span>` : ''}
           ${o.nightBonus > 0 ? `<span class="night-bonus-tag">🌙 심야 +₩${o.nightBonus.toLocaleString()}</span>` : ''}
           ${(o.peakBonus ?? 0) > 0 ? `<span class="peak-bonus-tag">🔥 피크 +₩${(o.peakBonus ?? 0).toLocaleString()}</span>` : ''}
           ${specialOrderChip(o)}${regularCustomerChip(o)}
@@ -49,7 +49,7 @@ export function renderCallsTab(player: PlayerState, delivery: DeliveryManager): 
 
   return `
     <div class="sheet-header-row">
-      <span class="sheet-title">${delivery.isWeatherRaining ? '🌧️ 우천 할증 콜' : '🔔 신규 배달 콜'}</span>
+      <span class="sheet-title">${delivery.isWeatherSnowing ? '❄️ 강설 할증 콜' : delivery.isWeatherRaining ? '🌧️ 우천 할증 콜' : '🔔 신규 배달 콜'}</span>
       <span class="bundle-cap-pill ${full ? 'full' : ''}">배차 ${delivery.activeMissions.length}/${MAX_CONCURRENT_ORDERS}건</span>
       <button class="sheet-refresh-btn" data-action="refresh" title="콜 새로고침">↻</button>
     </div>
@@ -136,7 +136,7 @@ export function renderAcceptedTab(
             <span class="order-fee">₩${orderDisplayFee(m.order).toLocaleString()}</span>
           </div>
           <div class="order-top">
-            <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ' <span class="rain-bonus-tag">🌧️+1.5천</span>' : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}${(m.order.peakBonus ?? 0) > 0 ? ' <span class="peak-bonus-tag">🔥+1천</span>' : ''}${specialOrderChip(m.order)}${eventOrderChip(m.order)}${regularCustomerChip(m.order)}</span>
+            <span>${m.order.shop.emoji} ${m.order.shop.name} ${delivery.isRegularShop(m.order.shop.id) ? '<span class="regular-shop-tag">⭐단골</span>' : ''} <span class="ord-tag">#${m.order.orderNumber}</span>${slotPill}${m.order.rainBonus > 0 ? ` <span class="rain-bonus-tag">${m.order.snowDay ? '❄️+2천' : '🌧️+1.5천'}</span>` : ''}${m.order.nightBonus > 0 ? ' <span class="night-bonus-tag">🌙+1.2천</span>' : ''}${(m.order.peakBonus ?? 0) > 0 ? ' <span class="peak-bonus-tag">🔥+1천</span>' : ''}${specialOrderChip(m.order)}${eventOrderChip(m.order)}${regularCustomerChip(m.order)}</span>
           </div>
           <div class="order-dest">→ ${m.order.customer.emoji} ${m.order.customer.name} <b>${m.order.unitNumber}</b>${villaPill} <span class="inst-badge">${getInstructionMeta(m.order.deliveryInstruction).badge}</span></div>
           <div class="order-menu" style="margin-top:2px">

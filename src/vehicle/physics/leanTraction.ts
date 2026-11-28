@@ -45,6 +45,7 @@ export function stepLeanTraction(
     } else if (road.surface === 'crosswalk_paint') {
       activeGripLimit *= 0.48; // slick white thermoplastic crosswalk paint!
     }
+    if (road.isSnowing) activeGripLimit *= 0.85; // snow: less lean grip than a wet road
   }
 
   // Wet manhole / crosswalk paint slip risk from braking OR sharp turning!

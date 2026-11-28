@@ -2124,6 +2124,13 @@ kbd {
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
+.weather-pill.snow {
+  background: rgba(226, 232, 240, 0.3);
+  border-color: rgba(241, 245, 249, 0.75);
+  color: #f8fafc;
+  box-shadow: 0 0 12px rgba(241, 245, 249, 0.3);
+}
+
 .order-card.rain-order {
   border-color: rgba(14, 165, 233, 0.45);
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);

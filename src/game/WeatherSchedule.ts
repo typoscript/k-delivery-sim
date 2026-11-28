@@ -1,8 +1,8 @@
 import { WeatherMode } from '../types';
 
 /**
- * Weather that changes on its own with the game clock: clear -> cloudy -> (rain or clear again) -> ...
- * Each weather lasts a random stretch of game time; rain always clears through cloudy.
+ * Weather that changes on its own with the game clock: clear -> cloudy -> (rain, snow or clear again) -> ...
+ * Each weather lasts a random stretch of game time; rain and snow always clear through cloudy.
  * Roughly 15-20% of the day is rainy. A manual change (U key) is kept for at least an hour of game time.
  * Pure logic driven by elapsed game minutes (clock jumps with N do not skip weather), unit tested.
  */
@@ -12,9 +12,12 @@ export const WEATHER_DURATION_MIN: Record<WeatherMode, [number, number]> = {
   clear: [90, 200],
   cloudy: [40, 90],
   rain: [30, 80],
+  snow: [30, 70],
 };
 /** Chance that clouds turn into rain (otherwise they clear up) */
 export const CLOUDY_TO_RAIN_CHANCE = 0.45;
+/** Chance that clouds turn into snow instead (checked after rain) */
+export const CLOUDY_TO_SNOW_CHANCE = 0.15;
 /** A manual weather choice holds at least this long */
 export const MANUAL_HOLD_MIN = 60;
 
@@ -38,8 +41,10 @@ export class WeatherSchedule {
 
   private nextMode(): WeatherMode {
     if (this.mode === 'clear') return 'cloudy';
-    if (this.mode === 'rain') return 'cloudy';
-    return this.rand() < CLOUDY_TO_RAIN_CHANCE ? 'rain' : 'clear';
+    if (this.mode === 'rain' || this.mode === 'snow') return 'cloudy';
+    const r = this.rand();
+    if (r < CLOUDY_TO_RAIN_CHANCE) return 'rain';
+    return r < CLOUDY_TO_RAIN_CHANCE + CLOUDY_TO_SNOW_CHANCE ? 'snow' : 'clear';
   }
 
   /** Advances by `dtMin` game minutes; returns the new weather when it changes, otherwise null */

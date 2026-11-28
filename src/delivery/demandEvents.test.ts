@@ -22,6 +22,14 @@ describe('which events run', () => {
     expect(activeDemandEvents(false, true).map((e) => e.id)).toEqual(['late_snack']);
     expect(activeDemandEvents(true, true).map((e) => e.id)).toEqual(['rain_soup', 'late_snack']);
   });
+
+  it('snow -> warm soups, paid only when they arrive warm', () => {
+    expect(activeDemandEvents(false, true, '', true).map((e) => e.id)).toEqual(['snow_warm', 'late_snack']);
+    const warm = DEMAND_EVENTS.snow_warm;
+    const order = { demandEvent: 'snow_warm' as const, eventBonus: warm.bonus };
+    expect(eventBonusEarned({ order, foodIntegrity: 40, foodTemp: 90 })).toBe(warm.bonus); // spilled but warm
+    expect(eventBonusEarned({ order, foodIntegrity: 100, foodTemp: 60 })).toBe(0); // gone cold
+  });
 });
 
 describe('menus of an event', () => {

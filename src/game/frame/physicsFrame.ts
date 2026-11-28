@@ -29,7 +29,9 @@ export function stepPhysicsFrame(ctx: GameContext, hooks: GameLoopHooks, loop: L
   const roadCondition = inCorridor
     ? { isRaining: false, surface: 'none' as const, onSpeedBump: false }
     : {
-        isRaining: weather.isRaining,
+        // snow is a wet road with even less grip
+        isRaining: weather.isRaining || weather.isSnowing,
+        isSnowing: weather.isSnowing,
         surface: world.getSlipSurfaceAt(scooterPhysics.state.x, scooterPhysics.state.z),
         onSpeedBump: activeBump !== null,
         speedBumpLabel: activeBump?.label,

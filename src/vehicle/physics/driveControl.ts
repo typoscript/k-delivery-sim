@@ -53,6 +53,7 @@ export function stepDrive(
   let brakeGripMul = road.isRaining ? 0.86 : 1.0;
   if (road.isRaining && road.surface === 'manhole') brakeGripMul = 0.55;
   else if (road.isRaining && road.surface === 'crosswalk_paint') brakeGripMul = 0.68;
+  if (road.isSnowing) brakeGripMul *= 0.82; // packed snow: brakes bite even less
   const brakeDecel = (input.handbrake ? 14.5 : 11.5) * brakeGripMul;
   const rollingDrag = 0.55;
   const aeroDrag = 0.0044 * s.speed * absSpeed;
