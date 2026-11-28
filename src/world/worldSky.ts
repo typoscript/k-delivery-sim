@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WeatherMode } from '../types';
+import { setStorefrontNightGlow } from './openworld/openWorldMaterials';
 
 /** Day or night look for one weather */
 export interface SkyLook {
@@ -57,6 +58,8 @@ export interface SkyTargets {
   /** Building wall materials whose emissive window maps light up at night (filled as chunks stream in) */
   buildingNightMats: readonly THREE.MeshStandardMaterial[];
   streetLampPools: THREE.Object3D;
+  /** Shopfront materials (signs / windows light up at night) */
+  nightGlowMats?: readonly THREE.Material[];
   landmarkBuilders: ReadonlyArray<{ setNightMode(isNight: boolean): void }>;
   /** Map-size dependent fog density */
   fogDensity: (legacyDensity: number) => number;
@@ -92,6 +95,7 @@ export class WorldSky {
     for (const lb of this.t.landmarkBuilders) lb.setNightMode(isNight);
     this.t.streetLampPools.visible = isNight;
     for (const bm of this.t.buildingNightMats) bm.emissiveIntensity = mix(day.buildingE, night.buildingE);
+    for (const m of this.t.nightGlowMats ?? []) setStorefrontNightGlow(m, k);
 
     this.skyColor.setHex(day.bg).lerp(this.tmpColor.setHex(night.bg), k);
     scene.background = this.skyColor;

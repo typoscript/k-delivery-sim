@@ -155,6 +155,8 @@ export class CityWorld {
   readonly buildingNightMats: THREE.MeshStandardMaterial[] = [];
   /** @internal world builders */
   readonly streetLampPoolGroup = new THREE.Group();
+  /** @internal shopfront materials whose signs / windows light up at night (setStorefrontNightGlow) */
+  readonly nightGlowMats: THREE.Material[] = [];
   /** Roadside trees / poles / lamps and their light pools (rebuilt per map detail) */
   private readonly streetPropsGroup = new THREE.Group();
   private readonly streetPropPoolsGroup = new THREE.Group();
@@ -309,6 +311,7 @@ export class CityWorld {
       lampGlowMat: this.lampGlowMat,
       windowGlowMat: this.windowGlowMat,
       buildingNightMats: this.buildingNightMats,
+      nightGlowMats: this.nightGlowMats,
       streetLampPools: this.streetLampPoolGroup,
       landmarkBuilders: this.landmarkBuilders,
       fogDensity: (d) => this.fogDensity(d),

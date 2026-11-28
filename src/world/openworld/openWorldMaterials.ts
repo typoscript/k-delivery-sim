@@ -29,9 +29,45 @@ export function createRoadEdgeMaterials(): { roadMarkings: THREE.Material } {
   return { roadMarkings: new THREE.MeshLambertMaterial({ vertexColors: true }) };
 }
 
-/** Ground-floor shopfronts (glass + signboards): unlit vertex colours so signs read at night too */
+/** Warm light of a lit shop interior seen through the glass at night */
+const SHOP_INTERIOR_LIGHT = new THREE.Color(1.0, 0.62, 0.28);
+
+/**
+ * Ground-floor shopfronts (glass + signboards): lit vertex colours by day; at night (`setStorefrontNightGlow`)
+ * the signboards light up in their own colour and the dark glass glows with warm interior light. The glow is
+ * added in the shader (emissive = vertex colour x glow), so it stays one material / one draw call per chunk.
+ */
 export function createStorefrontMaterials(): { storefront: THREE.Material } {
-  return { storefront: new THREE.MeshBasicMaterial({ vertexColors: true }) };
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const uniforms = { uSignGlow: { value: 0 }, uInteriorLight: { value: new THREE.Color(0, 0, 0) } };
+  mat.userData.nightGlow = uniforms;
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uSignGlow;\nuniform vec3 uInteriorLight;')
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        #ifdef USE_COLOR
+          // signs glow in their own colour; the dark glass (low luminance) shows the lit shop inside
+          float shopLum = dot(vColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+          totalEmissiveRadiance += vColor.rgb * uSignGlow + uInteriorLight * (1.0 - smoothstep(0.02, 0.07, shopLum));
+        #endif`
+      );
+  };
+  mat.customProgramCacheKey = () => 'storefront-night-glow';
+  return { storefront: mat };
+}
+
+/** Night glow of the storefront material: 0 = day (plain lit colours) .. 1 = night (signs and windows lit) */
+export function setStorefrontNightGlow(mat: THREE.Material, nightness: number): void {
+  const u = mat.userData.nightGlow as
+    | { uSignGlow: { value: number }; uInteriorLight: { value: THREE.Color } }
+    | undefined;
+  if (!u) return;
+  const k = Math.max(0, Math.min(1, nightness));
+  u.uSignGlow.value = 0.6 * k;
+  u.uInteriorLight.value.copy(SHOP_INTERIOR_LIGHT).multiplyScalar(0.2 * k);
 }
 
 /** Road lettering atlas: one row per word (see ROAD_TEXT_ROWS), white paint on transparent */

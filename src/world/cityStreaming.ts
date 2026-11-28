@@ -23,6 +23,8 @@ export function initOpenWorldStreaming(host: CityWorld): void {
   host.buildingNightMats.push(b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat);
   // chunk walls carry a per-building paint tint (vertex colours) on top of the facade texture
   for (const m of [b.shopWallMat, b.aptWallMat, b.villaWallMat, b.publicWallMat]) m.vertexColors = true;
+  const shopfront = createStorefrontMaterials();
+  host.nightGlowMats.push(shopfront.storefront);
   host.streamer = new ChunkStreamer(
     host.root,
     SUWON_OPEN_WORLD,
@@ -41,7 +43,7 @@ export function initOpenWorldStreaming(host: CityWorld): void {
       }),
       plaza: host.plazaMat ?? new THREE.MeshStandardMaterial({ color: 0xc29e83, roughness: 0.84 }),
       farBuildings: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
-      ...createStorefrontMaterials(),
+      ...shopfront,
       ...createRoadEdgeMaterials(),
       ...createRoadTextMaterial(),
     },
