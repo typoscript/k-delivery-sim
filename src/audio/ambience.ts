@@ -1,4 +1,10 @@
 /** Background loops: rain by intensity (muffled indoors) and the elevator hum */
+
+/**
+ * Peak gains of the noise beds, balanced against the rain bed (0.34 at full rain): the wind of a strong gust sits
+ * just under heavy rain, a stream at the water's edge well under it - both under the engine and the voice
+ */
+export const AMBIENCE_MIX = { wind: 0.26, water: 0.18 } as const;
 import type { GameAudio } from './GameAudio';
 
 /** Continuous low traction-motor hum while riding the 3D apartment elevator */
@@ -21,7 +27,7 @@ export function setElevatorHum(host: GameAudio, active: boolean): void {
     host.elevHumOsc = osc;
     host.elevHumGain = g;
   }
-  const target = active && !host.muted ? 0.14 : 0;
+  const target = active && !host.muted ? 0.14 * host.ambienceVolume : 0;
   host.elevHumGain.gain.setTargetAtTime(target, now, 0.12);
 }
 
@@ -37,7 +43,7 @@ export function updateWeatherAudio(host: GameAudio, rainIntensity: number, inCor
     host.rainGain.gain.setValueAtTime(0, now);
     return;
   }
-  const targetVol = 0.34 * rainIntensity;
+  const targetVol = 0.34 * rainIntensity * host.ambienceVolume;
   host.rainGain.gain.setTargetAtTime(targetVol, now, 0.14);
 }
 
@@ -94,7 +100,7 @@ export function setWindAmbience(host: GameAudio, level: number): void {
   if (!bed || !host.ctx) return;
   const now = host.ctx.currentTime;
   const l = host.muted ? 0 : Math.max(0, Math.min(1, level));
-  bed.gain.gain.setTargetAtTime(0.42 * l, now, 0.25);
+  bed.gain.gain.setTargetAtTime(AMBIENCE_MIX.wind * host.ambienceVolume * l, now, 0.25);
   bed.filter.frequency.setTargetAtTime(300 + 900 * l, now, 0.3);
 }
 
@@ -104,5 +110,5 @@ export function setWaterAmbience(host: GameAudio, level: number): void {
   if (!bed || !host.ctx) return;
   const now = host.ctx.currentTime;
   const l = host.muted ? 0 : Math.max(0, Math.min(1, level));
-  bed.gain.gain.setTargetAtTime(0.3 * l, now, 0.4);
+  bed.gain.gain.setTargetAtTime(AMBIENCE_MIX.water * host.ambienceVolume * l, now, 0.4);
 }

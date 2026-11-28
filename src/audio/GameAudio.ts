@@ -98,6 +98,8 @@ export class GameAudio {
   elevHumGain: GainNode | null = null;
 
   public muted = false;
+  /** Background loops level (설정 환경음), multiplies rain / wind / water / elevator hum */
+  public ambienceVolume = 1;
   public masterVolume = 0.8;
   /** Effect modules (sfx/*) play through these */
   private readonly sfx: Sfx = {

@@ -28,6 +28,7 @@ export interface OnboardingWatch {
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   masterVolume: 0.8,
+  ambienceVolume: 1,
   voiceNaviEnabled: true,
   mouseSensitivity: 1.0,
   graphicsQuality: 'high',
@@ -144,6 +145,14 @@ export class OnboardingAndSettings {
       this.persistAndApply();
     });
 
+    const ambIn = document.getElementById('set-ambience') as HTMLInputElement | null;
+    ambIn?.addEventListener('input', () => {
+      this.settings.ambienceVolume = Number(ambIn.value) / 100;
+      const v = document.getElementById('set-ambience-val');
+      if (v) v.textContent = `${Math.round(this.settings.ambienceVolume * 100)}%`;
+      this.persistAndApply();
+    });
+
     this.voiceToggle.addEventListener('change', () => {
       this.settings.voiceNaviEnabled = this.voiceToggle.checked;
       this.persistAndApply();
@@ -226,6 +235,10 @@ export class OnboardingAndSettings {
           typeof parsed.masterVolume === 'number'
             ? Math.max(0, Math.min(1, parsed.masterVolume))
             : DEFAULT_GAME_SETTINGS.masterVolume,
+        ambienceVolume:
+          typeof parsed.ambienceVolume === 'number' && Number.isFinite(parsed.ambienceVolume)
+            ? Math.max(0, Math.min(1, parsed.ambienceVolume))
+            : DEFAULT_GAME_SETTINGS.ambienceVolume,
         voiceNaviEnabled:
           typeof parsed.voiceNaviEnabled === 'boolean'
             ? parsed.voiceNaviEnabled
@@ -269,6 +282,10 @@ export class OnboardingAndSettings {
   private syncControlsFromState(): void {
     this.volInput.value = String(Math.round(this.settings.masterVolume * 100));
     this.volValEl.textContent = `${Math.round(this.settings.masterVolume * 100)}%`;
+    const ambIn = document.getElementById('set-ambience') as HTMLInputElement | null;
+    if (ambIn) ambIn.value = String(Math.round(this.settings.ambienceVolume * 100));
+    const ambVal = document.getElementById('set-ambience-val');
+    if (ambVal) ambVal.textContent = `${Math.round(this.settings.ambienceVolume * 100)}%`;
     this.voiceToggle.checked = this.settings.voiceNaviEnabled;
     this.sensInput.value = String(this.settings.mouseSensitivity);
     this.sensValEl.textContent = `${this.settings.mouseSensitivity.toFixed(1)}x`;

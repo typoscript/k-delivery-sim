@@ -117,6 +117,8 @@ export type GraphicsQuality = 'high' | 'medium' | 'low';
 
 export interface GameSettings {
   masterVolume: number; // 0..1
+  /** Background loops (rain, wind on bridges, running water, elevator hum) on top of the master volume, 0..1 */
+  ambienceVolume: number;
   voiceNaviEnabled: boolean;
   mouseSensitivity: number; // 0.5..2.0
   graphicsQuality: GraphicsQuality;

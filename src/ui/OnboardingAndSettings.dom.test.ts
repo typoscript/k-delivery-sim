@@ -129,3 +129,21 @@ describe('settings saved by older versions', () => {
     expect((document.getElementById('set-notif-quietRiding') as HTMLInputElement).checked).toBe(false);
   });
 });
+
+describe('ambience volume (DOM)', () => {
+  beforeEach(() => loadGamePageDom());
+
+  it('the slider sets and saves the ambience level; older settings get 100%', () => {
+    window.localStorage.setItem('k_delivery_settings_v1', JSON.stringify({ masterVolume: 0.5 }));
+    const applied: number[] = [];
+    const ob = new OnboardingAndSettings({ ...callbacks, onApplySettings: (s) => applied.push(s.ambienceVolume) });
+    expect(ob.settings.ambienceVolume).toBe(1);
+    expect(document.getElementById('set-ambience-val')!.textContent).toBe('100%');
+    const slider = document.getElementById('set-ambience') as HTMLInputElement;
+    slider.value = '35';
+    slider.dispatchEvent(new Event('input'));
+    expect(ob.settings.ambienceVolume).toBe(0.35);
+    expect(applied.at(-1)).toBe(0.35);
+    expect(new OnboardingAndSettings(callbacks).settings.ambienceVolume).toBe(0.35);
+  });
+});
