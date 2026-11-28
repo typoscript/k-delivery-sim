@@ -1,3 +1,4 @@
+import { localizeKeyHints } from '../../game/keyBindings';
 import { CityMapInfo } from '../../world/CityWorld';
 import { eventOrderChip, regularCustomerChip, specialOrderChip, specialOrderTag } from './orderTags';
 import { DeliveryManager, NavigationPlan, getInstructionMeta } from '../../delivery/DeliveryManager';
@@ -112,7 +113,7 @@ export function syncCookingBanner(cookingBannerEl: HTMLElement, delivery: Delive
     cookingBannerEl.innerHTML = `
       <div style="display:flex;justify-content:space-between;gap:6px">
         <span>🔔 ${cm.order.shop.name} [#${cm.order.orderNumber}] 조리 완료!</span>
-        <span>트레이 [E] 수령</span>
+        <span>${localizeKeyHints('트레이 [E] 수령')}</span>
       </div>
       <div class="phone-ck-track"><div class="phone-ck-fill" style="width:100%"></div></div>
     `;

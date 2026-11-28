@@ -1,3 +1,4 @@
+import { localizeCanvasText } from '../game/keyBindings';
 import * as THREE from 'three';
 import { PlayerState } from '../player/PlayerController';
 import { ScooterState } from '../vehicle/ScooterPhysics';
@@ -210,6 +211,9 @@ export class PhoneMap {
     this.texCanvas.width = 360;
     this.texCanvas.height = 680;
     this.texCtx = this.texCanvas.getContext('2d')!;
+    // the 3D screen and the zoomed map write key hints ([V], [Tab] ...): show the player's keys
+    localizeCanvasText(this.texCtx);
+    localizeCanvasText(this.zoomCtx);
     this.screenTexture = new THREE.CanvasTexture(this.texCanvas);
     this.screenTexture.colorSpace = THREE.SRGBColorSpace;
     this.screenTexture.minFilter = THREE.LinearFilter;

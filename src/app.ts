@@ -1,4 +1,4 @@
-import { localizeKeyHints, setActiveBindings } from './game/keyBindings';
+import { localizeStaticKeyHints, setActiveBindings } from './game/keyBindings';
 import { SubtitleBar } from './ui/subtitles';
 import { motionScale, setColorSafe } from './game/accessibility';
 import { baselineFromRuns, checkAgainstBaseline, formatDelta } from './game/perf/benchBaseline';
@@ -181,11 +181,7 @@ const applyGameSettings = (s: GameSettings) => {
   subtitles.enabled = s.accessibility.subtitles;
   // key hints in the HUD / help / guide follow the player's keys
   setActiveBindings(s.keyBindings);
-  const help = document.getElementById('help-panel');
-  if (help) {
-    help.dataset.original ??= help.innerHTML;
-    help.innerHTML = localizeKeyHints(help.dataset.original);
-  }
+  localizeStaticKeyHints();
   if (roadNavigator.avoidIce !== s.avoidIceRoutes) {
     roadNavigator.avoidIce = s.avoidIceRoutes;
     delivery.invalidateNavCache();

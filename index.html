@@ -49,7 +49,7 @@
           <button id="open-settings-btn" class="mini-btn" title="설정 메뉴 열기 (O)">⚙️ 설정</button>
           <button id="toggle-help-btn" class="mini-btn" title="조작법 열기/닫기 (F1)">조작법</button>
         </div>
-        <div id="help-panel" class="help-grid">
+        <div id="help-panel" class="help-grid" data-key-hints>
           <div><kbd>F</kbd> <strong>오토바이 탑승 / 하차</strong></div>
           <div><kbd>E</kbd> <strong>픽업 / 배달통 슬롯 / 배달</strong> (도보)</div>
           <div><kbd>Tab</kbd> <strong>휴대폰 꺼내기 / 거치대 장착</strong></div>
@@ -76,7 +76,7 @@
       </div>
 
       <!-- Rainy Visor Wipe Hint Chip -->
-      <div id="visor-wipe-hint" class="visor-wipe-hint hidden">
+      <div id="visor-wipe-hint" class="visor-wipe-hint hidden" data-key-hints>
         🌧️ 바이저 빗방울 시야 흐림 · <kbd>G</kbd> 장갑 손으로 닦기
       </div>
 
@@ -201,7 +201,7 @@
             <div id="phone-dead-overlay" class="phone-dead-overlay hidden">
               <div class="pdo-icon">🪫</div>
               <div class="pdo-title">배터리 방전 (0%)</div>
-              <div class="pdo-desc">오토바이 거치대에 <kbd>Tab</kbd>으로 장착해 시동을 켜면 <b>무선충전</b>되거나, <b>🏪 K-24 편의점</b>에서 보조배터리를 충전하세요!</div>
+              <div class="pdo-desc" data-key-hints>오토바이 거치대에 <kbd>Tab</kbd>으로 장착해 시동을 켜면 <b>무선충전</b>되거나, <b>🏪 K-24 편의점</b>에서 보조배터리를 충전하세요!</div>
             </div>
 
             <!-- Capacitive Screen Touch Ripple Overlay -->
@@ -400,7 +400,7 @@
             <div class="lean-track">
               <div id="fuel-bar" class="lean-fill safe" style="width: 100%"></div>
             </div>
-            <div class="ride-sub">정차 후 <kbd>F</kbd> 하차 · 주유소/정비소 <kbd>E</kbd></div>
+            <div class="ride-sub" data-key-hints>정차 후 <kbd>F</kbd> 하차 · 주유소/정비소 <kbd>E</kbd></div>
           </div>
         </div>
 

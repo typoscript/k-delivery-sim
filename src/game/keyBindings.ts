@@ -148,17 +148,45 @@ const HINT_OF: Record<string, string> = Object.fromEntries(
  * Rewrites the key hints in a UI text to the player's keys: `[E]`, `<kbd>E</kbd>` and `(V)` of a rebound action show
  * its new key (one pass, so swapped keys do not chain). Text without rebound keys comes back unchanged.
  */
+let hintCache: { bindings: KeyBindings; map: Map<string, string>; re: RegExp | null } | null = null;
+
 export function localizeKeyHints(text: string, bindings: KeyBindings = activeBindings): string {
+  // the canvas text of the phone runs through here many times a second: build the pattern once per bindings
+  if (hintCache?.bindings === bindings) {
+    const { map, re } = hintCache;
+    return re ? text.replace(re, (all, open: string, key: string, close: string) => swap(all, open, key, close, map)) : text;
+  }
   const map = new Map<string, string>();
   for (const a of BINDABLE_ACTIONS) {
     const bound = bindings[a.id];
     if (bound && bound !== a.code) map.set(HINT_OF[a.code], bound === 'ShiftLeft' ? 'Shift' : keyLabel(bound));
   }
-  if (map.size === 0) return text;
+  if (map.size === 0) {
+    hintCache = { bindings, map, re: null };
+    return text;
+  }
   const keys = [...map.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   const re = new RegExp(`(\\[|<kbd>|\\()(${keys})(\\]|</kbd>|\\))`, 'g');
-  return text.replace(re, (all, open: string, key: string, close: string) => {
-    const pair = (open === '[' && close === ']') || (open === '<kbd>' && close === '</kbd>') || (open === '(' && close === ')');
-    return pair ? `${open}${map.get(key)}${close}` : all;
+  hintCache = { bindings, map, re };
+  return text.replace(re, (all, open: string, key: string, close: string) => swap(all, open, key, close, map));
+}
+
+function swap(all: string, open: string, key: string, close: string, map: Map<string, string>): string {
+  const pair = (open === '[' && close === ']') || (open === '<kbd>' && close === '</kbd>') || (open === '(' && close === ')');
+  return pair ? `${open}${map.get(key)}${close}` : all;
+}
+
+/** Makes a canvas draw its text with the player's key hints (the 3D phone screen, the zoomed phone map) */
+export function localizeCanvasText(ctx: CanvasRenderingContext2D): void {
+  const fillText = ctx.fillText.bind(ctx);
+  ctx.fillText = (text: string, x: number, y: number, maxWidth?: number) =>
+    maxWidth === undefined ? fillText(localizeKeyHints(text), x, y) : fillText(localizeKeyHints(text), x, y, maxWidth);
+}
+
+/** Rewrites the key hints of the static page parts marked `data-key-hints` (their original HTML is kept) */
+export function localizeStaticKeyHints(root: ParentNode = document): void {
+  root.querySelectorAll<HTMLElement>('[data-key-hints]').forEach((el) => {
+    el.dataset.keyHintsOriginal ??= el.innerHTML;
+    el.innerHTML = localizeKeyHints(el.dataset.keyHintsOriginal);
   });
 }
