@@ -2,36 +2,36 @@
 
 exports[`ScooterMesh > builds the same cub scooter every time 1`] = `
 {
-  "colorHash": 64695008,
-  "hash": -1368674322,
+  "colorHash": -314935500,
+  "hash": 994729272,
   "instances": 0,
-  "meshes": 71,
+  "meshes": 49,
   "sceneChildren": 1,
-  "vertices": 2512,
-  "visible": 58,
+  "vertices": 3232,
+  "visible": 39,
 }
 `;
 
 exports[`ScooterMesh > builds the same electric scooter every time 1`] = `
 {
-  "colorHash": 1663207427,
-  "hash": -1368674322,
+  "colorHash": 2045907034,
+  "hash": 994729272,
   "instances": 0,
-  "meshes": 71,
+  "meshes": 49,
   "sceneChildren": 1,
-  "vertices": 2512,
-  "visible": 56,
+  "vertices": 3232,
+  "visible": 37,
 }
 `;
 
 exports[`ScooterMesh > builds the same pcx scooter every time 1`] = `
 {
-  "colorHash": 73714618,
-  "hash": -1368674322,
+  "colorHash": -932498176,
+  "hash": 994729272,
   "instances": 0,
-  "meshes": 71,
+  "meshes": 49,
   "sceneChildren": 1,
-  "vertices": 2512,
-  "visible": 56,
+  "vertices": 3232,
+  "visible": 38,
 }
 `;

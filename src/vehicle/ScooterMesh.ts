@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStaticByMaterial } from '../world/instancing';
 import { SideMirrors } from './scooter/sideMirrors';
 import { drawDashboardCluster } from './scooter/dashboardCluster';
 import { ScooterState } from './ScooterPhysics';
@@ -97,6 +98,31 @@ export class ScooterMesh {
   readonly cubTrimGroup = new THREE.Group();
   /** @internal scooter/* */
   readonly evTrimGroup = new THREE.Group();
+
+  /**
+   * The body is built from ~50 boxes and cylinders: merge the ones that never move on their own into one mesh per
+   * material (~32 -> ~half the draw calls for the scooter in view). Everything the scooter keeps a reference to -
+   * wheels, steering, kickstand, model trims (toggled per model), cargo box, lights, mirrors, the phone - stays as it
+   * is, with all of its children. Materials are shared, so paint changes and glowing lights keep working.
+   */
+  private mergeStaticParts(): void {
+    const keep = new Set<THREE.Object3D>();
+    for (const v of Object.values(this) as unknown[]) {
+      const list = Array.isArray(v) ? v : [v];
+      for (const o of list) if (o instanceof THREE.Object3D) keep.add(o);
+    }
+    keep.delete(this.root);
+    keep.delete(this.bodyTiltGroup);
+    // lights hang off meshes in places: keep a light's parent too
+    this.bodyTiltGroup.traverse((o) => {
+      if ((o as THREE.Light).isLight && o.parent && o.parent !== this.bodyTiltGroup) keep.add(o.parent);
+    });
+    mergeStaticByMaterial(this.bodyTiltGroup, (o) => keep.has(o));
+    // groups that move as a whole (steering, trims, cargo box...) still merge their own static parts
+    for (const g of keep) {
+      if (g instanceof THREE.Group && g.children.length > 1) mergeStaticByMaterial(g, (o) => o !== g && keep.has(o));
+    }
+  }
 
   constructor(scene: THREE.Scene, phoneScreenTexture: THREE.CanvasTexture) {
     this.headlightMat = new THREE.MeshStandardMaterial({
@@ -215,6 +241,7 @@ export class ScooterMesh {
     this.riderMountPoint.position.set(0, 0.86, 0.28);
     this.bodyTiltGroup.add(this.riderMountPoint);
 
+    this.mergeStaticParts();
     scene.add(this.root);
   }
 
