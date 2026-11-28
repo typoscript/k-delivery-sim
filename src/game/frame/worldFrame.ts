@@ -255,6 +255,13 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
       carBodies,
     );
 
+    if (!inCorridor) {
+      world.updateStreamStrollers(
+        dt,
+        isRiding ? scooterPhysics.state.x : playerCtrl.state.x,
+        isRiding ? scooterPhysics.state.z : playerCtrl.state.z,
+      );
+    }
     perf.lap('pedestrians');
     roadHazards.step(
       dt,

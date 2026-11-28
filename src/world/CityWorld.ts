@@ -1,3 +1,4 @@
+import { StreamStrollers } from './pedestrians/streamStrollers';
 import { isWadingAt } from './streamPaths';
 import type { WaterLineData } from './openworld/OpenWorldTypes';
 import * as THREE from 'three';
@@ -414,13 +415,38 @@ export class CityWorld {
   private streamLines: WaterLineData[] = [];
   private streamLinesVersion = -1;
 
-  /** Standing in a stream's water at (x, z) - not on a stepping stone, bridge or road (open world only) */
-  public isWadingAt(x: number, z: number): boolean {
-    if (!this.streamer) return false;
-    if (this.streamer.version !== this.streamLinesVersion) {
+  /** People strolling on the stream walkways (open world only, made on first use) */
+  private strollers: StreamStrollers | null = null;
+
+  /** Steps the stream-walkway strollers around (px, pz) */
+  public updateStreamStrollers(dt: number, px: number, pz: number): void {
+    if (!this.streamer) return;
+    this.refreshStreamLines();
+    if (!this.strollers) {
+      if (this.streamLines.length === 0) return;
+      this.strollers = new StreamStrollers(this.root);
+    }
+    this.strollers.setWeather(this.weatherMode);
+    const grid = activeRoadProximity();
+    this.strollers.update(dt, px, pz, this.streamLines, (x, z) => grid.curbOffset(x, z));
+  }
+
+  /** The stream-walkway strollers (null until a stream was near) */
+  public get streamStrollers(): StreamStrollers | null {
+    return this.strollers;
+  }
+
+  private refreshStreamLines(): void {
+    if (this.streamer && this.streamer.version !== this.streamLinesVersion) {
       this.streamLinesVersion = this.streamer.version;
       this.streamLines = this.streamer.getBuiltChunkData().flatMap((c) => c.waterLines);
     }
+  }
+
+  /** Standing in a stream's water at (x, z) - not on a stepping stone, bridge or road (open world only) */
+  public isWadingAt(x: number, z: number): boolean {
+    if (!this.streamer) return false;
+    this.refreshStreamLines();
     if (this.streamLines.length === 0) return false;
     const grid = activeRoadProximity();
     return isWadingAt(this.streamLines, x, z, (px, pz) => grid.curbOffset(px, pz));
