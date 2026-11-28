@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BlackIceField, blackIceStage } from '../world/blackIce';
+import * as THREE from 'three';
+import { BlackIceField, blackIceStage, iceSheenRects } from '../world/blackIce';
+import { IceSheen } from '../world/iceSheen';
 import { buildWeatherReport } from './weatherReport';
 import { WIND_MIN_KMH, WIND_PEAK_MS, bridgeGust, windLevelFor, windRollFor } from './bridgeWind';
 import { seasonOfDay } from './seasons';
@@ -95,5 +97,44 @@ describe('crosswind feel', () => {
     expect(Math.abs(windRollFor(0))).toBe(0);
     expect(windLevelFor(0)).toBeCloseTo(0.25);
     expect(windLevelFor(WIND_PEAK_MS)).toBe(1);
+  });
+});
+
+describe('icy bridge sheen', () => {
+  it('only frozen bridge decks glisten, laid along the bridge', () => {
+    const rects = iceSheenRects([
+      { id: 1, x: 10, z: 20, radius: 6, onBridge: true, dirX: 1, dirZ: 0 },
+      { id: 2, x: 50, z: 50, radius: 4 }, // shaded street: stays black ice
+    ]);
+    expect(rects).toHaveLength(1);
+    expect(rects[0]).toMatchObject({ x: 10, z: 20, length: 6 * 2.2, width: 6 * 1.3 });
+    expect(rects[0].heading).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('the sheen mesh follows the ice (one instance per bridge patch, none when thawed)', () => {
+    const nodes = [
+      { id: 0, x: 0, z: 0, isSignal: false },
+      { id: 1, x: 0, z: 100, isSignal: false },
+    ] as never[];
+    const edges = Array.from({ length: 40 }, () => ({
+      a: 0,
+      b: 1,
+      dist: 100,
+      width: 8,
+      highway: 'primary',
+      name: '',
+      isMajor: true,
+      bridge: true,
+    }));
+    const field = new BlackIceField(nodes, edges as never);
+    const sheen = new IceSheen(new THREE.Group());
+    field.set(3, 'bridges');
+    sheen.sync(field);
+    expect(sheen.mesh.count).toBe(field.patches.length);
+    expect(sheen.mesh.count).toBeGreaterThan(0);
+    field.set(3, 'none');
+    sheen.sync(field);
+    expect(sheen.mesh.count).toBe(0);
+    expect(sheen.mesh.visible).toBe(false);
   });
 });

@@ -131,7 +131,21 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
         bi.crossingId = on.id;
         bi.crashedOnCrossing = false;
       }
-      if (bi.crossingId >= 0 && sp.crashed) bi.crashedOnCrossing = true;
+      if (bi.crossingId >= 0 && sp.crashed && !bi.crashedOnCrossing) {
+        bi.crashedOnCrossing = true;
+        // the first fall on ice this session: how to ride it
+        if (!loop.iceTipShown) {
+          loop.iceTipShown = true;
+          window.setTimeout(
+            () =>
+              hud.showToast(
+                '🧊 빙판 요령: 얼음 위에선 브레이크·급회전 대신 스로틀을 살짝 풀고 곧게 지나가세요 · 다리 위가 반짝이면 얼어 있어요',
+                5200,
+              ),
+            1600,
+          );
+        }
+      }
       if (!on && bi.crossingId >= 0) {
         if (!bi.crashedOnCrossing) {
           delivery.progress.bump(ICE_PASS_COUNTER);

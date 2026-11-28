@@ -114,6 +114,7 @@ export function applyGameClock(ctx: GameContext, announce = true, dtGameMin = 0)
   const icy = iceStage !== 'none';
   const stageBefore = world.blackIce.currentStage;
   world.blackIce.set(delivery.shiftDay, iceStage); // cheap when nothing changed; a new working day freezes other spots
+  world.syncIceSheen();
   if (announce && iceStage !== stageBefore) {
     if (iceStage === 'bridges' && stageBefore === 'none') {
       weatherPush(hud, '🧊 해가 졌어요 · 다리 위부터 얼기 시작해요! 휴대폰 지도의 🧊 다리 구간에선 브레이크·급회전 금지', 5200);

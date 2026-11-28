@@ -1,3 +1,4 @@
+import { IceSheen } from './iceSheen';
 import { StreamWater } from './streamWater';
 import { StreamStrollers } from './pedestrians/streamStrollers';
 import { isWadingAt } from './streamPaths';
@@ -415,6 +416,16 @@ export class CityWorld {
 
   private streamLines: WaterLineData[] = [];
   private streamLinesVersion = -1;
+
+  /** Glassy sheen on frozen bridge decks (made the first time ice forms) */
+  private iceSheen: IceSheen | null = null;
+
+  /** Keeps the bridge-deck sheen in step with today's ice (cheap when nothing changed) */
+  public syncIceSheen(): void {
+    if (!this.iceSheen && !this.blackIce.isActive) return;
+    if (!this.iceSheen) this.iceSheen = new IceSheen(this.root);
+    this.iceSheen.sync(this.blackIce);
+  }
 
   /** Flowing stream water material (open world only) */
   streamWater?: StreamWater;

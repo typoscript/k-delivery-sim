@@ -93,6 +93,8 @@ export class BlackIceField {
   /** The patch the rider is crossing right now (-1: none) and whether they went down on it */
   public crossingId = -1;
   public crashedOnCrossing = false;
+  /** Bumped whenever the frozen spots change (the bridge sheen redraws) */
+  public version = 0;
 
   constructor(
     private readonly nodes: readonly OsmGraphNode[],
@@ -117,6 +119,7 @@ export class BlackIceField {
     if (day === this.day && s === this.stage) return;
     this.day = day;
     this.stage = s;
+    this.version++;
     this.patches.length = 0;
     this.grid.clear();
     if (s === 'none') return;
@@ -160,4 +163,20 @@ export class BlackIceField {
     }
     return best;
   }
+}
+
+/** Up to this many icy bridge decks glisten at once (one InstancedMesh) */
+export const MAX_ICE_SHEENS = 96;
+
+/**
+ * Where the icy bridge decks glisten: one flat rectangle per frozen bridge patch, along the bridge (length 2.2 x the
+ * patch radius, about the road's width across). Shaded street ice stays invisible - that is what black ice is.
+ */
+export function iceSheenRects(
+  patches: readonly IcePatch[],
+): Array<{ x: number; z: number; heading: number; length: number; width: number }> {
+  return patches
+    .filter((p) => p.onBridge && p.dirX !== undefined && p.dirZ !== undefined)
+    .slice(0, MAX_ICE_SHEENS)
+    .map((p) => ({ x: p.x, z: p.z, heading: Math.atan2(p.dirX!, p.dirZ!), length: p.radius * 2.2, width: p.radius * 1.3 }));
 }
