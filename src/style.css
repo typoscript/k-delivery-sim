@@ -5707,3 +5707,8 @@ body.phone-3d-hover canvas {
   color: #94a3b8;
   padding: 10px 2px;
 }
+
+/* phone power saving (battery 15% or less) */
+.phone-device.power-save .phone-screen {
+  filter: brightness(0.72);
+}

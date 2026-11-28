@@ -15,6 +15,8 @@ import { resolveAreaName } from './phoneFormat';
 
 /** Phone map / screen refresh interval (10Hz): the map canvas is the costliest 2D draw per frame */
 const PHONE_MAP_REFRESH_SEC = 0.1;
+/** Power saving: the phone screens redraw only a few times a second */
+const POWER_SAVE_REFRESH_SEC = 0.4;
 
 export function update(
   host: PhoneMap,
@@ -129,7 +131,7 @@ export function update(
       !interacting &&
       !resized &&
       host.lastZoomMapRenderTime >= 0 &&
-      elapsedTime - host.lastZoomMapRenderTime < PHONE_MAP_REFRESH_SEC
+      elapsedTime - host.lastZoomMapRenderTime < (host.powerSave ? POWER_SAVE_REFRESH_SEC : PHONE_MAP_REFRESH_SEC)
     ) {
       return;
     }
@@ -156,7 +158,8 @@ export function update(
     );
   } else {
     // Throttle 3D CanvasTexture redraw + GPU upload to 10Hz
-    if (elapsedTime - host.last3DRenderTime < PHONE_MAP_REFRESH_SEC && host.last3DRenderTime >= 0) {
+    const refresh = host.powerSave ? POWER_SAVE_REFRESH_SEC : PHONE_MAP_REFRESH_SEC;
+    if (elapsedTime - host.last3DRenderTime < refresh && host.last3DRenderTime >= 0) {
       return;
     }
     host.last3DRenderTime = elapsedTime;
@@ -173,6 +176,7 @@ export function update(
         messenger: host.app === 'messenger' ? host.messenger : null,
         unreadMessages: host.messenger?.unread ?? 0,
         app: host.app,
+        powerSave: host.powerSave,
       },
       host.view,
       host.ripple3D,

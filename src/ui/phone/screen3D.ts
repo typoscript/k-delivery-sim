@@ -32,6 +32,8 @@ export interface Phone3DScreenStatus {
   messenger?: Messenger | null;
   /** Unread messages (badge on the dock) */
   unreadMessages?: number;
+  /** Power saving: the screen is dimmed */
+  powerSave?: boolean;
 }
 
 /** Expanding glass-touch ripple drawn on the 3D phone canvas (null when idle) */
@@ -106,6 +108,7 @@ export function render3DPhoneScreen(
       if (phone.offerExpanded) render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
       else render3DCallBanner(ctx, w, activeOffer, elapsedTime);
     }
+    if (phone.powerSave) dimForPowerSave(ctx, w, h);
     return;
   }
 
@@ -186,5 +189,19 @@ export function render3DPhoneScreen(
     }
   }
 
+  if (phone.powerSave) dimForPowerSave(ctx, w, h);
+  ctx.restore();
+}
+
+/** Power saving: dim the whole screen and say so in the corner */
+function dimForPowerSave(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.3)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🪫 절전 모드', 12, 46);
   ctx.restore();
 }

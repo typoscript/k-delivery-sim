@@ -85,4 +85,17 @@ describe('phone apps (DOM)', () => {
     (drawer.querySelector('[data-notif="close"]') as HTMLButtonElement).click();
     expect(drawer.classList.contains('hidden')).toBe(true);
   });
+
+  it('below 15% the phone goes into power saving (dimmed) and leaves a battery notification', () => {
+    const phone = new PhoneMap(callbacks);
+    phone.setPlacement('in_hand');
+    phone.battery = 15.2;
+    for (let i = 0; i < 40; i++) phone.stepBattery(0.05, false);
+    expect(phone.powerSave).toBe(true);
+    expect(document.getElementById('rider-phone')!.classList.contains('power-save')).toBe(true);
+    expect(phone.notifications.list()[0].text).toContain('절전 모드');
+    phone.setPlacement('mounted');
+    for (let i = 0; i < 40; i++) phone.stepBattery(0.05, true); // wireless charging on the handlebar
+    expect(phone.powerSave).toBe(false);
+  });
 });

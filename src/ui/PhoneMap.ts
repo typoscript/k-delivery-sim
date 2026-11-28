@@ -163,6 +163,8 @@ export class PhoneMap {
   public placement: PhonePlacement = 'pocket';
   public isZoomed = false;
   public battery = 88; // 0..100% live smartphone battery
+  /** Power saving (battery at 15% or less, not charging): dimmer screen, slower refresh, slower drain */
+  public powerSave = false;
   public isWirelessCharging = false;
   /** @internal phone/* */
   lowBatteryWarned = false;
