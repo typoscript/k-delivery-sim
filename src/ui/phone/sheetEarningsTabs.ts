@@ -93,6 +93,7 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
   const dateStr = `${l.shiftDay}일차 · ${l.completedCount}건`;
 
   return `
+    ${repairDebtCardHtml(delivery.repairDebt, l.debtRepayExpense)}
     ${renderDailyMissionWidget(delivery)}
     ${renderWeeklyGoalWidget(delivery)}
     <div class="bc-receipt">
@@ -301,4 +302,21 @@ export function pastWeeksHtml(weeks: readonly WeekSummary[]): string {
     })
     .join('');
   return `<div class="career-section-title">📚 지난 주 기록</div><div class="past-weeks">${rows}</div>`;
+}
+
+/**
+ * 🧾 외상 카드: the repair debt still owed (paid back from each settlement) and what was paid back today; nothing
+ * when there is no debt and nothing was repaid today
+ */
+export function repairDebtCardHtml(debt: number, repaidToday: number): string {
+  if (debt <= 0 && repaidToday <= 0) return '';
+  const won = (n: number) => `₩${n.toLocaleString()}`;
+  const total = debt + repaidToday;
+  const pct = total > 0 ? Math.round((repaidToday / total) * 100) : 100;
+  return `
+    <div class="bc-debt-card ${debt <= 0 ? 'cleared' : ''}">
+      <div class="bc-debt-top"><span>🧾 외상 수리비</span><b>${debt > 0 ? `남은 외상 ${won(debt)}` : '✓ 오늘 모두 갚았어요'}</b></div>
+      <div class="bc-mission-track"><div class="bc-mission-fill" style="width:${pct}%"></div></div>
+      <div class="bc-debt-sub">${repaidToday > 0 ? `오늘 상환 ${won(repaidToday)}` : '아직 오늘 상환 없음'} · 배달 정산 때마다 번 돈에서 자동으로 갚아요${debt > 0 ? ' (다 갚기 전엔 추가 외상 불가)' : ''}</div>
+    </div>`;
 }

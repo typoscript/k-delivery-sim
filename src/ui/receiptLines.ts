@@ -76,6 +76,9 @@ export function ledgerExpenseLines(l: DailyFinanceLedger): ReceiptLine[] {
     { key: 'repair', label: '🔧 오토바이 수리·기종·도색', amount: -l.repairExpense, tone: 'expense' },
     { key: 'upgrade', label: '⚙️ 성능 장비 업그레이드', amount: -l.upgradeExpense, tone: 'expense' },
     { key: 'convenience', label: '🏪 편의점 음료·충전', amount: -l.convenienceExpense, tone: 'expense' },
+    ...(l.debtRepayExpense > 0
+      ? [{ key: 'debt', label: '🧾 외상 수리비 상환', amount: -l.debtRepayExpense, tone: 'expense' as const }]
+      : []),
   ];
 }
 

@@ -5786,3 +5786,28 @@ body.phone-3d-hover canvas {
   font-weight: 900;
   color: #cbd5e1;
 }
+
+/* Bank app: repair debt (외상) card */
+.bc-debt-card {
+  flex-shrink: 0;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.45);
+}
+.bc-debt-card.cleared {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(22, 163, 74, 0.45);
+}
+.bc-debt-card .bc-debt-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 900;
+}
+.bc-debt-card .bc-debt-sub {
+  margin-top: 3px;
+  font-size: 9.5px;
+  color: #64748b;
+}

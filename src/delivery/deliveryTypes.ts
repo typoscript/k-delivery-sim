@@ -269,6 +269,8 @@ export interface DailyFinanceLedger {
   upgradeExpense: number;
   convenienceExpense: number;
   fineExpense: number;
+  /** Repair debt (외상 수리) paid back from today's settlements */
+  debtRepayExpense: number;
   /** fineExpense by kind; fines saved before kinds were tracked are not in here */
   fines: Record<FineKind, number>;
   grossIncome: number;

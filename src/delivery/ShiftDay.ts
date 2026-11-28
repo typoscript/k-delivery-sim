@@ -115,6 +115,7 @@ export const SHIFT_LEDGER_KEYS = [
   'upgradeExpense',
   'convenienceExpense',
   'fineExpense',
+  'debtRepayExpense',
   'pedestrianAccidentCount',
 ] as const;
 export type ShiftLedgerKey = (typeof SHIFT_LEDGER_KEYS)[number];

@@ -24,6 +24,7 @@ const EXPENSE_KEYS = [
   'upgradeExpense',
   'convenienceExpense',
   'fineExpense',
+  'debtRepayExpense',
 ] as const satisfies readonly (keyof ShiftLedger)[];
 
 export interface LedgerContext {

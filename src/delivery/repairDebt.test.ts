@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { DeliveryManager } from './DeliveryManager';
 import { loadRiderCareer } from './RiderCareer';
 import { DeliveryLocation } from '../types';
+import { ledgerExpenseLines } from '../ui/receiptLines';
+import { repairDebtCardHtml } from '../ui/phone/sheetEarningsTabs';
 
 const loc = (id: string, x: number, type: 'shop' | 'residential'): DeliveryLocation => ({
   id,
@@ -28,7 +30,7 @@ describe('repair on credit (외상 수리)', () => {
     expect(dm.repairOnCredit(10_000)).toBe(false); // still owing
   });
 
-  it("settlements pay the debt back (as today's repair expense) and it survives a reload", () => {
+  it("settlements pay the debt back (today's 외상 상환 line) and it survives a reload", () => {
     const dm = new DeliveryManager(LOCATIONS);
     dm.totalEarnings = 0;
     dm.repairOnCredit(9_000);
@@ -40,7 +42,14 @@ describe('repair on credit (외상 수리)', () => {
     expect(dm.repayRepairDebt(6_000)).toBe(4_000);
     expect(dm.repairDebt).toBe(0);
     expect(dm.totalEarnings).toBe(2_000);
-    expect(dm.repairExpense).toBe(9_000);
+    expect(dm.repairExpense).toBe(0); // the repair itself was all on credit
+    expect(dm.debtRepayExpense).toBe(9_000);
+    const l = dm.getDailyLedger();
+    expect(l.totalExpenses).toBe(9_000);
+    expect(ledgerExpenseLines(l).find((x) => x.key === 'debt')).toMatchObject({ amount: -9_000 });
+    expect(repairDebtCardHtml(dm.repairDebt, l.debtRepayExpense)).toContain('오늘 모두 갚았어요');
+    expect(repairDebtCardHtml(4_000, 5_000)).toContain('남은 외상 ₩4,000');
+    expect(repairDebtCardHtml(0, 0)).toBe('');
     expect(loadRiderCareer().repairDebt).toBeUndefined();
     expect(dm.repayRepairDebt(6_000)).toBe(0);
   });

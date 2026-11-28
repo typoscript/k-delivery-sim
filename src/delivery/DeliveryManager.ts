@@ -207,6 +207,8 @@ export class DeliveryManager {
   public damageDeductionTotal = 0;
   public fuelExpense = 0;
   public repairExpense = 0;
+  /** Repair debt paid back today (its own line on the statement) */
+  public debtRepayExpense = 0;
   public upgradeExpense = 0;
   public convenienceExpense = 0;
   public fineExpense = 0;
@@ -785,12 +787,13 @@ export class DeliveryManager {
     return true;
   }
 
-  /** Pays the repair debt back from a settlement's earnings (counted as a repair expense of today) */
+  /** Pays the repair debt back from a settlement's earnings (today's 외상 상환 line) */
   public repayRepairDebt(earned: number): number {
     if (this.repairDebt <= 0 || earned <= 0) return 0;
     const pay = Math.min(this.repairDebt, Math.round(earned / 100) * 100);
     if (pay <= 0) return 0;
-    this.recordRepairExpense(pay);
+    this.debtRepayExpense += pay;
+    this.totalEarnings -= pay;
     this.repairDebt -= pay;
     this.persistCareer();
     return pay;
