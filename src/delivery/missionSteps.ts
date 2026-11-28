@@ -85,6 +85,12 @@ export function completePosPickup(
     m.cookingDurationSec = waitSec;
     m.cookingRemainingSec = waitSec;
     host.invalidateNavCache();
+    host.postShopMessage(
+      m,
+      host.demandPhase.isPeak
+        ? `[#${m.order.orderNumber}] 주문이 몰려서 조리가 조금 늦어요 🙇 약 ${waitSec}초만 기다려 주세요!`
+        : `[#${m.order.orderNumber}] 지금 조리 중이에요 🍳 약 ${waitSec}초 뒤 픽업대에 올려드릴게요`,
+    );
     return {
       mission: m,
       status: 'cooking',

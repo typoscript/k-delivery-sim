@@ -46,6 +46,14 @@ export const CUSTOMER_REPLIES: readonly QuickReply[] = [
   { id: 'eta', text: '지금 가는 중이에요, 곧 도착합니다!' },
 ];
 
+/** Replies to a customer asking where the late order is (apologizing softens the review) */
+export const LATE_REPLIES: readonly QuickReply[] = [
+  { id: 'sorry', text: '죄송해요! 곧 도착합니다 🙏' },
+  { id: 'traffic', text: '길이 막혀서 조금 늦어요, 정말 죄송합니다' },
+];
+/** The customer asks once this little time is left */
+export const LATE_ASK_SEC = 45;
+
 export class Messenger {
   private readonly threads = new Map<string, ChatThread>();
   private seq = 0;

@@ -62,4 +62,61 @@ describe('messenger', () => {
     expect(dm.getMissionById(o.id)!.chatReplied).toBe(true);
     expect(QUICK_REPLY_TIP).toBeGreaterThan(0);
   });
+
+  it('running late, the customer asks where the food is; an apology softens the review', async () => {
+    const { generateCustomerReview } = await import('./customerReviews');
+    const dm = new DeliveryManager(LOCATIONS);
+    const o = dm.availableOrders[0];
+    dm.acceptOrder(o.id);
+    const m = dm.getMissionById(o.id)!;
+    m.pickedUp = true;
+    m.phase = 'cargo_loaded';
+    dm.stepTimers(m.remainingTimeSec - 30);
+    const t = dm.messenger.get(`c:${o.id}`)!;
+    expect(t.messages.at(-1)!.text).toContain('언제 오세요');
+    expect(t.replies.map((r) => r.id)).toEqual(['sorry', 'traffic']);
+    dm.stepTimers(1);
+    expect(t.messages.filter((x) => x.text.includes('언제 오세요'))).toHaveLength(1); // asked once
+    expect(dm.replyToChat(`c:${o.id}`, 'sorry')).toBe(true);
+    expect(m.lateApologized).toBe(true);
+    expect(m.chatReplied).toBeFalsy(); // an apology is not a quick-reply tip
+    const review = (late: boolean, apologized: boolean) =>
+      generateCustomerReview({
+        orderNumber: 'A-1',
+        shopId: 's',
+        shopName: '가게',
+        shopEmoji: '🍗',
+        menuName: '치킨',
+        customerName: '고객',
+        unitNumber: '101호',
+        foodIntegrity: 92,
+        foodTemp: 85,
+        foodTempType: 'hot',
+        isSpillSensitive: false,
+        spillDamageAccum: 0,
+        remainingRatio: 0,
+        isWalkupVilla: false,
+        isRain: false,
+        isNight: false,
+        deliveryInstruction: 'PHOTO_DOOR',
+        createdAt: '12:00',
+        late,
+        apologized,
+      }).stars;
+    expect(review(true, false)).toBeLessThan(review(false, false));
+    expect(review(true, true)).toBeGreaterThanOrEqual(review(true, false));
+  });
+
+  it('shops say when the kitchen is busy; regular customers say hello', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    const o = dm.availableOrders[0];
+    o.regularCustomer = true;
+    dm.acceptOrder(o.id);
+    expect(dm.messenger.get(`c:${o.id}`)!.messages.some((x) => x.text.includes('또 뵙네요'))).toBe(true);
+    const r = dm.completePosPickup(o.id, true)!;
+    if (r.status === 'cooking') {
+      const shop = dm.messenger.get(`s:${o.shop.id}`)!;
+      expect(shop.messages.at(-1)!.text).toMatch(/조리/);
+    }
+  });
 });

@@ -37,6 +37,8 @@ export function reviewInputFor(m: ActiveMission, isRain: boolean, isNight: boole
     isSpillSensitive: m.order.isSpillSensitive,
     spillDamageAccum: Math.round(m.spillDamageAccum),
     remainingRatio: m.order.timeLimitSec > 0 ? m.remainingTimeSec / m.order.timeLimitSec : 0.5,
+    late: m.remainingTimeSec <= 0,
+    apologized: !!m.lateApologized,
     isWalkupVilla: m.order.customer.residenceKind === 'walkup_villa',
     isRain,
     isNight,

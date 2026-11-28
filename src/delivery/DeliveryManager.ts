@@ -1,7 +1,7 @@
 import { DeliveryLocation } from '../types';
 import type { SeasonId } from '../game/seasons';
 import { indexComplexes } from './apartmentRules';
-import { CUSTOMER_REPLIES, Messenger } from './messenger';
+import { CUSTOMER_REPLIES, LATE_ASK_SEC, LATE_REPLIES, Messenger } from './messenger';
 import { getInstructionMeta as instructionMetaOf } from './deliveryTypes';
 import { DemandPhase, SHIFT_START_MINUTE, demandPhaseAt } from '../game/GameClock';
 import { RoadNavigator } from '../world/RoadNavigator';
@@ -575,6 +575,25 @@ export class DeliveryManager {
       text: `요청사항: ${instructionMetaOf(o.deliveryInstruction).detailText} 감사합니다!`,
       time,
     });
+    // regulars say hello; on rainy / snowy days some customers worry about the rider
+    if (o.regularCustomer) {
+      this.messenger.post(`c:${o.id}`, chat, { from: 'them', text: '또 뵙네요 😊 늘 빠르게 와주셔서 감사해요!', time });
+    } else if ((this.isWeatherRaining || this.isWeatherSnowing) && o.orderNumber.charCodeAt(o.orderNumber.length - 1) % 2 === 0) {
+      this.messenger.post(`c:${o.id}`, chat, {
+        from: 'them',
+        text: this.isWeatherSnowing ? '눈길 미끄러우니 천천히 오세요 ❄️' : '비 오는데 조심히 오세요 ☔',
+        time,
+      });
+    }
+  }
+
+  /** Messenger: a message from the order's shop */
+  public postShopMessage(m: ActiveMission, text: string): void {
+    this.messenger.post(
+      `s:${m.order.shop.id}`,
+      { kind: 'shop', title: m.order.shop.name, icon: m.order.shop.emoji },
+      { from: 'them', text, time: this.clockLabel() },
+    );
   }
 
   /**
@@ -585,7 +604,11 @@ export class DeliveryManager {
     const t = this.messenger.reply(threadId, replyId, this.clockLabel());
     if (!t) return false;
     const m = t.missionId ? this.getMissionById(t.missionId) : null;
-    if (m) m.chatReplied = true;
+    if (m) {
+      // an apology for running late softens the review; answering a request earns the 빠른 답장 tip
+      if (LATE_REPLIES.some((r) => r.id === replyId)) m.lateApologized = true;
+      else m.chatReplied = true;
+    }
     return true;
   }
 
@@ -594,6 +617,17 @@ export class DeliveryManager {
     for (const m of this.activeMissions) {
       if (m.phase === 'corridor_exit') continue;
       m.remainingTimeSec = Math.max(0, m.remainingTimeSec - dt);
+      // running late: the customer asks where the food is (once)
+      if (!m.lateAsked && m.pickedUp && m.remainingTimeSec < LATE_ASK_SEC && m.phase !== 'photo_mode') {
+        m.lateAsked = true;
+        const o = m.order;
+        this.messenger.post(
+          `c:${o.id}`,
+          { kind: 'customer', title: `${o.customer.name} ${o.unitNumber}`, icon: '🙋', missionId: o.id },
+          { from: 'them', text: '언제 오세요? 시간이 거의 다 됐어요 😥', time: this.clockLabel() },
+          LATE_REPLIES,
+        );
+      }
 
       if (m.phase === 'cooking_wait') {
         m.cookingRemainingSec = Math.max(0, m.cookingRemainingSec - dt);

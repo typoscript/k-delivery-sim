@@ -29,6 +29,9 @@ export interface ReviewGenerationInput {
   isSpillSensitive: boolean;
   spillDamageAccum: number;
   remainingRatio: number; // 0..1
+  /** Arrived after the time limit; `apologized` in the messenger first */
+  late?: boolean;
+  apologized?: boolean;
   isWalkupVilla: boolean;
   isRain: boolean;
   isNight: boolean;
@@ -53,6 +56,8 @@ export function generateCustomerReview(input: ReviewGenerationInput): CustomerRe
   // Gratitude cushion for fast delivery, tough weather, night shift, or walk-up stairs
   if (input.remainingRatio >= 0.55 && input.foodIntegrity >= 90) score += 0.35;
   if (input.isWalkupVilla || input.isRain || input.isNight) score += 0.25;
+  // late: much less so when the rider apologized in the messenger
+  if (input.late) score -= input.apologized ? 0.3 : 0.9;
 
   const stars = Math.max(1, Math.min(5, Math.round(score)));
   const tags: string[] = [];

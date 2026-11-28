@@ -350,6 +350,9 @@ export interface ActiveMission {
   groundRuleBroken?: boolean;
   /** The rider answered the customer's mid-ride message in the messenger (빠른 답장 tip) */
   chatReplied?: boolean;
+  /** The customer asked where the late order is / the rider apologized in the messenger */
+  lateAsked?: boolean;
+  lateApologized?: boolean;
 }
 
 export interface PosPickupResult {
