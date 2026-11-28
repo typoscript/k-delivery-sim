@@ -76,3 +76,14 @@ export function weekGoalProgressText(g: WeekGoalStatus): string {
   if (g.unit === 'stars') return `★ ${g.current > 0 ? g.current.toFixed(1) : '-'} / ${g.target.toFixed(1)}`;
   return `${Math.min(g.current, g.target)}/${g.target}`;
 }
+
+/** One line for toasts: "📦 18/25 · 💰 ₩152,000 / ₩200,000 · 📅 3/7" */
+export function weekGoalsSummaryText(goals: readonly WeekGoalStatus[]): string {
+  return goals.map((g) => `${g.met ? '✅' : g.icon} ${weekGoalProgressText(g)}`).join(' · ');
+}
+
+/** 0..100 progress toward a goal (for the phone progress bars) */
+export function weekGoalProgressPct(g: WeekGoalStatus): number {
+  if (g.target <= 0) return 100;
+  return Math.max(0, Math.min(100, Math.round((g.current / g.target) * 100)));
+}

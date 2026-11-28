@@ -83,6 +83,7 @@ import {
   AchievementStatus,
   DayRecord,
   WeekSummary,
+  weekOfDay,
   weekSummary,
 } from './careerHistory';
 import { CrashSeverity, applyCrashToCargo, applySpeedBumpToCargo, createCustomerChatEvent, stepFoodCondition } from './cargoCare';
@@ -97,6 +98,7 @@ import { buildDailyLedger, pickShiftLedger } from './dailyLedger';
 import {
   awardDueGoals as awardDueGoalsFn,
   clockOut as clockOutFn,
+  historyWithToday as historyWithTodayFn,
 } from './shiftClose';
 
 import {
@@ -180,6 +182,9 @@ export class DeliveryManager {
   /** @internal split modules */
   orderSeq = 1;
 
+  /** Week goals already announced (see collectNewlyMetWeekGoals) */
+  private weekGoalsSeen: { week: number; ids: Set<string> } = { week: 0, ids: new Set() };
+
   /** Cached / throttled route plan (recomputed when missions change or the rider moves or turns) */
   private readonly routePlanner = new MissionRoutePlanner();
 
@@ -198,6 +203,8 @@ export class DeliveryManager {
     this.progress.restore(shift.counters, shift.claimed);
     this.restoreLedger(shift.ledger);
     this.refreshAvailableOrders();
+    // Goals already met in the loaded save are not announced again
+    this.weekGoalsSeen = { week: weekOfDay(this.shiftDay), ids: new Set(this.getWeekGoalsLive().filter((g) => g.met).map((g) => g.id)) };
   }
 
   /** Called every frame with the rider position (outdoors) so new orders stay local */
@@ -252,6 +259,26 @@ export class DeliveryManager {
   /** This week's goals with progress over the finished days of the week */
   public getWeekGoals(): WeekGoalStatus[] {
     return weekGoalStatuses(this.getWeekSummary());
+  }
+
+  /**
+   * This week's goals counting today's work so far: what the week-end clock-out would pay if today ended now.
+   * The phone shows these while riding; getWeekGoals() is finished days only.
+   */
+  public getWeekGoalsLive(): WeekGoalStatus[] {
+    return weekGoalStatuses(weekSummary(historyWithTodayFn(this), this.shiftDay));
+  }
+
+  /**
+   * Week goals met for the first time since the last call (toast once per goal and week). Goals already met when a
+   * save is loaded are not announced again; a week that starts during play announces everything it meets.
+   */
+  public collectNewlyMetWeekGoals(): WeekGoalStatus[] {
+    const week = weekOfDay(this.shiftDay);
+    if (this.weekGoalsSeen.week !== week) this.weekGoalsSeen = { week, ids: new Set() };
+    const fresh = this.getWeekGoalsLive().filter((g) => g.met && !this.weekGoalsSeen.ids.has(g.id));
+    for (const g of fresh) this.weekGoalsSeen.ids.add(g.id);
+    return fresh;
   }
 
   /** The current week so far (finished days of this week) */

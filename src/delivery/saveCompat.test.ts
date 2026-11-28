@@ -226,6 +226,18 @@ describe('old save data', () => {
   });
 });
 
+describe('week goal announcements across reloads', () => {
+  it('a reloaded save does not announce week goals that were already met', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    for (let i = 0; i < 25; i++) deliverOne(dm);
+    expect(dm.collectNewlyMetWeekGoals().map((g) => g.id)).toContain('week_deliveries');
+    dm.persistCareer();
+    const reloaded = new DeliveryManager(LOCATIONS);
+    expect(reloaded.getWeekGoalsLive().find((g) => g.id === 'week_deliveries')!.met).toBe(true);
+    expect(reloaded.collectNewlyMetWeekGoals()).toEqual([]);
+  });
+});
+
 describe('bike garage save', () => {
   const writeGarage = (value: unknown) => {
     saveBikeGarage(loadBikeGarage());

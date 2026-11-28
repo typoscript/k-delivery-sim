@@ -1,6 +1,6 @@
 import { DeliveryManager } from '../../delivery/DeliveryManager';
 import { bestDay, safeDayStreak } from '../../delivery/careerHistory';
-import { weekGoalProgressText } from '../../delivery/weeklyGoals';
+import { weekGoalProgressPct, weekGoalProgressText } from '../../delivery/weeklyGoals';
 import { PHONE_RECEIPT_GROUPS, compactLines, ledgerExpenseLines, ledgerIncomeLines, lineValue } from '../receiptLines';
 
 /** [수익] top-nav tabs (일일 미션 위젯 · 수익 정산 명세서 · 고객 리뷰) */
@@ -43,6 +43,37 @@ export function renderDailyMissionWidget(delivery: DeliveryManager): string {
   `;
 }
 
+/** "이번 주 목표": week goals counting today's work so far, paid at the week's last clock-out */
+export function renderWeeklyGoalWidget(delivery: DeliveryManager): string {
+  const w = delivery.getWeekSummary();
+  const goals = delivery.getWeekGoalsLive();
+  const left = w.lastDay - delivery.shiftDay;
+  const met = goals.filter((g) => g.met);
+  const pay = met.reduce((a, g) => a + g.bonus, 0);
+  const rows = goals
+    .map(
+      (g) => `
+      <div class="bc-mission-card week ${g.met ? 'done' : ''}">
+        <div class="bc-mission-top">
+          <span>${g.icon} ${g.title}</span>
+          <span class="bc-mission-reward">${g.met ? '✓ 달성' : `+₩${g.bonus.toLocaleString()}`}</span>
+        </div>
+        <div class="bc-mission-track">
+          <div class="bc-mission-fill" style="width:${weekGoalProgressPct(g)}%"></div>
+        </div>
+        <div class="bc-mission-sub"><span>${weekGoalProgressText(g)}</span><span>${weekGoalProgressPct(g)}%</span></div>
+      </div>`,
+    )
+    .join('');
+  const when = left === 0 ? '오늘 퇴근 때 지급' : `${w.lastDay}일차 퇴근 때 지급 · ${left}일 남음`;
+  return `
+    <div class="bc-goals-title week">📆 ${w.week}주차 주간 목표 (${met.length}/${goals.length}) <span class="bc-goals-sub">${when}${
+      pay > 0 ? ` · 지금 +₩${pay.toLocaleString()}` : ''
+    }</span></div>
+    ${rows}
+  `;
+}
+
 export function renderFinanceTab(delivery: DeliveryManager): string {
   const l = delivery.getDailyLedger();
   const fmt = (n: number) => `₩${Math.abs(n).toLocaleString()}`;
@@ -51,6 +82,7 @@ export function renderFinanceTab(delivery: DeliveryManager): string {
 
   return `
     ${renderDailyMissionWidget(delivery)}
+    ${renderWeeklyGoalWidget(delivery)}
     <div class="bc-receipt">
       <div class="bc-receipt-hdr">
         <span class="bc-receipt-brand">🧾 배민커넥트 일일 정산 명세서</span>
@@ -83,10 +115,7 @@ export function renderReviewsTab(delivery: DeliveryManager): string {
     regularShops.length > 0
       ? regularShops
           .slice(0, 6)
-          .map(
-            (rs) =>
-              `<span class="regular-shop-chip">${rs.name} <b>${rs.count}회</b></span>`
-          )
+          .map((rs) => `<span class="regular-shop-chip">${rs.name} <b>${rs.count}회</b></span>`)
           .join('')
       : '<span class="regular-shop-empty">같은 매장 2회 이상 픽업 시 ⭐ 단골 매장 등극 (조리 대기 대폭 단축·우선 수령!)</span>';
 
@@ -165,7 +194,7 @@ export function renderCareerTab(delivery: DeliveryManager): string {
         <span>${d.avgStars !== null ? `★ ${d.avgStars.toFixed(1)}` : '★ -'}</span>
         <span>🎯 ${d.goalsMet}/${d.goalsTotal}</span>
         <span class="cd-net ${d.net < 0 ? 'neg' : ''}">${won(d.net)}</span>
-      </div>`
+      </div>`,
     )
     .join('');
 
@@ -175,7 +204,7 @@ export function renderCareerTab(delivery: DeliveryManager): string {
         <div class="ca-icon">${a.icon}</div>
         <div class="ca-title">${a.title}</div>
         <div class="ca-sub">${a.unlocked ? (a.unlockedDay ? `${a.unlockedDay}일차 달성` : '달성') : a.target >= 1000 ? `${Math.round((a.current / a.target) * 100)}%` : `${a.current}/${a.target}`}</div>
-      </div>`
+      </div>`,
     )
     .join('');
 
@@ -205,10 +234,10 @@ function weekCardHtml(delivery: DeliveryManager): string {
       <div class="cw-title">📆 이번 주 · ${w.week}주차 <span>${w.firstDay}~${w.lastDay}일차</span></div>
       <div class="cw-row"><span>마친 근무일 ${w.days.length}일 · 배달 ${w.deliveries}건</span><b class="${w.net < 0 ? 'neg' : ''}">${won(w.net)}</b></div>
       ${delivery
-        .getWeekGoals()
+        .getWeekGoalsLive()
         .map(
           (g) =>
-            `<div class="cw-goal ${g.met ? 'met' : ''}"><span>${g.met ? '✅' : '⬜'} ${g.icon} ${g.title}</span><span>${weekGoalProgressText(g)} · +₩${g.bonus.toLocaleString()}</span></div>`
+            `<div class="cw-goal ${g.met ? 'met' : ''}"><span>${g.met ? '✅' : '⬜'} ${g.icon} ${g.title}</span><span>${weekGoalProgressText(g)} · +₩${g.bonus.toLocaleString()}</span></div>`,
         )
         .join('')}
       <div class="cw-sub">${left === 0 ? '오늘 퇴근하면 주간 정산서가 나와요' : `${w.lastDay}일차 퇴근 때 주간 정산서가 나와요 (${left}일 남음)`}${w.bestDay ? ` · 최고 ${w.bestDay.day}일차 ${won(w.bestDay.net)}` : ''}</div>

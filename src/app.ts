@@ -40,6 +40,7 @@ import { startGameLoop } from './game/gameLoop';
 import { GameClock } from './game/GameClock';
 import { WeatherSchedule } from './game/WeatherSchedule';
 import { applyGameClock } from './game/clockSync';
+import { weekGoalsSummaryText } from './delivery/weeklyGoals';
 import type { AppRefs } from './game/app/appRefs';
 import { dispatchCallbacks } from './game/app/dispatchCallbacks';
 import { modalCallbacks } from './game/app/modalCallbacks';
@@ -298,6 +299,18 @@ hud.showToast(
     : `${ACTIVE_DISTRICT.icon} ${ACTIVE_DISTRICT.shortName} 출근 완료! [Tab]→[V] 콜 수락 · [P]로 수원 구역 변경 가능`,
   5200
 );
+// Returning riders: where this week stands (goals count today's work too; paid at the week's last clock-out)
+window.setTimeout(() => {
+  if (delivery.lifetimeCompleted === 0 && delivery.shiftDay === 1) return; // first-time riders get the tutorial
+  const w = delivery.getWeekSummary();
+  const left = w.lastDay - delivery.shiftDay;
+  hud.showToast(
+    `📆 ${w.week}주차 ${delivery.shiftDay}일차 · 주간 목표 ${weekGoalsSummaryText(delivery.getWeekGoalsLive())} · ${
+      left === 0 ? '오늘 퇴근 때 정산' : `${left}일 남음`
+    } (휴대폰 [수익])`,
+    5600
+  );
+}, 6000);
 if (IS_UNIFIED_MAP) {
   // Keep the HUD district badge / phone area name in sync with where the rider actually is
   window.setInterval(() => districtUi.refreshCurrent(), 1000);

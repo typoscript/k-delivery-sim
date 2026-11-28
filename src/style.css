@@ -2965,6 +2965,18 @@ kbd {
 }
 
 /* Daily Delivery Mission Widget */
+.bc-goals-title.week {
+  margin-top: 10px;
+}
+
+.bc-goals-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
 .bc-goals-title {
   font-size: 11px;
   font-weight: 900;

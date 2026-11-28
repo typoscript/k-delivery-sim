@@ -5,6 +5,7 @@ import { ShiftGoalSpec, emptyShift } from './ShiftDay';
 import { ClockOutResult, ShiftRecap } from './deliveryTypes';
 import {
   DAYS_PER_WEEK,
+  DayRecord,
   appendDay,
   makeDayRecord,
   nextAchievement,
@@ -26,6 +27,26 @@ export function awardDueGoals(
   return { goals, bonus };
 }
 
+/** Finished days plus today's work so far as a provisional record (week goals counted "if the day ended now") */
+export function historyWithToday(host: DeliveryManager): DayRecord[] {
+  const today = host.getDailyLedger();
+  const goalsNow = host.getShiftGoals();
+  return appendDay(
+    host.progress.history,
+    makeDayRecord({
+      day: host.shiftDay,
+      completedCount: today.completedCount,
+      grossIncome: today.grossIncome,
+      totalExpenses: today.totalExpenses,
+      netProfit: today.netProfit,
+      pedestrianAccidentCount: today.pedestrianAccidentCount,
+      goalsMet: goalsNow.filter((g) => g.claimed).length,
+      goalsTotal: goalsNow.length,
+      counters: host.progress.counters,
+    }),
+  );
+}
+
 /**
  * 퇴근: pays clock-out goals, closes today's ledger and starts the next working day at the shift start
  * time with an empty ledger and fresh goals. Not allowed while orders are still being delivered.
@@ -38,22 +59,7 @@ export function clockOut(host: DeliveryManager): ClockOutResult | null {
   let weekGoals: WeekGoalStatus[] | null = null;
   let weeklyBonus = 0;
   if (day % DAYS_PER_WEEK === 0) {
-    const today = host.getDailyLedger();
-    const goalsNow = host.getShiftGoals();
-    const withToday = appendDay(
-      host.progress.history,
-      makeDayRecord({
-        day,
-        completedCount: today.completedCount,
-        grossIncome: today.grossIncome,
-        totalExpenses: today.totalExpenses,
-        netProfit: today.netProfit,
-        pedestrianAccidentCount: today.pedestrianAccidentCount,
-        goalsMet: goalsNow.filter((g) => g.claimed).length,
-        goalsTotal: goalsNow.length,
-        counters: host.progress.counters,
-      }),
-    );
+    const withToday = historyWithToday(host);
     weekGoals = weekGoalStatuses(weekSummary(withToday, day));
     weeklyBonus = weekGoals.filter((g) => g.met).reduce((a, g) => a + g.bonus, 0);
     host.weeklyBonusTotal += weeklyBonus;

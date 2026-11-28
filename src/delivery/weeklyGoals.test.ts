@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ROTATING_WEEK_GOALS, WEEK_DELIVERIES_GOAL, weekGoalProgressText, weekGoalStatuses, weekGoalsFor } from './weeklyGoals';
+import { ROTATING_WEEK_GOALS, WEEK_DELIVERIES_GOAL, weekGoalProgressPct, weekGoalProgressText, weekGoalStatuses, weekGoalsFor, weekGoalsSummaryText } from './weeklyGoals';
+import type { WeekGoalStatus } from './weeklyGoals';
 import { weekSummary, DayRecord } from './careerHistory';
 
 const day = (d: number, deliveries: number, net: number, accidents = 0, avgStars: number | null = 4.6): DayRecord => ({
@@ -45,5 +46,18 @@ describe('weekly goals', () => {
     expect(weekGoalProgressText({ ...deliveries, unit: 'won', current: 152000.4, target: 200000 })).toBe('₩152,000 / ₩200,000');
     expect(weekGoalProgressText({ ...deliveries, unit: 'stars', current: 4.33, target: 4.5 })).toBe('★ 4.3 / 4.5');
     expect(weekGoalProgressText({ ...deliveries, unit: 'stars', current: 0, target: 4.5 })).toBe('★ - / 4.5');
+  });
+});
+
+describe('week goal display helpers', () => {
+  const g = (over: Partial<WeekGoalStatus>): WeekGoalStatus => ({ id: 'week_deliveries', icon: '📦', title: '주간 배달 25건', target: 25, bonus: 20000, current: 18, met: false, unit: 'count', ...over });
+  it('progress percent is clamped to 0..100', () => {
+    expect(weekGoalProgressPct(g({}))).toBe(72);
+    expect(weekGoalProgressPct(g({ current: 40 }))).toBe(100);
+    expect(weekGoalProgressPct(g({ current: -3 }))).toBe(0);
+    expect(weekGoalProgressPct(g({ unit: 'won', current: 152000, target: 200000 }))).toBe(76);
+  });
+  it('summary line marks met goals', () => {
+    expect(weekGoalsSummaryText([g({}), g({ id: 'week_all_days', icon: '📅', current: 7, target: 7, met: true })])).toBe('📦 18/25 · ✅ 7/7');
   });
 });

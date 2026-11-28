@@ -82,6 +82,33 @@ export function phoneCallbacks(r: AppRefs): PhoneCallbacks {
           5600 + i * 4800,
         ),
       );
+      // The new day may start a week (its goals) or complete one by showing up (7일 모두 출근)
+      const after = 5600 + res.recap.newAtClockOut.length * 4800;
+      const week = r.delivery.getWeekSummary();
+      if (week.firstDay === res.nextDay) {
+        const goals = r.delivery.getWeekGoalsLive();
+        const max = goals.reduce((a, g) => a + g.bonus, 0);
+        window.setTimeout(
+          () =>
+            r.hud.showToast(
+              `📆 ${week.week}주차 시작! 이번 주 목표: ${goals.map((g) => `${g.icon} ${g.title}`).join(' · ')} (최대 +₩${max.toLocaleString()})`,
+              6000,
+            ),
+          after,
+        );
+      }
+      r.delivery
+        .collectNewlyMetWeekGoals()
+        .forEach((g, i) =>
+          window.setTimeout(
+            () =>
+              r.hud.showToast(
+                `📆 주간 목표 달성! ${g.icon} ${g.title} · ${week.lastDay}일차 퇴근 때 +₩${g.bonus.toLocaleString()}`,
+                4600,
+              ),
+            after + 6200 + i * 4800,
+          ),
+        );
     },
     onInteractMission: () => r.flow.handleContextInteract(),
     onTogglePhone: () => r.flow.handleTogglePhone(),

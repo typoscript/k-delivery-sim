@@ -253,6 +253,37 @@ describe('DeliveryManager mission flow', () => {
     expect(dm.getDailyLedger().weeklyBonusTotal).toBe(0); // day 8 starts at zero
   });
 
+  it("live week goals count today's deliveries before clock-out", () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    deliver(dm, accept(dm).order.id);
+    deliver(dm, accept(dm).order.id);
+    const live = dm.getWeekGoalsLive().find((g) => g.id === 'week_deliveries')!;
+    expect(live.current).toBe(2);
+    expect(dm.getWeekGoals().find((g) => g.id === 'week_deliveries')!.current).toBe(0); // finished days only
+    dm.clockOut();
+    expect(dm.getWeekGoals().find((g) => g.id === 'week_deliveries')!.current).toBe(2);
+  });
+
+  it('announces each week goal once, the moment it is met', () => {
+    const dm = new DeliveryManager(LOCATIONS);
+    const announced: string[] = [];
+    for (let d = 1; d <= 7; d++) {
+      for (let i = 0; i < 4; i++) {
+        deliver(dm, accept(dm).order.id);
+        announced.push(...dm.collectNewlyMetWeekGoals().map((g) => `${d}:${g.id}`));
+      }
+      if (d < 7) {
+        dm.clockOut();
+        announced.push(...dm.collectNewlyMetWeekGoals().map((g) => `${d + 1}:${g.id}`));
+      }
+    }
+    // 25 deliveries are reached on day 7 (4 a day); showing up on day 7 completes 7일 모두 출근
+    expect(announced.filter((a) => a.endsWith(':week_deliveries'))).toEqual(['7:week_deliveries']);
+    if (dm.getWeekGoalsLive().some((g) => g.id === 'week_all_days')) expect(announced).toContain('7:week_all_days');
+    expect(new Set(announced).size).toBe(announced.length); // never twice
+    expect(dm.collectNewlyMetWeekGoals()).toEqual([]);
+  });
+
   it('no accident-free bonus after a pedestrian accident, and no clock-out mid-delivery', () => {
     const dm = new DeliveryManager(LOCATIONS);
     for (let i = 0; i < 3; i++) deliver(dm, accept(dm).order.id);

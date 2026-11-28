@@ -160,6 +160,17 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
     );
   };
 
+  /** "주간 목표 달성" toast for week goals the last delivery completed (after the achievement toasts) */
+  const announceWeekGoals = (delayMs: number) => {
+    const last = delivery.getWeekSummary().lastDay;
+    delivery.collectNewlyMetWeekGoals().forEach((g, i) =>
+      window.setTimeout(() => {
+        audio.playGoalSparkle();
+        hud.showToast(`📆 주간 목표 달성! ${g.icon} ${g.title} · ${last}일차 퇴근 때 +₩${g.bonus.toLocaleString()}`, 4600);
+      }, delayMs + i * 4800)
+    );
+  };
+
   const finalizeCorridorSettlement = () => {
     renderer.render(scene, camera);
     const photoDataUrl = renderer.domElement.toDataURL('image/jpeg', 0.85);
@@ -197,7 +208,9 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       window.setTimeout(() => {
         modalUi.showSettlement(result, photoDataUrl);
       }, 200);
-      announceAchievements(delivery.collectNewAchievements(), 2600);
+      const fresh = delivery.collectNewAchievements();
+      announceAchievements(fresh, 2600);
+      announceWeekGoals(2600 + fresh.length * 4800);
     }
   };
 
