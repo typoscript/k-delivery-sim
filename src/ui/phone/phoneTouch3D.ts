@@ -2,6 +2,7 @@
 import type { PhoneMap } from '../PhoneMap';
 import { clamp } from '../../types';
 import { hitCallBanner } from './callBanner3D';
+import { hitDock3D } from './weatherApp';
 
 /**
  * Drives the 1st-person touching hand when hovering over the in-world 3D phone
@@ -42,7 +43,7 @@ export function handle3DScreenTouch(
   u: number,
   v: number,
   activeOfferId: string | null,
-): 'accept_offer' | 'reject_offer' | 'expand_offer' | 'zoom' {
+): 'accept_offer' | 'reject_offer' | 'expand_offer' | 'switch_app' | 'zoom' {
   const hasActiveOffer = activeOfferId !== null;
   const cx = clamp(u, 0, 1) * host.texCanvas.width;
   const cy = clamp(1 - v, 0, 1) * host.texCanvas.height;
@@ -52,6 +53,13 @@ export function handle3DScreenTouch(
   host.last3DRenderTime = -1;
   host.lastZoomMapRenderTime = -1;
   host.callbacks.onScreenTap?.();
+
+  // The dock at the bottom of the screen switches apps right on the 3D phone
+  const app = hitDock3D(cx, cy, host.texCanvas.width, host.texCanvas.height);
+  if (app) {
+    host.setApp(app);
+    return 'switch_app';
+  }
 
   if (hasActiveOffer && host.dispatchState.expandedOfferId !== activeOfferId) {
     // Compact banner: 수락 / ✕, or the banner body opens the full card (in this view and the zoomed one)

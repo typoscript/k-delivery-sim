@@ -15,7 +15,7 @@ import {
 import { TouchHandState, setupTouchHandInteraction } from './phone/touchHand';
 import { DispatchPopupEls, DispatchPopupState } from './phone/topbarBanners';
 import { Ripple3DState } from './phone/screen3D';
-import { PhoneApp, weatherAppHtml } from './phone/weatherApp';
+import { PHONE_APPS, PhoneApp, weatherAppHtml } from './phone/weatherApp';
 import type { WeatherReport } from '../game/weatherReport';
 
 export type { PhoneCallbacks, PhonePlacement, PhoneTab, PhoneTopNav } from './phone/types';
@@ -322,7 +322,7 @@ export class PhoneMap {
     u: number,
     v: number,
     activeOfferId: string | null
-  ): 'accept_offer' | 'reject_offer' | 'expand_offer' | 'zoom' {
+  ): 'accept_offer' | 'reject_offer' | 'expand_offer' | 'switch_app' | 'zoom' {
     return handle3DScreenTouchFn(this, u, v, activeOfferId);
   }
 
@@ -423,6 +423,13 @@ export class PhoneMap {
     navPlan: NavigationPlan
   ): void {
     syncDeliverySheetFn(this, player, delivery, navPlan);
+  }
+
+  /** [Y]: the next app on the dock */
+  public cycleApp(): PhoneApp {
+    const i = PHONE_APPS.findIndex((a) => a.id === this.app);
+    this.setApp(PHONE_APPS[(i + 1) % PHONE_APPS.length].id);
+    return this.app;
   }
 
   /** Switches the open app (zoomed phone dock; the 3D phone shows the same app) */

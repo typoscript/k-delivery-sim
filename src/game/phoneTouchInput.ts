@@ -130,6 +130,7 @@ export function installPhoneTouchInput(ctx: GameContext, flow: DeliveryFlow): vo
           return;
         }
         if (action === 'expand_offer') return; // banner opened the full call card
+        if (action === 'switch_app') return; // dock tap switched apps
       }
       hud.phoneMap.setExternal3DHandHover(false, e.clientX, e.clientY);
       // Open the zoomed view unless this tap turns out to be the first half of a double tap

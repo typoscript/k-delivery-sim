@@ -11,7 +11,7 @@ import { renderRidingNavOverlay } from './ridingNavOverlay3D';
 import { renderOnFootPhoneOverlay } from './onFootOverlay3D';
 import { render3DDispatchCallCard } from './dispatchCallCard3D';
 import { render3DCallBanner } from './callBanner3D';
-import { renderWeatherApp3D } from './weatherApp';
+import { PhoneApp, renderDock3D, renderWeatherApp3D } from './weatherApp';
 import type { WeatherReport } from '../../game/weatherReport';
 
 /** Phone status snapshot needed to draw the 3D screen */
@@ -23,6 +23,8 @@ export interface Phone3DScreenStatus {
   placement: PhonePlacement;
   /** The weather app is open (drawn instead of the delivery app) */
   weatherReport?: WeatherReport | null;
+  /** Open app (the dock in the status bar highlights it) */
+  app?: PhoneApp;
 }
 
 /** Expanding glass-touch ripple drawn on the 3D phone canvas (null when idle) */
@@ -89,7 +91,8 @@ export function render3DPhoneScreen(
     ctx.textBaseline = 'middle';
     ctx.fillText(clockStr, 16, 18);
     ctx.textAlign = 'right';
-    ctx.fillText(`🌤️ 날씨 · 🔋${Math.round(phone.battery)}%`, w - 14, 18);
+    ctx.fillText(`🔋${Math.round(phone.battery)}%`, w - 14, 18);
+    renderDock3D(ctx, w, h, phone.app ?? 'weather');
     if (activeOffer) {
       if (phone.offerExpanded) render3DDispatchCallCard(ctx, w, h, activeOffer, elapsedTime);
       else render3DCallBanner(ctx, w, activeOffer, elapsedTime);
@@ -144,6 +147,9 @@ export function render3DPhoneScreen(
   } else {
     renderOnFootPhoneOverlay(ctx, w, h, player, delivery, navPlan, isNight, areaName);
   }
+
+  // App dock at the bottom (drawn after the overlays so it stays on top)
+  renderDock3D(ctx, w, h, phone.app ?? 'delivery');
 
   // Incoming call: compact banner at the top (map stays visible), or the full card once expanded
   if (activeOffer) {

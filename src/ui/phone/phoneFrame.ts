@@ -158,6 +158,7 @@ export function update(
         placement: host.placement,
         offerExpanded: activeOffer !== null && host.dispatchState.expandedOfferId === activeOffer.id,
         weatherReport: host.app === 'weather' ? host.weatherReport : null,
+        app: host.app,
       },
       host.view,
       host.ripple3D,

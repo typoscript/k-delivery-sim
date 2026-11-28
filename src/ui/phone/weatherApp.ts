@@ -4,7 +4,67 @@
  */
 import type { WeatherReport } from '../../game/weatherReport';
 
-export type PhoneApp = 'delivery' | 'weather';
+export type PhoneApp = 'delivery' | 'weather' | 'messenger';
+
+/** Apps on the dock, in order ([Y] cycles through them) */
+export const PHONE_APPS: ReadonlyArray<{ id: PhoneApp; label: string }> = [
+  { id: 'delivery', label: '🛵 배달' },
+  { id: 'weather', label: '🌤️ 날씨' },
+];
+
+/** Height of the 3D phone's dock strip at the bottom of the screen (clear of the camera notch at the top) */
+export const DOCK3D_H = 34;
+
+/** The 3D phone's dock: a strip at the bottom of the screen, one pill per app (x range) */
+export function dock3DLayout(w: number): Array<{ id: PhoneApp; label: string; x0: number; x1: number }> {
+  const x0 = w * 0.12;
+  const pill = (w * 0.76) / PHONE_APPS.length;
+  return PHONE_APPS.map((a, i) => ({ ...a, x0: x0 + pill * i, x1: x0 + pill * (i + 1) }));
+}
+
+/** Which dock pill a tap at (x, y) on the 3D screen (height h) hits, or null */
+export function hitDock3D(x: number, y: number, w: number, h: number): PhoneApp | null {
+  if (y < h - DOCK3D_H - 4) return null;
+  return dock3DLayout(w).find((p) => x >= p.x0 && x < p.x1)?.id ?? null;
+}
+
+/** Draws the dock pills over the 3D phone's status bar (the open app highlighted, unread badges) */
+export function renderDock3D(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  app: PhoneApp,
+  unread: Partial<Record<PhoneApp, number>> = {},
+): void {
+  ctx.save();
+  ctx.fillStyle = 'rgba(15,23,42,0.6)';
+  ctx.fillRect(0, h - DOCK3D_H, w, DOCK3D_H);
+  const top = h - DOCK3D_H + 5;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 11px sans-serif';
+  for (const p of dock3DLayout(w)) {
+    const active = p.id === app;
+    ctx.fillStyle = active ? 'rgba(248,250,252,0.95)' : 'rgba(15,23,42,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(p.x0 + 3, top, p.x1 - p.x0 - 6, 24, 12);
+    ctx.fill();
+    ctx.fillStyle = active ? '#0f172a' : '#e2e8f0';
+    ctx.fillText(p.label, (p.x0 + p.x1) / 2, top + 12.5);
+    const n = unread[p.id] ?? 0;
+    if (n > 0 && !active) {
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(p.x1 - 8, top + 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 8px sans-serif';
+      ctx.fillText(String(Math.min(9, n)), p.x1 - 8, top + 2.5);
+      ctx.font = 'bold 11px sans-serif';
+    }
+  }
+  ctx.restore();
+}
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

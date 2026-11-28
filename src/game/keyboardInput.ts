@@ -1,4 +1,5 @@
 import { ACTIVE_MAP_DATA } from '../data/suwonDistricts';
+import { PHONE_APPS } from '../ui/phone/weatherApp';
 import { applyGameClock } from './clockSync';
 import { GameContext } from './GameContext';
 
@@ -197,6 +198,16 @@ export function installKeyboardInput(ctx: GameContext, actions: KeyboardActions)
       }
       case 'KeyV': {
         handleTogglePhoneZoom();
+        break;
+      }
+      case 'KeyY': {
+        // next phone app (배달 → 날씨 → 메신저) when the phone is out
+        if (hud.phoneMap.placement !== 'pocket') {
+          const app = hud.phoneMap.cycleApp();
+          hud.showToast(`📱 ${PHONE_APPS.find((a) => a.id === app)?.label ?? app} 앱`, 1200);
+        } else {
+          hud.showToast('📱 휴대폰을 먼저 꺼내세요 (Tab)', 1600);
+        }
         break;
       }
       case 'Escape': {

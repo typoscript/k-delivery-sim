@@ -3,6 +3,8 @@ import type { PhoneMap } from '../PhoneMap';
 import { PhonePlacement } from './types';
 
 export function setPlacement(host: PhoneMap, next: PhonePlacement): void {
+  // on the handlebar the phone is the rider's navigation: back to the delivery app
+  if (next === 'mounted' && host.placement !== 'mounted') host.setApp('delivery');
   host.placement = next;
   if (next === 'pocket') {
     host.isZoomed = false;
