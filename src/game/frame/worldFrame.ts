@@ -87,6 +87,16 @@ export function stepWorldFrame(ctx: GameContext, hooks: GameLoopHooks, loop: Loo
         }
       }
     }
+    // Streams on foot: wading through the water is slow (stepping stones and bridges are the way across)
+    const wading = !isRiding && playerCtrl.state.mode === 'on_foot' && world.isWadingAt(playerCtrl.state.x, playerCtrl.state.z);
+    if (wading && !playerCtrl.wading) {
+      audio.playCargoBoxSound();
+      if (!loop.wadingHintShown) {
+        loop.wadingHintShown = true;
+        hud.showToast('🌊 하천에 들어갔어요 — 물속에선 걸음이 느려요 · 징검다리나 다리로 건너세요', 3200);
+      }
+    }
+    playerCtrl.wading = wading;
     // Crossing black ice without going down counts toward the 빙판 마스터 achievement
     if (isRiding && world.blackIce.isActive) {
       const sp = scooterPhysics.state;

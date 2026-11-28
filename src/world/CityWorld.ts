@@ -1,3 +1,5 @@
+import { isWadingAt } from './streamPaths';
+import type { WaterLineData } from './openworld/OpenWorldTypes';
 import * as THREE from 'three';
 import { planStreetProps, registerStreetProps } from './streetProps';
 import { activeRoadProximity } from './roadProximity';
@@ -407,6 +409,21 @@ export class CityWorld {
       this.culler.rebuildLazy(this.streetPropsGroup);
       this.culler.rebuildLazy(this.streetPropPoolsGroup);
     }
+  }
+
+  private streamLines: WaterLineData[] = [];
+  private streamLinesVersion = -1;
+
+  /** Standing in a stream's water at (x, z) - not on a stepping stone, bridge or road (open world only) */
+  public isWadingAt(x: number, z: number): boolean {
+    if (!this.streamer) return false;
+    if (this.streamer.version !== this.streamLinesVersion) {
+      this.streamLinesVersion = this.streamer.version;
+      this.streamLines = this.streamer.getBuiltChunkData().flatMap((c) => c.waterLines);
+    }
+    if (this.streamLines.length === 0) return false;
+    const grid = activeRoadProximity();
+    return isWadingAt(this.streamLines, x, z, (px, pz) => grid.curbOffset(px, pz));
   }
 
   /**

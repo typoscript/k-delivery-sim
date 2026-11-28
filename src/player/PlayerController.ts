@@ -1,3 +1,4 @@
+import { WADING_SPEED_MUL } from '../world/streamPaths';
 import { ObstacleBox, clamp, collidesWithWorld, wrapAngle } from '../types';
 import { HEAT_DRAIN_MUL, HEAT_RECOVER_MUL, HEAT_WALK_DRAIN, ION_DRINK_COOL_SEC } from '../game/heatwave';
 
@@ -88,6 +89,9 @@ export class PlayerController {
   public reset(): void {
     this.state = this.createInitialState();
   }
+
+  /** Wading through a stream (set by the game frame): walking is slow */
+  public wading = false;
 
   /** Summer heatwave afternoon (set by the game clock): outdoors, walking drains stamina and resting is slow */
   public heatwave = false;
@@ -343,7 +347,12 @@ export class PlayerController {
     const energySpeedMul = p.energyBuffTimer > 0 ? 1.25 : 1.0;
     const stairSprintAllowed = input.sprint && p.stamina > 8;
     const targetSpeed =
-      len > 0.01 ? (stairSprintAllowed ? SPRINT_SPEED : WALK_SPEED) * exhaustedMul * energySpeedMul : 0;
+      len > 0.01
+        ? (stairSprintAllowed ? SPRINT_SPEED : WALK_SPEED) *
+          exhaustedMul *
+          energySpeedMul *
+          (this.wading && !p.inCorridor ? WADING_SPEED_MUL : 1)
+        : 0;
     if (len > 0.01) {
       dirX /= len;
       dirZ /= len;

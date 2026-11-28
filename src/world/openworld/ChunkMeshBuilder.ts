@@ -4,6 +4,7 @@ import { OsmBuildingData, OsmGraphEdge, OsmGraphNode } from '../../data/suwonTyp
 import { BuildingWallCategory, buildingWallCategory } from '../cityTextures';
 import { ChunkData, WaterLineData } from './OpenWorldTypes';
 import { freezeStatic } from '../renderLayers';
+import { STONE_HALF_M, WALKWAY_M, steppingStoneRows } from '../streamPaths';
 
 /**
  * Builds the render meshes + colliders for ONE streaming chunk.
@@ -675,6 +676,43 @@ function addDisc(buf: GeoBuffer, cx: number, cz: number, r: number, y: number): 
 /** Stone embankment (석축) along a stream: this much wider than the water on each side */
 export const EMBANKMENT_M = 1.3;
 const EMBANKMENT_COLOR = new THREE.Color(0x8f8676);
+const WALKWAY_COLOR = new THREE.Color(0xc9b99a);
+const STONE_COLOR = new THREE.Color(0x9ca3af);
+/** Stepping stones stand this high out of the water */
+const STONE_TOP_Y = 0.16;
+
+/** One flat-shaded quad facing `n` (the winding is fixed up so the face points that way) */
+function addQuad(buf: GeoBuffer, q: ReadonlyArray<readonly [number, number, number]>, n: readonly [number, number, number]): void {
+  const [a, b, c, d] = q;
+  const ux = b[0] - a[0];
+  const uy = b[1] - a[1];
+  const uz = b[2] - a[2];
+  const vx = c[0] - a[0];
+  const vy = c[1] - a[1];
+  const vz = c[2] - a[2];
+  const dot = (uy * vz - uz * vy) * n[0] + (uz * vx - ux * vz) * n[1] + (ux * vy - uy * vx) * n[2];
+  const tris = dot >= 0 ? [a, b, c, a, c, d] : [a, c, b, a, d, c];
+  for (const p of tris) buf.vertex(p[0], p[1], p[2], n[0], n[1], n[2], 0, 0);
+}
+
+/** A stepping stone: a low square block (top + four sides) turned along the row direction (ax, az) */
+function addSteppingStone(buf: GeoBuffer, cx: number, cz: number, ax: number, az: number): void {
+  const h = STONE_HALF_M;
+  const fx = -az;
+  const fz = ax;
+  const corner = (sa: number, sf: number, y: number): [number, number, number] => [
+    cx + (ax * sa + fx * sf) * h,
+    y,
+    cz + (az * sa + fz * sf) * h,
+  ];
+  const y0 = 0;
+  const y1 = STONE_TOP_Y;
+  addQuad(buf, [corner(-1, -1, y1), corner(1, -1, y1), corner(1, 1, y1), corner(-1, 1, y1)], [0, 1, 0]);
+  addQuad(buf, [corner(1, -1, y0), corner(1, 1, y0), corner(1, 1, y1), corner(1, -1, y1)], [ax, 0, az]);
+  addQuad(buf, [corner(-1, -1, y0), corner(-1, 1, y0), corner(-1, 1, y1), corner(-1, -1, y1)], [-ax, 0, -az]);
+  addQuad(buf, [corner(-1, 1, y0), corner(1, 1, y0), corner(1, 1, y1), corner(-1, 1, y1)], [fx, 0, fz]);
+  addQuad(buf, [corner(-1, -1, y0), corner(1, -1, y0), corner(1, -1, y1), corner(-1, -1, y1)], [-fx, 0, -fz]);
+}
 const BRIDGE_SHADE_COLOR = new THREE.Color(0x1d3f63);
 
 /**
@@ -875,8 +913,15 @@ export function buildChunkMeshes(
   // over it, in the vertex-coloured markings mesh (no extra draw call)
   if (edges) {
     for (const wl of chunk.waterLines) {
+      // embankment outermost, then the walkway on both banks, the water ribbon on top in the middle
       edges.color.copy(EMBANKMENT_COLOR);
-      addRibbon(edges, wl.pts, wl.width + EMBANKMENT_M * 2, 0.005, 0);
+      addRibbon(edges, wl.pts, wl.width + (WALKWAY_M + EMBANKMENT_M) * 2, 0.005, 0);
+      edges.color.copy(WALKWAY_COLOR);
+      addRibbon(edges, wl.pts, wl.width + WALKWAY_M * 2, 0.009, 0);
+      edges.color.copy(STONE_COLOR);
+      for (const row of steppingStoneRows(wl, roads.curbOffset)) {
+        for (const [sx, sz] of row.stones) addSteppingStone(edges, sx, sz, row.ax, row.az);
+      }
     }
     if (roads.bridges && roads.bridges.length > 0) {
       edges.color.copy(BRIDGE_SHADE_COLOR);
