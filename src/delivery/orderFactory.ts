@@ -66,7 +66,8 @@ export function buildDeliveryOrder(opts: {
     id: opts.id,
     orderNumber: opts.orderNumber,
     dispatchType: type,
-    deliveryInstruction: generateRandomInstruction(),
+    // a riverside customer waits on the bench: always handed over in person
+    deliveryInstruction: customer.residenceKind === 'riverside' ? (generateRandomInstruction(), 'MEET_FACE') : generateRandomInstruction(),
     baseFlatFee,
     timeLimitSec: spec ? spec.timeLimitSec : isSingle ? SINGLE_TIME_LIMIT_SEC : ALTTLE_TIME_LIMIT_SEC,
     shop,

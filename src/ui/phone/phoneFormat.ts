@@ -3,7 +3,8 @@ import { ACTIVE_DISTRICT, ACTIVE_MAP_DATA, IS_UNIFIED_MAP, SUWON_DISTRICTS } fro
 import { nearestLegacyDistrictId } from '../../data/suwonUnified';
 
 /** Pure label/formatting helpers shared by the phone screen renderers & sheet tabs. */
-export function getPhaseShortLabel(phase: string, cargoSlot: number | null, cookSec = 0): string {
+export function getPhaseShortLabel(phase: string, cargoSlot: number | null, cookSec = 0, riverside = false): string {
+  if (riverside && phase === 'carrying_to_lobby') return '🌿 산책로 벤치로 걸어가기';
   switch (phase) {
     case 'to_pickup':
       return '픽업 대기 · POS 입력';

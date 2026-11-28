@@ -182,3 +182,34 @@ describe('generateDeliverySpots', () => {
   });
 });
 
+
+describe('riverside spots', () => {
+  it('benches along a named stream on its left bank, away from the roads, numbered along the stream', async () => {
+    const { riversideSpots, RIVERSIDE_FIRST_M, RIVERSIDE_SPACING_M } = await import('./delivery-spots.mjs');
+    // a 1 km stream running north, split into two OSM ways; a road across it at z = 570
+    const streams = [
+      { name: '수원천', width: 18, pts: [{ x: 0, z: 0 }, { x: 0, z: 500 }] },
+      { name: '수원천', width: 18, pts: [{ x: 0, z: 500 }, { x: 0, z: 1000 }] },
+      { name: '', width: 5, pts: [{ x: 50, z: 0 }, { x: 50, z: 900 }] },
+    ];
+    const nodes = [
+      { id: 0, x: -100, z: 570 },
+      { id: 1, x: 100, z: 570 },
+    ];
+    const edges = [{ a: 0, b: 1, width: 10 }];
+    const spots = riversideSpots(streams, nodes, edges);
+    // each way starts its own spacing; the unnamed stream gets none
+    expect(spots.map((s) => s.z)).toEqual([RIVERSIDE_FIRST_M, 500 + RIVERSIDE_FIRST_M]);
+    // a road right by a spot drops it
+    const blocked = riversideSpots(streams, [{ id: 0, x: -100, z: 150 }, { id: 1, x: 100, z: 150 }], edges);
+    expect(blocked.map((s) => s.z)).toEqual([500 + RIVERSIDE_FIRST_M]);
+    expect(RIVERSIDE_SPACING_M).toBeGreaterThan(300);
+    expect(spots.map((s) => s.name)).toEqual(spots.map((_, i) => `수원천 산책로 쉼터 ${i + 1}`));
+    for (const s of spots) {
+      expect(s.x).toBeCloseTo(9 + 0.9); // left bank of a north-running stream = +X
+      expect(s.residenceKind).toBe('riverside');
+      expect(s.facingHeading).toBeCloseTo(-Math.PI / 2, 1); // facing the water (-X)
+    }
+    expect(new Set(spots.map((s) => s.id)).size).toBe(spots.length);
+  });
+});

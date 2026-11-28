@@ -13,4 +13,6 @@ export interface InteractEnv {
   exitCorridorToStreet: () => void;
   finalizeCorridorSettlement: () => void;
   handleTakeDeliveryPhoto: () => void;
+  /** 산책로 쉼터: hand the food to the customer on the bench and settle right there */
+  handleRiversideHandoff: (missionId: string) => void;
 }

@@ -98,10 +98,12 @@ export function createCustomerChatEvent(m: ActiveMission, isRaining: boolean, ra
   const o = m.order;
   const candidates: Array<'change_to_photo' | 'fix_unit_number' | 'extra_tip_careful'> = [];
 
-  if (o.deliveryInstruction !== 'PHOTO_DOOR') {
+  const riverside = o.customer.residenceKind === 'riverside';
+  // a bench on the walkway has no door to leave it at and no unit number to fix
+  if (o.deliveryInstruction !== 'PHOTO_DOOR' && !riverside) {
     candidates.push('change_to_photo');
   }
-  candidates.push('fix_unit_number');
+  if (!riverside) candidates.push('fix_unit_number');
   candidates.push('extra_tip_careful');
   if (o.isSpillSensitive || isRaining) {
     // Slightly weight careful-delivery tip chat for soup/drinks & rain

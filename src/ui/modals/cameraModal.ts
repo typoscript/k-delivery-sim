@@ -68,10 +68,13 @@ export function showSettlement(host: ModalUi, result: SettlementResult, photoDat
   host.settlementBreakdown.innerHTML = settlementBreakdownHtml(result);
   const okBtn = document.getElementById('settlement-ok-btn');
   if (okBtn) {
+    const kind = result.order.customer.residenceKind;
     okBtn.textContent =
-      result.order.customer.residenceKind === 'walkup_villa'
-        ? '확인 (원룸·빌라 계단으로 1층 복귀)'
-        : '확인 (엘리베이터 탑승 후 1층 복귀)';
+      kind === 'riverside'
+        ? '확인 (산책로에서 바로 마무리)'
+        : kind === 'walkup_villa'
+          ? '확인 (원룸·빌라 계단으로 1층 복귀)'
+          : '확인 (엘리베이터 탑승 후 1층 복귀)';
   }
   host.settlementTotal.textContent = `+₩${result.earned.toLocaleString()}`;
   host.settlementCumul.textContent = `오늘 누적 수익 ₩${result.totalEarnings.toLocaleString()} (${result.completedCount}건 완료)`;

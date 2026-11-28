@@ -7,7 +7,8 @@ export const CITY_WORLD_LIMIT = ACTIVE_MAP_DATA.meta.worldLimit;
 
 export type WeatherMode = 'clear' | 'cloudy' | 'rain' | 'snow';
 export type SlipSurfaceType = 'none' | 'manhole' | 'crosswalk_paint';
-export type ResidenceKind = 'apartment' | 'walkup_villa' | 'officetel';
+/** 'riverside': a customer waiting on a stream walkway bench (산책로 쉼터) - walk in, hand the food over */
+export type ResidenceKind = 'apartment' | 'walkup_villa' | 'officetel' | 'riverside';
 export type FoodTempType = 'hot' | 'cold';
 
 export interface SpeedBumpInfo {

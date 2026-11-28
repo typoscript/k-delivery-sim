@@ -1,6 +1,6 @@
 import { eventBonusEarned } from './demandEvents';
 import { QUICK_REPLY_TIP } from './messenger';
-import { NO_GROUND_WALK_BONUS, isNoGroundVehicleComplex } from './apartmentRules';
+import { NO_GROUND_WALK_BONUS, RIVERSIDE_WALK_BONUS, isNoGroundVehicleComplex } from './apartmentRules';
 import { ActiveMission, BASE_FLAT_FEE, OPTIMAL_TEMP_BONUS, REGULAR_CUSTOMER_TIP, VILLA_STAIR_BONUS } from './deliveryTypes';
 
 /** Itemized pay for one delivered order (all parts already rounded; `earned` is their exact sum) */
@@ -46,7 +46,12 @@ export function computeSettlementPay(m: ActiveMission, tierBonus: number): Settl
   const tip = m.foodTemp < 50 ? Math.round((baseTip * 0.5) / 100) * 100 : baseTip;
   const tempBonus = m.foodTemp >= 80 ? OPTIMAL_TEMP_BONUS : 0;
   const villaStairBonus = o.customer.residenceKind === 'walkup_villa' ? VILLA_STAIR_BONUS : 0;
-  const walkInBonus = isNoGroundVehicleComplex(o.customer) && !m.groundRuleBroken ? NO_GROUND_WALK_BONUS : 0;
+  const walkInBonus =
+    o.customer.residenceKind === 'riverside'
+      ? RIVERSIDE_WALK_BONUS
+      : isNoGroundVehicleComplex(o.customer) && !m.groundRuleBroken
+        ? NO_GROUND_WALK_BONUS
+        : 0;
   const replyTip = m.chatReplied ? QUICK_REPLY_TIP : 0;
   const promisedTipBonus = m.promisedExtraTip > 0 && m.foodIntegrity >= 85 ? m.promisedExtraTip : 0;
   const peakBonus = o.peakBonus ?? 0;

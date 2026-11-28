@@ -176,7 +176,7 @@ export function renderOnFootPhoneOverlay(
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(getPhaseShortLabel(p, m.cargoSlot), 113, sheetY + 37);
+    ctx.fillText(getPhaseShortLabel(p, m.cargoSlot, 0, m.order.customer.residenceKind === 'riverside'), 113, sheetY + 37);
 
     if (navPlan.guidance && !player.inCorridor) {
       ctx.fillStyle = isNight ? '#4ade80' : '#059669';

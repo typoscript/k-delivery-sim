@@ -26,7 +26,7 @@ import {
   WORLD_ORIGIN,
   project,
 } from './suwon-config.mjs';
-import { generateDeliverySpots } from './delivery-spots.mjs';
+import { generateDeliverySpots, riversideSpots } from './delivery-spots.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -468,6 +468,8 @@ async function main() {
   let waterN = 0;
   let waterLineN = 0;
   let plazaN = 0;
+  /** Whole stream polylines (before cutting into chunk pieces) for the riverside delivery spots */
+  const streamLinesAll = [];
   for (const el of els) {
     const t = el.tags;
     if (!t || t.building) continue;
@@ -485,6 +487,7 @@ async function main() {
       const pts = geomToPts(el.geometry);
       const keep = simplifyIdx(pts, SIMPLIFY_ROAD_M).map((i) => pts[i]);
       const width = t.waterway === 'river' ? 18 : t.waterway === 'canal' ? 10 : 5;
+      streamLinesAll.push({ name: t.name ?? '', width, pts: keep });
       let piece = [keep[0]];
       let len = 0;
       for (let i = 1; i < keep.length; i++) {
@@ -602,6 +605,10 @@ async function main() {
     };
   }
 
+  // ---------- 4b. riverside spots: customers on the stream walkways (walk in along the walkway)
+  const riverside = riversideSpots(streamLinesAll, nodes, outEdges);
+  stats.riverside = riverside.length;
+
   // ---------- 5. generated delivery spots: OSM food places -> shops, residential buildings -> customers
   const generated = generateDeliverySpots({
     elements: els,
@@ -658,7 +665,7 @@ async function main() {
     busStops,
     legacyDistricts,
     generatedShops: generated.shops,
-    generatedResidences: generated.residences,
+    generatedResidences: [...generated.residences, ...riverside],
     generatedFuelStations: generated.fuelStations,
     chunks: chunkIndex,
   };

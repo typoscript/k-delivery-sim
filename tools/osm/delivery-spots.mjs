@@ -603,3 +603,79 @@ export function generateDeliverySpots({ elements, buildings, nodes, edges, busSt
 
   return { shops, residences, fuelStations, stats };
 }
+
+// ---------- riverside spots (하천 산책로 쉼터): customers waiting on a stream walkway bench
+
+/** Metres between riverside spots along a named stream (the first one RIVERSIDE_FIRST_M in) */
+export const RIVERSIDE_SPACING_M = 420;
+export const RIVERSIDE_FIRST_M = 150;
+/** A spot keeps this far from any road edge (walk the walkway to reach it, never a road-side drop) */
+export const RIVERSIDE_ROAD_CLEARANCE_M = 12;
+/** Walkway centre offset from the water's edge (the game draws a 1.8 m walkway) */
+const WALKWAY_CENTRE_M = 0.9;
+
+function distToRoads(x, z, nodes, edges) {
+  let best = Infinity;
+  for (const e of edges) {
+    const a = nodes[e.a];
+    const b = nodes[e.b];
+    const p = projectOnSegment(x, z, a.x, a.z, b.x, b.z);
+    const d = Math.hypot(p.x - x, p.z - z) - e.width / 2;
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Bench spots on the walkways of named streams: every RIVERSIDE_SPACING_M along the stream, on its left bank
+ * (looking downstream), away from the roads. `streams`: { name, width, pts: [{x, z}] } whole polylines.
+ * Each spot faces the water (`facingHeading`) and is a 'riverside' residential customer.
+ */
+export function riversideSpots(streams, nodes, edges) {
+  const out = [];
+  /** Spots so far per stream name (OSM splits one stream into many ways: number them along the whole stream) */
+  const count = new Map();
+  for (const s of streams) {
+    if (!s.name || s.pts.length < 2) continue;
+    let walked = 0;
+    let next = RIVERSIDE_FIRST_M;
+    for (let i = 1; i < s.pts.length; i++) {
+      const a = s.pts[i - 1];
+      const b = s.pts[i];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len < 1e-6) continue;
+      const fx = (b.x - a.x) / len;
+      const fz = (b.z - a.z) / len;
+      while (next <= walked + len) {
+        const t = next - walked;
+        // left of the flow (heading 0 = +Z has +X on its left): (fz, -fx)
+        const off = s.width / 2 + WALKWAY_CENTRE_M;
+        const x = a.x + fx * t + fz * off;
+        const z = a.z + fz * t - fx * off;
+        next += RIVERSIDE_SPACING_M;
+        if (distToRoads(x, z, nodes, edges) < RIVERSIDE_ROAD_CLEARANCE_M) continue;
+        const n = (count.get(s.name) ?? 0) + 1;
+        count.set(s.name, n);
+        out.push({
+          id: `gen-riv-${hashName(s.name)}-${Math.round(x)}-${Math.round(z)}`,
+          name: `${s.name} 산책로 쉼터 ${n}`,
+          x: Math.round(x * 10) / 10,
+          z: Math.round(z * 10) / 10,
+          type: 'residential',
+          residenceKind: 'riverside',
+          emoji: '🌿',
+          // facing the water (right of the flow)
+          facingHeading: Math.round(Math.atan2(-fz, fx) * 100) / 100,
+        });
+      }
+      walked += len;
+    }
+  }
+  return out;
+}
+
+function hashName(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}

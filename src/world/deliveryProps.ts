@@ -304,6 +304,27 @@ export class DeliveryLocationProps {
       return { object: g, keep: (o) => o === trayBag };
     }
 
+    if (loc.residenceKind === 'riverside') {
+      // 산책로 쉼터: a wooden bench facing the water and a small name board (no lobby door)
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.45), m.canopyMats[5]);
+      seat.position.set(0, 0.45, 0);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.4, 0.06), m.canopyMats[5]);
+      back.position.set(0, 0.75, -0.22);
+      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.45, 0.4), m.darkMat);
+      legL.position.set(-0.8, 0.22, 0);
+      const legR = legL.clone();
+      legR.position.x = 0.8;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.5, 0.08), m.darkMat);
+      post.position.set(1.15, 0.75, -0.1);
+      const board = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 0.36, 0.05),
+        new THREE.MeshBasicMaterial({ map: this.host.createSignTexture(`${loc.emoji} ${loc.name}`, '#166534', '#f0fdf4') }),
+      );
+      board.position.set(1.15, 1.55, -0.1);
+      g.add(seat, back, legL, legR, post, board);
+      return { object: g, keep: () => false };
+    }
+
     const isVilla = loc.residenceKind === 'walkup_villa';
     const archFrame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.7, 0.42), m.darkMat);
     archFrame.position.set(0, 1.35, 0);

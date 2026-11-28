@@ -198,6 +198,7 @@ export function classifyMenuFood(menuName: string, shopId: string): FoodPhysicsM
 
 /** Generates realistic floor & unit numbers based on Korean building type (walk-up villa 2~4F vs apt 3~16F) */
 export function generateUnitNumberForLocation(loc: DeliveryLocation): string {
+  if (loc.residenceKind === 'riverside') return '벤치';
   if (loc.residenceKind === 'walkup_villa') {
     const floor = 2 + Math.floor(Math.random() * 3); // 2F ~ 4F (no elevator!)
     const unit = 1 + Math.floor(Math.random() * 2); // 01 ~ 02

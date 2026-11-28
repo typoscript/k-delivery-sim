@@ -66,6 +66,10 @@ export function interactOutdoors(env: InteractEnv): void {
   // 3. Customer 1st-Floor Lobby Glass Door PIN / Elevator
   const lobbyMission = delivery.getMissionNearCustomerLobby(playerCtrl.state.x, playerCtrl.state.z);
   if (lobbyMission) {
+    if (lobbyMission.phase === 'carrying_to_lobby' && lobbyMission.order.customer.residenceKind === 'riverside') {
+      env.handleRiversideHandoff(lobbyMission.order.id);
+      return;
+    }
     if (lobbyMission.phase === 'carrying_to_lobby') {
       // 지상 차량 출입 금지 단지: the guard notices a scooter parked inside the complex (allowance forfeited)
       const c = lobbyMission.order.customer;

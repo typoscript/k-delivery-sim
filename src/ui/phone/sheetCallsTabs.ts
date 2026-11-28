@@ -131,7 +131,7 @@ export function renderAcceptedTab(
         <div class="accepted-card ${isFocused ? 'focused' : ''}">
           <div class="accepted-top">
             ${typeBadge}
-            <span class="step-badge ${stepCls}">${getPhaseShortLabel(m.phase, m.cargoSlot, m.cookingRemainingSec)}</span>
+            <span class="step-badge ${stepCls}">${getPhaseShortLabel(m.phase, m.cargoSlot, m.cookingRemainingSec, m.order.customer.residenceKind === 'riverside')}</span>
             <span class="mission-timer-pill ${timerCls}">⏱ ${remMin}:${remS}</span>
             <span class="order-fee">₩${orderDisplayFee(m.order).toLocaleString()}</span>
           </div>

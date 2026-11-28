@@ -142,7 +142,11 @@ export function settlementLines(r: SettlementResult): ReceiptLine[] {
   else lines.push({ key: 'temp', label: `${tempIcon} 상태 (${r.foodTemp}%)`, amount: 0, tone: 'info', valueText: '보통' });
 
   add('villa', '🪜 구축 빌라 계단 수고비', r.villaStairBonus);
-  add('walkIn', '🚶 지상 차량 출입 금지 단지 도보 수당', r.walkInBonus ?? 0);
+  add(
+    'walkIn',
+    r.order.customer.residenceKind === 'riverside' ? '🌿 하천 산책로 도보 배달 수당' : '🚶 지상 차량 출입 금지 단지 도보 수당',
+    r.walkInBonus ?? 0,
+  );
   add('replyTip', '💬 빠른 답장 팁 (메신저)', r.replyTip ?? 0);
   add('chatTip', '💬 고객 약속 조심배달 팁', r.promisedTipBonus);
 

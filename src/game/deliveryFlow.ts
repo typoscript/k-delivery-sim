@@ -18,6 +18,8 @@ export interface DeliveryFlowState {
   npcTookFoodBag: boolean;
   /** Daily goal bonus popup shown once the settlement receipt is closed */
   pendingMissionBonusPopup: { title: string; bonus: number; totalWallet: number } | null;
+  /** The open settlement is a riverside hand-over (outdoors: no corridor to walk out of) */
+  riversideHandoff?: boolean;
 }
 
 export interface DeliveryFlowDeps {
@@ -303,6 +305,7 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
     exitCorridorToStreet,
     finalizeCorridorSettlement,
     handleTakeDeliveryPhoto,
+    handleRiversideHandoff: (id: string) => handleRiversideHandoff(id),
   };
 
   /** The context [E] key: service stations, then (with deliveries) the corridor or the outdoor spots */
@@ -378,7 +381,24 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
   };
 
 
+  /** 산책로 쉼터: the customer on the bench takes the food; the settlement opens right on the walkway */
+  const handleRiversideHandoff = (missionId: string) => {
+    const m = delivery.getMissionById(missionId);
+    if (!m || m.phase !== 'carrying_to_lobby') return;
+    m.phase = 'meet_waiting';
+    state.riversideHandoff = true;
+    audio.playChime('pickup');
+    voiceNav.speak('손님께 음식을 전달했습니다.');
+    finalizeCorridorSettlement();
+  };
+
   const handleSettlementClose = () => {
+    const riverside = state.riversideHandoff === true;
+    if (riverside) {
+      // outdoors already: the delivery ends right here
+      state.riversideHandoff = false;
+      delivery.finishAfterCorridorExit();
+    }
     if (state.pendingMissionBonusPopup) {
       const info = state.pendingMissionBonusPopup;
       state.pendingMissionBonusPopup = null;
@@ -387,6 +407,10 @@ export function createDeliveryFlow(ctx: GameContext, deps: DeliveryFlowDeps) {
       modalUi.showMissionBonusPopup(info.title, info.bonus, info.totalWallet);
       hud.showToast(`🏆 오늘의 목표 달성! ${info.title} +₩${info.bonus.toLocaleString()} 보너스 지급!`, 4600);
       hud.phoneMap.notify('🏆', '뱅크', `오늘의 목표 달성 · ${info.title} +₩${info.bonus.toLocaleString()}`);
+      return;
+    }
+    if (riverside) {
+      hud.showToast('🌿 배달 완료! 산책로를 따라 오토바이로 돌아가세요 (징검다리로 건너면 지름길)', 3600);
       return;
     }
     hud.showToast(

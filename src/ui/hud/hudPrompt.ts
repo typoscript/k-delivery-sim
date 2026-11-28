@@ -114,6 +114,9 @@ export function computePrompt(
     // 3. Customer Lobby Entrance PIN / Elevator
     const lobbyM = delivery.getMissionNearCustomerLobby(player.x, player.z);
     if (lobbyM) {
+      if (lobbyM.phase === 'carrying_to_lobby' && lobbyM.order.customer.residenceKind === 'riverside') {
+        return `<kbd>E</kbd> 🌿 ${lobbyM.order.customer.name} 벤치의 손님에게 음식 전달 ([#${lobbyM.order.orderNumber}])`;
+      }
       if (lobbyM.phase === 'carrying_to_lobby') {
         return `<kbd>E</kbd> 🔑 ${lobbyM.order.customer.name} 공동현관 PIN 입력 ([#${lobbyM.order.orderNumber}])`;
       }

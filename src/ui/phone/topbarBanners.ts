@@ -58,9 +58,16 @@ export function syncPinTooltip(
   }
   const inst = getInstructionMeta(focus.order.deliveryInstruction);
   const villaTxt =
-    focus.order.customer.residenceKind === 'walkup_villa' ? ' · 🪜계단' : '';
+    focus.order.customer.residenceKind === 'walkup_villa'
+      ? ' · 🪜계단'
+      : focus.order.customer.residenceKind === 'riverside'
+        ? ' · 🌿 산책로 따라 걸어서 (징검다리 지름길)'
+        : '';
   const chatTxt = focus.chatNote ? ` · 💬${focus.chatNote}` : '';
-  pinTooltipEl.innerHTML = `🔑 <b>${focus.order.doorPinLabel}</b> · ${focus.order.unitNumber}${villaTxt} · ${inst.badge}${chatTxt}`;
+  pinTooltipEl.innerHTML =
+    focus.order.customer.residenceKind === 'riverside'
+      ? `🌿 <b>${focus.order.customer.name}</b> 벤치${villaTxt} · ${inst.badge}${chatTxt}`
+      : `🔑 <b>${focus.order.doorPinLabel}</b> · ${focus.order.unitNumber}${villaTxt} · ${inst.badge}${chatTxt}`;
   pinTooltipEl.classList.remove('hidden');
 }
 
@@ -181,7 +188,7 @@ export function syncDispatchPopup(
         (o, idx) => `
         <div class="dp-stop-item">
           <div class="dp-stop-shop">${offer.orders.length > 1 ? `${idx + 1}. ` : ''}${o.shop.emoji} ${o.shop.name} ${delivery.isRegularShop(o.shop.id) ? '<span class="regular-shop-tag">⭐단골</span> ' : ''}<span class="ord-tag">#${o.orderNumber}</span> <span class="food-meta-chip ${o.foodTempType === 'cold' ? 'cold' : o.isSpillSensitive ? 'spill' : ''}">${o.foodCategoryTag}</span>${specialOrderChip(o)}${eventOrderChip(o)}</div>
-          <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}${regularCustomerChip(o)}${o.customer.residenceKind === 'walkup_villa' ? ' <span class="villa-tag">🪜계단+500</span>' : ''} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
+          <div class="dp-stop-cust">→ ${o.customer.emoji} ${o.customer.name} ${o.unitNumber}${regularCustomerChip(o)}${o.customer.residenceKind === 'walkup_villa' ? ' <span class="villa-tag">🪜계단+500</span>' : o.customer.residenceKind === 'riverside' ? ' <span class="villa-tag">🌿산책로+800</span>' : ''} · ${getInstructionMeta(o.deliveryInstruction).badge}</div>
         </div>`
       )
       .join('');

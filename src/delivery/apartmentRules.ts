@@ -9,6 +9,8 @@ import type { DeliveryLocation } from '../types';
 
 /** Walking allowance for a no-vehicle complex, paid when the scooter was left outside */
 export const NO_GROUND_WALK_BONUS = 700;
+/** 산책로 쉼터 customers: the scooter stays on the road, the food is walked in along the walkway */
+export const RIVERSIDE_WALK_BONUS = 800;
 /** Scooter parked closer than this to the lobby = ridden into the complex */
 export const NO_GROUND_PARK_LIMIT_M = 18;
 /** Share of complexes with the rule (percent) */

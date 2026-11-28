@@ -74,7 +74,7 @@ export interface OsmDeliverySpot {
   x: number;
   z: number;
   type: 'shop' | 'residential';
-  residenceKind?: 'apartment' | 'walkup_villa' | 'officetel';
+  residenceKind?: 'apartment' | 'walkup_villa' | 'officetel' | 'riverside';
   emoji: string;
   facingHeading: number;
   menus?: string[];
