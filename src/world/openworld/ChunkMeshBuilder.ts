@@ -73,7 +73,7 @@ const ROAD_UV_SCALE = 0.1; // asphalt tile per 10m
 const DISC_SEGMENTS = 14;
 
 /** Growable non-indexed triangle soup -> BufferGeometry */
-class GeoBuffer {
+export class GeoBuffer {
   readonly pos: number[] = [];
   readonly nor: number[] = [];
   readonly uv: number[] = [];
@@ -489,6 +489,70 @@ export function addRoadEdges(
   }
 }
 
+const BRIDGE_RAIL_COLOR = new THREE.Color(0xa8a29e);
+const BRIDGE_RAIL_H = 1.05;
+const BRIDGE_RAIL_T = 0.28;
+const BRIDGE_RAIL_PIECE_M = 2;
+
+/**
+ * Concrete parapets along both sides of a bridge segment (outside the curb), in 2 m pieces. The world is drawn at
+ * one height, so a piece is left out wherever another road runs through it (`blocked`) - a road passing under the
+ * bridge would otherwise hit a wall - and near the junctions like the curbs.
+ */
+export function addBridgeRailings(
+  buf: GeoBuffer,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  width: number,
+  trimA: number,
+  trimB: number,
+  blocked: (x: number, z: number) => boolean
+): number {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const len = Math.hypot(dx, dz);
+  const usable = len - trimA - trimB;
+  if (usable < BRIDGE_RAIL_PIECE_M) return 0;
+  const fx = dx / len;
+  const fz = dz / len;
+  const rx = -fz;
+  const rz = fx;
+  if (buf.col) buf.color.copy(BRIDGE_RAIL_COLOR);
+  const n = Math.floor(usable / BRIDGE_RAIL_PIECE_M);
+  let pieces = 0;
+  for (const side of [-1, 1]) {
+    const inner = side * (width / 2 + CURB_W + 0.1);
+    const outer = inner + side * BRIDGE_RAIL_T;
+    for (let i = 0; i < n; i++) {
+      const t0 = trimA + i * BRIDGE_RAIL_PIECE_M;
+      const t1 = t0 + BRIDGE_RAIL_PIECE_M;
+      const mx = ax + fx * (t0 + t1) / 2 + rx * inner;
+      const mz = az + fz * (t0 + t1) / 2 + rz * inner;
+      if (blocked(mx, mz)) continue;
+      const p = (t: number, off: number): [number, number] => [ax + fx * t + rx * off, az + fz * t + rz * off];
+      const [i0x, i0z] = p(t0, inner);
+      const [i1x, i1z] = p(t1, inner);
+      const [o0x, o0z] = p(t0, outer);
+      const [o1x, o1z] = p(t1, outer);
+      // road-facing face, outside face, top
+      const nx = -side * rx;
+      const nz = -side * rz;
+      if (side > 0) {
+        addWallQuad(buf, i0x, i0z, i1x, i1z, nx, nz, 0, BRIDGE_RAIL_H, 0);
+        addWallQuad(buf, o1x, o1z, o0x, o0z, -nx, -nz, 0, BRIDGE_RAIL_H, 0);
+      } else {
+        addWallQuad(buf, i1x, i1z, i0x, i0z, nx, nz, 0, BRIDGE_RAIL_H, 0);
+        addWallQuad(buf, o0x, o0z, o1x, o1z, -nx, -nz, 0, BRIDGE_RAIL_H, 0);
+      }
+      addFlatPolygon(buf, [[i0x, i0z], [i1x, i1z], [o1x, o1z], [o0x, o0z]], BRIDGE_RAIL_H);
+      pieces++;
+    }
+  }
+  return pieces;
+}
+
 /** Within this distance of a school building a road is a children's protection zone */
 const SCHOOL_ZONE_M = 90;
 /** 버스전용 is painted every this many metres along a bus lane */
@@ -721,6 +785,21 @@ export function buildChunkMeshes(
     addRibbon(road, [[a.x, a.z], [b.x, b.z]], e.width, y, ROAD_UV_SCALE);
     if (e.isMajor && e.width >= 8 && edges) addRoadEdges(edges, edges, a.x, a.z, b.x, b.z, e.width, y, trimAt(e.a), trimAt(e.b));
     if (text) addRoadWords(text, a, b, e, y, trimAt(e.a), trimAt(e.b), schools);
+    if (e.bridge && edges && !lowDetail) {
+      // no parapet where another road of the chunk runs through it (a road under the bridge, drawn at the same height)
+      const blocked = (x: number, z: number) =>
+        roads.edges.some((o) => {
+          if (o === e || o.bridge) return false;
+          const oa = roads.nodes[o.a];
+          const ob = roads.nodes[o.b];
+          const ox = ob.x - oa.x;
+          const oz = ob.z - oa.z;
+          const l2 = ox * ox + oz * oz || 1;
+          const t = Math.max(0, Math.min(1, ((x - oa.x) * ox + (z - oa.z) * oz) / l2));
+          return Math.hypot(oa.x + ox * t - x, oa.z + oz * t - z) < o.width / 2 + 1;
+        });
+      addBridgeRailings(edges, a.x, a.z, b.x, b.z, e.width, trimAt(e.a), trimAt(e.b), blocked);
+    }
     if (e.isMajor && e.dist >= 10) {
       const dx = b.x - a.x;
       const dz = b.z - a.z;

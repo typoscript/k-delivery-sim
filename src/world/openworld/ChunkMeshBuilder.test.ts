@@ -2,7 +2,15 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { OsmBuildingData } from '../../data/suwonTypes';
-import { ChunkMaterials, MapDetail, ROAD_TEXT_ROWS, buildChunkMeshes, wallTintOf } from './ChunkMeshBuilder';
+import {
+  ChunkMaterials,
+  GeoBuffer,
+  MapDetail,
+  ROAD_TEXT_ROWS,
+  addBridgeRailings,
+  buildChunkMeshes,
+  wallTintOf,
+} from './ChunkMeshBuilder';
 import { ChunkData, OpenWorldData } from './OpenWorldTypes';
 
 const mat = () => new THREE.MeshBasicMaterial();
@@ -520,5 +528,23 @@ describe('bus lanes and road text', () => {
     }
     expect(painted).toBeGreaterThan(3);
     expect(painted).toBeLessThan(30);
+  });
+});
+
+describe('bridge parapets', () => {
+  it('concrete walls along both sides of a bridge, outside the road, left out where another road runs through', () => {
+    const buf = new GeoBuffer(true);
+    // a 100 m bridge along +Z, 10 m wide; no trimming
+    const all = addBridgeRailings(buf, 0, 0, 0, 100, 10, 0, 0, () => false);
+    expect(all).toBe(2 * 50);
+    const pos = buf.toGeometry()!.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      expect(Math.abs(pos.getX(i))).toBeGreaterThan(5); // outside the 10 m road
+      expect(pos.getY(i)).toBeLessThanOrEqual(1.06);
+    }
+    // a road crossing under the bridge at z = 50 (8 m wide) opens a gap in both parapets
+    const gap = addBridgeRailings(new GeoBuffer(true), 0, 0, 0, 100, 10, 0, 0, (_x, z) => Math.abs(z - 50) < 5);
+    expect(gap).toBeLessThan(all);
+    expect(gap).toBeGreaterThan(all - 12);
   });
 });
