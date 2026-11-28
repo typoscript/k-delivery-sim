@@ -21,6 +21,19 @@ export interface WeatherAlert {
   level: 'danger' | 'warn' | 'info';
 }
 
+/** One event call of the day for the weather app's "오늘의 이벤트 콜" card */
+export interface EventCallInfo {
+  icon: string;
+  label: string;
+  bonus: number;
+  /** When it runs ("11:00~13:30", "비 오는 동안", "하루 종일" ...) */
+  when: string;
+  /** Running right now */
+  now: boolean;
+  /** What the rider has to do for the surcharge */
+  condition: string;
+}
+
 export interface WeatherReport {
   mode: WeatherMode;
   icon: string;
@@ -32,6 +45,8 @@ export interface WeatherReport {
   sunrise: string;
   sunset: string;
   alerts: WeatherAlert[];
+  /** Today's event calls, running ones first */
+  events: EventCallInfo[];
   hourly: Array<{ label: string; mode: WeatherMode; icon: string; tempC: number }>;
   tomorrow: {
     seasonLabel: string;
@@ -250,6 +265,8 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
     });
   }
 
+  const events = todaysEventCalls(input, season.id, season.sun.duskStart);
+
   const hourly = input.forecast.slice(0, 6).map((mode, i) => {
     const m = (Math.floor(input.minute / 60) + i + 1) * 60;
     return {
@@ -293,6 +310,7 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
     sunrise: hhmm(season.sun.dawnStart + 30),
     sunset: hhmm(season.sun.duskStart + 30),
     alerts,
+    events,
     hourly,
     tomorrow: {
       seasonLabel: next.label,
@@ -303,4 +321,30 @@ export function buildWeatherReport(input: WeatherReportInput): WeatherReport {
       note,
     },
   };
+}
+
+/**
+ * The day's event calls (오늘의 이벤트 콜): weather ones (while it rains / snows), the season's, the lunch rush, the
+ * quiet afternoon, the night's snacks and, on a weekend, the riverside outing - with when they run and whether they
+ * run now. Running ones first.
+ */
+export function todaysEventCalls(input: WeatherReportInput, season: SeasonId, duskStart: number): EventCallInfo[] {
+  const m = input.minute;
+  const item = (id: keyof typeof DEMAND_EVENTS, when: string, now: boolean): EventCallInfo => {
+    const e = DEMAND_EVENTS[id];
+    return { icon: e.icon, label: e.label, bonus: e.bonus, when, now, condition: e.conditionText };
+  };
+  const out: EventCallInfo[] = [];
+  out.push(item('rain_soup', '비 오는 동안', input.mode === 'rain'));
+  if (season === 'winter' || input.mode === 'snow') out.push(item('snow_warm', '눈 오는 동안', input.mode === 'snow'));
+  const seasonal = SEASON_EVENTS[season];
+  if (seasonal) out.push(item(seasonal, '하루 종일', true));
+  out.push(item('lunch_meal', '11:00~13:30', m >= 11 * 60 && m < 13 * 60 + 30));
+  out.push(item('cafe_time', '13:30~17:00', m >= 13 * 60 + 30 && m < 17 * 60));
+  out.push(item('late_snack', `해가 진 뒤 (${hhmm(duskStart + 30)}~)`, input.night));
+  const dow = ((input.workDay - 1) % 7) + 1;
+  if (dow === 6 || dow === 7) {
+    out.push(item('riverside_outing', '주말 13:00~18:00 · 맑을 때', !!input.outing));
+  }
+  return [...out.filter((e) => e.now), ...out.filter((e) => !e.now)];
 }

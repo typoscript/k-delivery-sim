@@ -21,9 +21,19 @@ export function eventOrderTag(o: DeliveryOrder): string {
   return `${e.icon}${e.label} +₩${(o.eventBonus ?? 0).toLocaleString()} (${e.conditionText})`;
 }
 
-/** HTML chip for a demand event order (call list / dispatch popup) */
+/** Short chip text of an event order: its icon and surcharge, e.g. "🍲+1천" (the full tag is the chip's tooltip) */
+export function eventOrderShort(o: DeliveryOrder): string {
+  if (!o.demandEvent) return '';
+  const won = o.eventBonus ?? 0;
+  const amount = won < 1000 ? `${won}` : won % 1000 === 0 ? `${won / 1000}천` : `${(won / 1000).toFixed(1)}천`;
+  return `${DEMAND_EVENTS[o.demandEvent].icon}+${amount}`;
+}
+
+/** HTML chip for a demand event order (call list / dispatch popup): short, the full condition on hover */
 export function eventOrderChip(o: DeliveryOrder): string {
-  return o.demandEvent ? ` <span class="event-order-tag ${o.demandEvent}">${eventOrderTag(o)}</span>` : '';
+  return o.demandEvent
+    ? ` <span class="event-order-tag ${o.demandEvent}" title="${eventOrderTag(o)}">${eventOrderShort(o)}</span>`
+    : '';
 }
 
 /** HTML chip for a regular customer (단골 고객) */

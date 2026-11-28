@@ -96,6 +96,13 @@ export function weatherAppHtml(r: WeatherReport): string {
     <div class="wx-hourly">${hourly}</div>
     <div class="wx-section-title">오늘의 라이더 특보</div>
     <div class="wx-alerts">${alerts || '<div class="wx-alert info"><span class="wx-alert-icon">✅</span><div><div class="wx-alert-title">특보 없음</div><div class="wx-alert-detail">달리기 좋은 날씨예요</div></div></div>'}</div>
+    <div class="wx-section-title">오늘의 이벤트 콜</div>
+    <div class="wx-events">${r.events
+      .map(
+        (e) =>
+          `<div class="wx-event ${e.now ? 'now' : ''}"><span class="wx-event-icon">${e.icon}</span><div><div class="wx-event-title">${esc(e.label)} <b>+₩${e.bonus.toLocaleString()}</b>${e.now ? ' <span class="wx-event-now">지금</span>' : ''}</div><div class="wx-event-detail">${esc(e.when)} · ${esc(e.condition)}</div></div></div>`,
+      )
+      .join('')}</div>
     <div class="wx-section-title">내일</div>
     <div class="wx-tomorrow">
       <span>${t.seasonEmoji} ${t.seasonLabel}${t.monsoon ? ' · ☔ 장마' : ''}</span>
